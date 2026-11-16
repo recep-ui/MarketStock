@@ -60,6 +60,16 @@ public sealed class OrderService(
 
         if (orderId is null)
         {
+            // Yalnızca yeni siparişte satır zorunludur. Kayıtlı siparişe satırsız durum güncellemesi gelebilir
+            // (ör. Hepsiburada kargo/teslim listeleri yalnızca sipariş ve paket numarası döner).
+            if (order.Lines.Count == 0)
+            {
+                throw new RequestValidationException(new Dictionary<string, string[]>
+                {
+                    ["lines"] = ["Yeni siparişte en az bir satır olmalı (sipariş henüz kayıtlı değil)."]
+                });
+            }
+
             var skuIds = new List<int?>(order.Lines.Count);
             foreach (var line in order.Lines)
             {
@@ -411,7 +421,7 @@ public sealed class OrderService(
     {
         var v = new Validator();
         v.Required("channelOrderNo", order.ChannelOrderNo, 100)
-         .Must(order.Lines is { Count: > 0 }, "lines", "Siparişte en az bir satır olmalı.")
+         .Must(order.Lines is not null, "lines", "Satır listesi zorunlu (boş olabilir: yalnızca durum güncellemesi).")
          .Must(order.TotalAmount >= 0, "totalAmount", "Toplam negatif olamaz.")
          .Must(order.OrderDateUtc != default, "orderDateUtc", "Sipariş tarihi zorunlu.");
         for (var i = 0; i < (order.Lines?.Count ?? 0); i++)

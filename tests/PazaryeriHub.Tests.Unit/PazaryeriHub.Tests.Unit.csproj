@@ -17,5 +17,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PazaryeriHub.Infrastructure\PazaryeriHub.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\PazaryeriHub.Adapters.Trendyol\PazaryeriHub.Adapters.Trendyol.csproj" />
+    <ProjectReference Include="..\..\src\PazaryeriHub.Adapters.Hepsiburada\PazaryeriHub.Adapters.Hepsiburada.csproj" />
   </ItemGroup>
 </Project>

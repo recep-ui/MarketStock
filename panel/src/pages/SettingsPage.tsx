@@ -85,7 +85,7 @@ function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m
                 <td><input type="checkbox" aria-label={`${c.name} aktif`} disabled={!editable} checked={r.active} onChange={e => setRows({ ...rows, [c.id]: { ...r, active: e.target.checked } })} /></td>
                 <td>
                   {c.hasCredentials ? 'Girildi' : <span className="muted">Yok</span>}
-                  {editable && c.code === 'TRENDYOL' && (
+                  {editable && c.code in credentialSpecs && (
                     <button className="small" onClick={() => setCredentialsFor(credentialsFor === c.id ? null : c.id)}>API bilgisi</button>
                   )}
                 </td>
@@ -96,9 +96,8 @@ function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m
         </tbody>
       </table>
       {credentialsFor !== null && (
-        <TrendyolCredentialsForm
-          channelId={credentialsFor}
-          hasCredentials={!!channels.data?.find(c => c.id === credentialsFor)?.hasCredentials}
+        <CredentialsForm
+          channel={channels.data!.find(c => c.id === credentialsFor)!}
           onDone={message => { setCredentialsFor(null); onSaved(message); channels.reload(); }}
         />
       )}
@@ -106,21 +105,56 @@ function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m
   );
 }
 
+type CredentialField = { name: string; label: string; secret?: boolean; numeric?: boolean };
+type CredentialSpec = { title: string; hint: string; fields: CredentialField[]; environments: [string, string][] };
+
+/** Kanal başına API bilgisi alanları (sunucudaki *Credentials.Parse ile aynı). */
+const credentialSpecs: Record<string, CredentialSpec> = {
+  TRENDYOL: {
+    title: 'Trendyol API bilgileri',
+    hint: 'Satıcı paneli → Hesap Bilgilerim → Entegrasyon Bilgileri.',
+    fields: [
+      { name: 'sellerId', label: 'Satıcı (supplier) no', numeric: true },
+      { name: 'apiKey', label: 'API Key' },
+      { name: 'apiSecret', label: 'API Secret', secret: true }
+    ],
+    environments: [['Prod', 'Canlı'], ['Stage', 'Test (IP beyaz listesi gerekir)']]
+  },
+  HEPSIBURADA: {
+    title: 'Hepsiburada API bilgileri',
+    hint: 'Merchant ID ve Hepsiburada\'nın verdiği kullanıcı adı / şifre (servis anahtarı: Bilgilerim → Entegrasyon → Entegratör Bilgileri).',
+    fields: [
+      { name: 'merchantId', label: 'Merchant ID (GUID)' },
+      { name: 'userName', label: 'Kullanıcı adı' },
+      { name: 'password', label: 'Şifre / servis anahtarı', secret: true },
+      { name: 'userAgent', label: 'User-Agent (opsiyonel)' }
+    ],
+    environments: [['Prod', 'Canlı'], ['Test', 'Test (SIT)']]
+  }
+};
+
 /**
- * Trendyol API bilgileri (satıcı paneli → Hesap Bilgilerim → Entegrasyon Bilgileri). Değerler sunucuda şifreli saklanır,
- * hiçbir zaman geri okunmaz/gösterilmez; değiştirmek için yeniden girilir.
+ * Kanal API bilgileri formu. Değerler sunucuda şifreli saklanır, hiçbir zaman geri okunmaz/gösterilmez;
+ * değiştirmek için yeniden girilir. Gerçek çağrılar için sunucuda "Kanallar:{KOD}:Mod" = Gercek olmalıdır.
  */
-function TrendyolCredentialsForm({ channelId, hasCredentials, onDone }: { channelId: number; hasCredentials: boolean; onDone: (m: string) => void }) {
-  const [form, setForm] = useState({ sellerId: '', apiKey: '', apiSecret: '', environment: 'Prod' });
+function CredentialsForm({ channel, onDone }: { channel: Channel; onDone: (m: string) => void }) {
+  const spec = credentialSpecs[channel.code];
+  const empty = () => ({ ...Object.fromEntries(spec.fields.map(f => [f.name, ''])), environment: spec.environments[0][0] }) as Record<string, string>;
+  const [form, setForm] = useState<Record<string, string>>(empty);
   const [error, setError] = useState<unknown>(null);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await put(`/api/channels/${channelId}/credentials`, { ...form, sellerId: Number(form.sellerId) });
-      setForm({ sellerId: '', apiKey: '', apiSecret: '', environment: 'Prod' });
-      onDone('Trendyol API bilgileri şifreli olarak kaydedildi.');
+      const body: Record<string, unknown> = { ...form };
+      for (const f of spec.fields) {
+        if (f.numeric) body[f.name] = Number(form[f.name]);
+        if (!f.numeric && form[f.name] === '') delete body[f.name];
+      }
+      await put(`/api/channels/${channel.id}/credentials`, body);
+      setForm(empty());
+      onDone(`${spec.title} şifreli olarak kaydedildi.`);
     } catch (err) {
       setError(err);
     }
@@ -129,8 +163,8 @@ function TrendyolCredentialsForm({ channelId, hasCredentials, onDone }: { channe
   async function remove() {
     setError(null);
     try {
-      await api('DELETE', `/api/channels/${channelId}/credentials`);
-      onDone('Trendyol API bilgileri silindi.');
+      await api('DELETE', `/api/channels/${channel.id}/credentials`);
+      onDone(`${spec.title} silindi.`);
     } catch (err) {
       setError(err);
     }
@@ -138,24 +172,31 @@ function TrendyolCredentialsForm({ channelId, hasCredentials, onDone }: { channe
 
   return (
     <div className="excel-box">
-      <h3>Trendyol API bilgileri</h3>
+      <h3>{spec.title}</h3>
       <p className="muted small">
-        Satıcı paneli → Hesap Bilgilerim → Entegrasyon Bilgileri. Bilgiler şifreli saklanır ve bir daha gösterilmez.
-        Gerçek çağrılar için sunucuda "Kanallar:TRENDYOL:Mod" = Gercek olmalıdır.
+        {spec.hint} Bilgiler şifreli saklanır ve bir daha gösterilmez. Gerçek çağrılar için sunucuda "Kanallar:{channel.code}:Mod" = Gercek olmalıdır.
       </p>
       <ErrorBox error={error} />
       <form className="filters" onSubmit={submit} autoComplete="off">
-        <Field label="Satıcı (supplier) no"><input inputMode="numeric" value={form.sellerId} onChange={e => setForm({ ...form, sellerId: e.target.value })} required /></Field>
-        <Field label="API Key"><input value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} required /></Field>
-        <Field label="API Secret"><input type="password" autoComplete="new-password" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} required /></Field>
+        {spec.fields.map(f => (
+          <Field key={f.name} label={f.label}>
+            <input
+              type={f.secret ? 'password' : 'text'}
+              inputMode={f.numeric ? 'numeric' : undefined}
+              autoComplete={f.secret ? 'new-password' : 'off'}
+              value={form[f.name]}
+              onChange={e => setForm({ ...form, [f.name]: e.target.value })}
+              required={!f.label.includes('opsiyonel')}
+            />
+          </Field>
+        ))}
         <Field label="Ortam">
           <select value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value })}>
-            <option value="Prod">Canlı</option>
-            <option value="Stage">Test (IP beyaz listesi gerekir)</option>
+            {spec.environments.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </Field>
         <button className="primary" type="submit">Kaydet</button>
-        {hasCredentials && <button type="button" className="danger" onClick={remove}>Sil</button>}
+        {channel.hasCredentials && <button type="button" className="danger" onClick={remove}>Sil</button>}
       </form>
     </div>
   );

@@ -312,6 +312,27 @@ public sealed class OrderIngestionTests(TestDatabase db)
         (await CountsAsync(bad.ChannelOrderNo)).Orders.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Satirsiz_durum_guncellemesi_kayitli_siparisi_ilerletir_kayitsiz_siparisi_olusturmaz()
+    {
+        db.SkipIfUnavailable();
+        var (skuId, barcode) = await SkuWithStockAsync(5);
+        var order = Order(NewOrderNo(), barcode, 2);
+        await IngestAsync(order);
+
+        // Hepsiburada kargo listesi gibi: yalnızca sipariş no + durum
+        var statusOnly = new NormalizedOrder(order.ChannelOrderNo, DateTime.UtcNow, OrderStatus.Kargoda, 0, []);
+        var result = await IngestAsync(statusOnly);
+
+        result.StatusChanged.Should().BeTrue();
+        (await db.GetBalanceAsync(skuId)).Should().BeEquivalentTo(new { Fiziksel = 3, Rezerve = 0 }, "Kargoda: sevk edildi");
+
+        var unknown = new NormalizedOrder(NewOrderNo(), DateTime.UtcNow, OrderStatus.Kargoda, 0, []);
+        var act = () => IngestAsync(unknown);
+        (await act.Should().ThrowAsync<RequestValidationException>()).Which.Errors.Should().ContainKey("lines");
+        (await CountsAsync(unknown.ChannelOrderNo)).Orders.Should().Be(0);
+    }
+
     // ------------------------------------------------------------------ Job durumları
 
     [Fact]

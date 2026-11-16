@@ -7,6 +7,16 @@
 
 ---
 
+## Aşama 6b: Hepsiburada adaptörü (2026-11-16): KOD + CONTRACT TESTLERİ TAMAM, GERÇEK HESAPLA DOĞRULANMADI
+
+- Gerçek `HepsiburadaAdapter`: stok gönderme + yükleme sonucu, kanal stoğu (listing sorgusu), siparişler (ödeme bekleyen, açık, kargoda, teslim, iptal). İade (talep) entegrasyonu henüz yok.
+- Kayıtlı siparişe satırsız durum güncellemesi desteği (Hepsiburada kargo/teslim listeleri için).
+- Panel: API bilgisi formu Trendyol ve Hepsiburada için ortak.
+- **Testler:** Unit 144/144 (yeni 12 Hepsiburada contract testi), Integration 93/93 (yeni: satırsız durum güncellemesi; HB mod seçimi), Playwright 5/5.
+- Doğrulanmamış noktalar ADR-018'de; SIT hesabı ile doğrulanmalı.
+
+---
+
 ## Aşama 6a: Trendyol adaptörü (2026-11-16): KOD + CONTRACT TESTLERİ TAMAM, GERÇEK HESAPLA DOĞRULANMADI
 
 - Gerçek `TrendyolAdapter` (v2.0): stok gönderme + batch sonucu, sipariş paketleri (sayfalı, durum eşlemeli), iadeler (claims), kanal stoğu (mutabakat). Fiyat ve durum bildirimi kapsam dışı.

@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
+using PazaryeriHub.Adapters.Hepsiburada;
 using PazaryeriHub.Adapters.Mock;
 using PazaryeriHub.Adapters.Trendyol;
 using PazaryeriHub.Application.Channels;
@@ -27,14 +28,58 @@ public static class ChannelAdapterRegistration
             {
                 AddTrendyol(services);
             }
+            else if (mode == ChannelMode.Gercek && code == HepsiburadaAdapter.Code)
+            {
+                AddHepsiburada(services);
+            }
             else
             {
-                // TODO: doğrulanmalı — Hepsiburada/Beymen gerçek adaptörleri sırayla eklenecek; softcotton altyapısı bilinmiyor.
+                // TODO: doğrulanmalı — Beymen gerçek adaptörü sırada; softcotton altyapısı bilinmiyor.
                 services.AddSingleton<IChannelAdapter>(sp => new MockChannelAdapter(code, sp.GetRequiredService<MockChannelStore>()));
             }
         }
         return services;
     }
+
+    /// <summary>
+    /// Hepsiburada HTTP istemcisi. Dokümandaki limitler: sipariş servisleri 1000 istek/sn, listing güncellemede aynı anda en fazla
+    /// 5 bekleyen işlem. Güvenli tarafta kalmak için saniyede 20 istek (kayan pencere).
+    /// </summary>
+    private static void AddHepsiburada(IServiceCollection services)
+    {
+        services.AddHttpClient<HepsiburadaAdapter>(client => client.Timeout = TimeSpan.FromMinutes(2))
+            .AddHttpMessageHandler(sp => new ChannelCallLoggingHandler(HepsiburadaAdapter.Code, sp.GetRequiredService<ILogger<ChannelCallLoggingHandler>>()))
+            .AddResilienceHandler("hepsiburada", builder =>
+            {
+                builder.AddRateLimiter(new SlidingWindowRateLimiter(new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
+                    Window = TimeSpan.FromSeconds(1),
+                    SegmentsPerWindow = 4,
+                    QueueLimit = 500,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+                }));
+                builder.AddRetry(RetryOptions());
+                builder.AddTimeout(TimeSpan.FromSeconds(30));
+            });
+        services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<HepsiburadaAdapter>());
+    }
+
+    private static HttpRetryStrategyOptions RetryOptions() => new()
+    {
+        MaxRetryAttempts = 3,
+        BackoffType = DelayBackoffType.Exponential,
+        UseJitter = true,
+        Delay = TimeSpan.FromSeconds(2),
+        ShouldRetryAfterHeader = true,
+        ShouldHandle = args => ValueTask.FromResult(args.Outcome switch
+        {
+            { Exception: HttpRequestException } => true,
+            { Result.StatusCode: HttpStatusCode.TooManyRequests } => true,
+            { Result: { } r } when (int)r.StatusCode >= 500 => true,
+            _ => false
+        })
+    };
 
     /// <summary>
     /// Trendyol HTTP istemcisi: loglama → hız sınırı → yeniden deneme → deneme başına zaman aşımı.
@@ -56,21 +101,7 @@ public static class ChannelAdapterRegistration
                     QueueLimit = 500,
                     QueueProcessingOrder = QueueProcessingOrder.OldestFirst
                 }));
-                builder.AddRetry(new HttpRetryStrategyOptions
-                {
-                    MaxRetryAttempts = 3,
-                    BackoffType = DelayBackoffType.Exponential,
-                    UseJitter = true,
-                    Delay = TimeSpan.FromSeconds(2),
-                    ShouldRetryAfterHeader = true,
-                    ShouldHandle = args => ValueTask.FromResult(args.Outcome switch
-                    {
-                        { Exception: HttpRequestException } => true,
-                        { Result.StatusCode: HttpStatusCode.TooManyRequests } => true,
-                        { Result: { } r } when (int)r.StatusCode >= 500 => true,
-                        _ => false
-                    })
-                });
+                builder.AddRetry(RetryOptions());
                 builder.AddTimeout(TimeSpan.FromSeconds(30));
             });
         services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<TrendyolAdapter>());

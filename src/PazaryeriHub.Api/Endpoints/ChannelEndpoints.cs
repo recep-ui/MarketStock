@@ -33,6 +33,7 @@ public static class ChannelEndpoints
             var normalized = channel.Code switch
             {
                 PazaryeriHub.Adapters.Trendyol.TrendyolAdapter.Code => PazaryeriHub.Adapters.Trendyol.TrendyolCredentials.Parse(body.GetRawText()).ToJson(),
+                PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter.Code => PazaryeriHub.Adapters.Hepsiburada.HepsiburadaCredentials.Parse(body.GetRawText()).ToJson(),
                 _ => null
             };
             if (normalized is null)

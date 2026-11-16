@@ -136,3 +136,13 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - Durum eşlemesi: Created/Awaiting → Yeni; Picking/Invoiced → Hazırlanıyor; Shipped/AtCollectionPoint → Kargoda; Delivered → Teslim edildi; Cancelled/UnSupplied/UnPacked → İptal; Returned/UnDelivered → İade. Bilinmeyen durumdaki paket atlanır ve loglanır.
 - Doğrulanmamış noktalar kodda `// TODO: doğrulanmalı`: sipariş tarih aralığının hangi tarihe uygulandığı ve üst sınırı; `price` alanının birim fiyat olduğu; batch `requestItem` içinde `barcode` olduğu; `barcodes` sorgu biçimi; UnDelivered/UnSupplied anlamları.
 - Kapsam dışı: fiyat gönderimi; Trendyol'a sipariş durumu bildirimi (paket satır kimlikleri saklanınca eklenecek).
+
+## ADR-018: Hepsiburada adaptörü
+**Tarih:** 2026-11-16
+**Karar (kaynak: developers.hepsiburada.com — portal istemci tarafında çizildiği için uygulama içi tarayıcıyla okundu):**
+- Kimlik: Basic Auth + zorunlu User-Agent. Kullanıcı adı/şifrenin tam karşılığı dokümanda net değil → panelden **Merchant ID, kullanıcı adı, şifre/servis anahtarı** ve isteğe bağlı User-Agent ayrı ayrı girilir. Ortam: Test = `*-sit` adresleri, Canlı = `-sit` çıkarılmış adresler.
+- Eşleştirme anahtarı **HBSKU** ("Kanal Ürün Kodu"): ödemesi tamamlanmış sipariş yanıtı yalnızca `items.sku` (HBSKU) taşır; stok güncelleme `hepsiburadaSku` kabul eder.
+- Stok: `POST listing-external/listings/merchantid/{id}/stock-uploads` `[{hepsiburadaSku, availableStock}]` (≤4000), sonuç `GET …/stock-uploads/id/{id}` (`status: Done`, `errors`).
+- Siparişler kalem bazlı ve durumlar ayrı uçlarda: ödeme bekleyen (→ Yeni; doküman stok rezerve edilmesini istiyor), ödemesi tamamlanmış/Open (→ Onaylandı), kargoya verilen (→ Kargoda), teslim edilen (→ Teslim edildi), iptal (→ İptal). Kargo/teslim/iptal listeleri satır taşımadığından sipariş kayıt servisi artık **kayıtlı siparişe satırsız durum güncellemesini** kabul eder; satırsız yeni sipariş reddedilir.
+- Durum listeleri yalnızca son 1 ayı döner ve tarih penceresi en fazla 24 saattir → çekme aralığı 24 saatlik parçalara bölünür.
+- **Doğrulanmamış (TODO):** kullanıcı adı/şifre karşılığı; begindate/enddate biçimi ve saat dilimi (şimdilik `yyyy-MM-dd HH:mm`, Türkiye saati); POST stok yanıtındaki `id`; sonuç `errors[]` şeması; liste yanıtlarının kök şeması (kök dizi veya `items`/`listings`); `orderDate` saat dilimi; teslim edilemeyen uç yolu; kısmi iptal (şimdilik sipariş bütünüyle İptal); "aynı anda en fazla 5 bekleyen yükleme" sınırı; iade (Talep Entegrasyonu) uçları okunmadı → `FetchReturnsAsync` desteklenmiyor.
