@@ -34,7 +34,7 @@ public sealed record OrderListItem(
 
 public sealed record OrderLineDto(
     long Id, int? SkuId, string? SkuCode, string? ProductName, int Quantity, decimal UnitPrice, decimal? Commission,
-    bool Reserved, bool Shipped, bool Released);
+    bool Reserved, bool Shipped, bool Released, bool ReturnReceived = false);
 
 public sealed record OrderEventDto(long Id, OrderStatus? From, OrderStatus To, string Source, DateTime AtUtc);
 
@@ -61,6 +61,12 @@ public interface IOrderService
 
     /// <summary>Panelden durum değişikliği: yalnızca tek adımlık izinli geçiş (aksi halde <see cref="InvalidOrderTransitionException"/>).</summary>
     Task<OrderDetail> ChangeStatusAsync(long id, OrderStatus target, string source, CancellationToken ct);
+
+    /// <summary>
+    /// İade edilen satırın depoya fiziksel girişini onaylar (usp_IadeGiris; sevk edilen depoya). Yalnızca durumu İade olan
+    /// siparişte, sevk edilmiş ve SKU'su eşleşmiş satır için; her satır için en fazla bir kez (<see cref="Common.ConflictException"/>).
+    /// </summary>
+    Task<OrderDetail> ReceiveReturnLineAsync(long orderId, long orderLineId, string? user, CancellationToken ct);
 }
 
 /// <summary>Kanal job'u sonucu (SiparisCek).</summary>

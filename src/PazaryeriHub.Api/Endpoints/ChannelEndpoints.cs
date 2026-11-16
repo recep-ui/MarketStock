@@ -1,3 +1,6 @@
+using System.Security.Claims;
+using PazaryeriHub.Api.Auth;
+using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Excel;
 
@@ -5,7 +8,8 @@ namespace PazaryeriHub.Api.Endpoints;
 
 /// <summary>
 /// Kanal, eşleştirme ve Excel uç noktaları.
-/// // TODO (Aşama 5): yetkilendirme. Kanal kimlik bilgisi girişi (KimlikSifreli + IDataProtector) Aşama 6'da.
+/// Yetki: okuma tüm roller; kanal ayarı, eşleştirme ve ürün içe aktarma Yönetici; stok içe aktarma Yönetici + Depo.
+/// Kanal kimlik bilgisi girişi (KimlikSifreli + IDataProtector) Aşama 6'da.
 /// </summary>
 public static class ChannelEndpoints
 {
@@ -13,21 +17,23 @@ public static class ChannelEndpoints
 
     public static IEndpointRouteBuilder MapChannelEndpoints(this IEndpointRouteBuilder app)
     {
-        var channels = app.MapGroup("/api/channels").WithTags("Kanallar");
+        var channels = app.MapGroup("/api/channels").WithTags("Kanallar").RequireAuthorization(Policies.Read);
         channels.MapGet("/", (IChannelService s, CancellationToken ct) => s.GetChannelsAsync(ct));
-        channels.MapPut("/{id:int}", (IChannelService s, int id, ChannelUpdate update, CancellationToken ct) => s.UpdateChannelAsync(id, update, ct));
+        channels.MapPut("/{id:int}", (IChannelService s, int id, ChannelUpdate update, CancellationToken ct) => s.UpdateChannelAsync(id, update, ct))
+            .RequireAuthorization(Policies.Admin);
 
-        var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme");
+        var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme").RequireAuthorization(Policies.Read);
         listings.MapGet("/", (IChannelService s, int? channelId, string? search, int? page, int? pageSize, CancellationToken ct) =>
             s.SearchListingsAsync(channelId, search, page, pageSize, ct));
-        listings.MapPut("/", (IChannelService s, ListingInput input, CancellationToken ct) => s.UpsertListingAsync(input, ct));
+        listings.MapPut("/", (IChannelService s, ListingInput input, CancellationToken ct) => s.UpsertListingAsync(input, ct))
+            .RequireAuthorization(Policies.CatalogWrite);
         listings.MapDelete("/{id:int}", async (IChannelService s, int id, CancellationToken ct) =>
         {
             await s.DeleteListingAsync(id, ct);
             return Results.NoContent();
-        });
+        }).RequireAuthorization(Policies.CatalogWrite);
 
-        var excel = app.MapGroup("/api/excel/{kind}").WithTags("Excel");
+        var excel = app.MapGroup("/api/excel/{kind}").WithTags("Excel").RequireAuthorization(Policies.Read);
         excel.MapGet("/template", (IExcelTransferService s, string kind) =>
             TryParseKind(kind, out var k)
                 ? Results.File(s.CreateTemplate(k), XlsxContentType, $"sablon-{kind}.xlsx")
@@ -36,11 +42,15 @@ public static class ChannelEndpoints
             TryParseKind(kind, out var k)
                 ? Results.File(await s.ExportAsync(k, ct), XlsxContentType, $"{kind}-{DateTime.UtcNow:yyyyMMdd-HHmm}.xlsx")
                 : UnknownKind(kind));
-        excel.MapPost("/import", async (IExcelTransferService s, string kind, IFormFile? file, bool? validateOnly, CancellationToken ct) =>
+        excel.MapPost("/import", async (IExcelTransferService s, ClaimsPrincipal user, string kind, IFormFile? file, bool? validateOnly, CancellationToken ct) =>
         {
             if (!TryParseKind(kind, out var k))
             {
                 return UnknownKind(kind);
+            }
+            if (k != ExcelKind.Stock && !user.IsInRole(Roles.Admin))
+            {
+                return Results.Problem(statusCode: 403, title: "Yetkiniz yok.", detail: "Ürün ve eşleştirme içe aktarma yalnızca Yönetici rolüne açıktır.");
             }
             if (file is null || file.Length == 0)
             {
@@ -56,11 +66,11 @@ public static class ChannelEndpoints
             }
 
             await using var stream = file.OpenReadStream();
-            var report = await s.ImportAsync(k, stream, file.FileName, validateOnly ?? false, user: null, ct);
+            var report = await s.ImportAsync(k, stream, file.FileName, validateOnly ?? false, user.UserName(), ct);
             return report.FileErrors.Count > 0
                 ? Results.UnprocessableEntity(report)
                 : Results.Ok(report);
-        }).DisableAntiforgery();
+        }).DisableAntiforgery().RequireAuthorization(Policies.StockWrite);
 
         return app;
     }

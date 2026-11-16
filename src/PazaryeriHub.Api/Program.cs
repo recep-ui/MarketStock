@@ -4,7 +4,11 @@ using Microsoft.Extensions.Options;
 using PazaryeriHub.Api.Endpoints;
 using PazaryeriHub.Api.Errors;
 using PazaryeriHub.Adapters.Mock;
+using PazaryeriHub.Api.Auth;
+using PazaryeriHub.Api.Dev;
 using PazaryeriHub.Api.Health;
+using PazaryeriHub.Application.Auth;
+using PazaryeriHub.Infrastructure.Auth;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Infrastructure;
@@ -42,6 +46,10 @@ try
         builder.Services.AddSingleton<IChannelAdapter>(sp => new MockChannelAdapter(code, sp.GetRequiredService<MockChannelStore>()));
     }
 
+    // Panel kimlik doğrulama ve rol tabanlı yetki (ADR-014)
+    builder.Services.AddPanelAuth();
+    builder.Services.AddScoped<DemoDataSeeder>();
+
     // Hatalar Türkçe ProblemDetails olarak döner; 500'lerde ayrıntı sızdırılmaz.
     builder.Services.AddProblemDetails();
     builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -71,19 +79,44 @@ try
             .Migrate(app.Services.GetRequiredService<SqlConnectionFactory>().ConnectionString);
     }
 
+    // Tohum kullanıcılar (Kimlik:SeedUsers; parolalar user-secrets/ortam değişkeninden). Veritabanı yoksa uygulamayı düşürmez.
+    try
+    {
+        await app.Services.GetRequiredService<UserService>().SeedAsync(app.Environment, app.Lifetime.ApplicationStopping);
+    }
+    catch (Microsoft.Data.SqlClient.SqlException ex)
+    {
+        app.Logger.LogError("Tohum kullanıcılar uygulanamadı (SQL hata {HataNo}).", ex.Number);
+    }
+
+    var panelServed = app.UsePanelStaticFiles();
+    app.UseAuthentication();
+    app.UseAuthorization();
+
     app.MapPazaryeriHubHealthChecks();
+    app.MapAuthEndpoints();
+    app.MapPanelEndpoints();
     app.MapCatalogEndpoints();
     app.MapChannelEndpoints();
     app.MapOrderEndpoints(app.Environment);
     app.MapSyncEndpoints();
 
+    if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+    {
+        app.MapPost("/api/dev/demo-data", (DemoDataSeeder seeder, CancellationToken ct) => seeder.SeedAsync(ct))
+            .RequireAuthorization(Policies.Admin).WithTags("Geliştirme");
+    }
+
     if (app.Environment.IsDevelopment())
     {
-        // Yetkilendirme Aşama 5'te eklenecek; o zamana kadar yalnızca geliştirme ortamında ve yerelden erişilir.
+        // Hangfire paneli yalnızca geliştirme ortamında ve yalnızca yerel isteklere açık (Hangfire varsayılanı).
         app.UseHangfireDashboard("/hangfire");
     }
 
-    app.MapGet("/", () => Results.Ok(new { uygulama = "PazaryeriHub.Api", saglik = "/health" }));
+    if (!panelServed)
+    {
+        app.MapGet("/", () => Results.Ok(new { uygulama = "PazaryeriHub.Api", saglik = "/health", panel = "derlenmemiş (panel/ klasöründe npm run build)" }));
+    }
 
     await app.RunAsync();
 }

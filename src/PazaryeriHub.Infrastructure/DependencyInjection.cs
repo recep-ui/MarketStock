@@ -8,6 +8,10 @@ using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Infrastructure.Orders;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Sync;
+using PazaryeriHub.Application.Auth;
+using PazaryeriHub.Application.Panel;
+using PazaryeriHub.Infrastructure.Auth;
+using PazaryeriHub.Infrastructure.Panel;
 using PazaryeriHub.Application.Catalog;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Excel;
@@ -57,6 +61,12 @@ public static class DependencyInjection
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
         services.AddSingleton<SyncStore>();
         services.AddScoped<ISyncService, SyncService>();
+
+        // Panel: kullanıcılar ve ekran sorguları
+        services.AddOptions<PazaryeriHub.Application.Auth.IdentityOptions>().BindConfiguration(PazaryeriHub.Application.Auth.IdentityOptions.SectionName);
+        services.AddSingleton<UserService>();
+        services.AddSingleton<IUserService>(sp => sp.GetRequiredService<UserService>());
+        services.AddScoped<IPanelQueryService, PanelQueryService>();
 
         AddHangfire(services);
 

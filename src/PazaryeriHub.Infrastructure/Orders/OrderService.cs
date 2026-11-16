@@ -147,6 +147,43 @@ public sealed class OrderService(
         return await GetAsync(id, ct);
     }
 
+    public async Task<OrderDetail> ReceiveReturnLineAsync(long orderId, long orderLineId, string? user, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        var line = await connection.QuerySingleOrDefaultAsync<(string Durum, int? SkuId, int Adet)?>(new CommandDefinition("""
+            SELECT o.Durum, l.SkuId, l.Adet FROM dbo.OrderLine l JOIN dbo.[Order] o ON o.Id = l.OrderId
+             WHERE l.Id = @orderLineId AND l.OrderId = @orderId
+            """, new { orderId, orderLineId }, cancellationToken: ct))
+            ?? throw new NotFoundException($"Sipariş satırı bulunamadı (sipariş {orderId}, satır {orderLineId}).");
+
+        if (line.Durum != nameof(OrderStatus.Iade))
+        {
+            throw new ConflictException("Depoya iade girişi yalnızca durumu 'Iade' olan siparişlerde yapılabilir.");
+        }
+        if (line.SkuId is null)
+        {
+            throw new ConflictException("Satır bir SKU ile eşleşmemiş; önce eşleştirme yapılmalı.");
+        }
+
+        var key = LineSourceId(orderLineId);
+        var shipWarehouse = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT WarehouseId FROM dbo.StockMovement WHERE KaynakTip = @type AND KaynakId = @key AND Tip = 'SEVK'",
+            new { type = LineSourceType, key }, cancellationToken: ct))
+            ?? throw new ConflictException("Satır sevk edilmemiş; depoya iade girişi yapılamaz.");
+
+        try
+        {
+            await ledger.ReceiveReturnAsync(new StockChangeRequest(line.SkuId.Value, shipWarehouse, line.Adet, LineSourceType, key, user), ct);
+        }
+        catch (SqlException ex) when (ex.Number == DbErrors.UniqueIndex)
+        {
+            throw new ConflictException("Bu satırın iadesi depoya zaten girilmiş.", ex);
+        }
+
+        logger.LogInformation("İade depoya girdi. Sipariş {SiparisId}, satır {SatirId}, {Adet} adet, kullanıcı {Kullanici}", orderId, orderLineId, line.Adet, user);
+        return await GetAsync(orderId, ct);
+    }
+
     public async Task<PagedResult<OrderListItem>> SearchAsync(OrderQuery query, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -206,7 +243,8 @@ public sealed class OrderService(
             SELECT l.Id, l.SkuId, s.SkuKodu, p.Ad AS UrunAdi, l.Adet, l.BirimFiyat, l.Komisyon,
                    CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockMovement m WHERE m.KaynakTip = 'SIPARIS_SATIRI' AND m.KaynakId = CONCAT('OL:', l.Id) AND m.Tip = 'REZERVE') THEN 1 ELSE 0 END AS bit) AS Rezerve,
                    CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockMovement m WHERE m.KaynakTip = 'SIPARIS_SATIRI' AND m.KaynakId = CONCAT('OL:', l.Id) AND m.Tip = 'SEVK') THEN 1 ELSE 0 END AS bit) AS Sevk,
-                   CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockMovement m WHERE m.KaynakTip = 'SIPARIS_SATIRI' AND m.KaynakId = CONCAT('OL:', l.Id) AND m.Tip = 'REZERVE_IPTAL') THEN 1 ELSE 0 END AS bit) AS Iptal
+                   CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockMovement m WHERE m.KaynakTip = 'SIPARIS_SATIRI' AND m.KaynakId = CONCAT('OL:', l.Id) AND m.Tip = 'REZERVE_IPTAL') THEN 1 ELSE 0 END AS bit) AS Iptal,
+                   CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockMovement m WHERE m.KaynakTip = 'SIPARIS_SATIRI' AND m.KaynakId = CONCAT('OL:', l.Id) AND m.Tip = 'IADE_GIRIS') THEN 1 ELSE 0 END AS bit) AS IadeGiris
               FROM dbo.OrderLine AS l
               LEFT JOIN dbo.Sku AS s ON s.Id = l.SkuId
               LEFT JOIN dbo.Product AS p ON p.Id = s.ProductId
@@ -219,7 +257,7 @@ public sealed class OrderService(
         var o = await multi.ReadSingleOrDefaultAsync<OrderDetailRow>() ?? throw new NotFoundException($"Sipariş bulunamadı (Id={id}).");
         var lines = (await multi.ReadAsync<LineRow>()).Select(l => new OrderLineDto(
             l.Id, l.SkuId, l.SkuKodu, l.UrunAdi, l.Adet, l.BirimFiyat, l.Komisyon,
-            Reserved: l.Rezerve && !l.Sevk && !l.Iptal, Shipped: l.Sevk, Released: l.Iptal)).ToList();
+            Reserved: l.Rezerve && !l.Sevk && !l.Iptal, Shipped: l.Sevk, Released: l.Iptal, ReturnReceived: l.IadeGiris)).ToList();
         var events = (await multi.ReadAsync<EventRow>()).Select(e => new OrderEventDto(
             e.Id, e.EskiDurum is null ? null : Enum.Parse<OrderStatus>(e.EskiDurum), Enum.Parse<OrderStatus>(e.YeniDurum), e.Kaynak, Utc(e.Tarih))).ToList();
 
@@ -487,6 +525,7 @@ public sealed class OrderService(
         public bool Rezerve { get; init; }
         public bool Sevk { get; init; }
         public bool Iptal { get; init; }
+        public bool IadeGiris { get; init; }
     }
 
     private sealed class EventRow

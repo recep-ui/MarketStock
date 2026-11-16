@@ -109,3 +109,7 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - **Kuyruk izolasyonu:** `Hangfire:Queues` ayarı; testlerde paylaşılan sunucu boş bir kuyruğu dinler, böylece gerçek job'ları almaz.
 - Aşama 0'daki geçici `HeartbeatJob` kaldırıldı (kayıtlı ise başlangıçta silinir).
 **Kapsam dışı:** FİYAT senkronu: şemada fiyat kaynağı yok (açık soru). Sipariş durumunun kanala bildirilmesi.
+
+## ADR-014: Panel, kimlik ve roller
+**Tarih:** 2026-11-16
+**Karar:** React 18 + TypeScript + Vite + TanStack Table (`panel/`); derlenmiş panel API'den servis edilir (`Panel:DistPath`), geliştirmede Vite `/api` proxy. Çerez oturumu (HttpOnly, SameSite=Strict); `AppUser` tablosu (0005), PasswordHasher (PBKDF2), 5 hatalı girişte 5 dk kilit. Roller: Yönetici (tümü), Depo (stok yazma, sipariş durumu, iade girişi), Muhasebe (okuma), Destek (okuma; müşteri adı/ilçe API'de maskeli). Tohum kullanıcı parolaları repoda yok (user-secrets / test çalışmasında rastgele). Playwright kurulu Chrome ile, test veritabanında, demo veriyle (`POST /api/dev/demo-data`, yalnızca Development/Testing).

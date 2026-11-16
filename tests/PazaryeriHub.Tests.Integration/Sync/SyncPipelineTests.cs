@@ -460,7 +460,7 @@ public sealed class SyncPipelineTests(TestDatabase db)
         });
         try
         {
-            using var client = e2e.CreateClient();
+            using var client = await e2e.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Admin);
             var store = e2e.Services.GetRequiredService<MockChannelStore>();
             var skuId = await db.CreateSkuAsync();
             await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 10), Ct);

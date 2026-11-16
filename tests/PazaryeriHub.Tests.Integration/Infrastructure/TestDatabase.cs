@@ -2,6 +2,7 @@ using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Infrastructure.Database;
 using PazaryeriHub.Infrastructure.Persistence;
@@ -41,8 +42,8 @@ public sealed class TestDatabase : IAsyncLifetime
     /// <summary>Test veritabanına bağlı, testler arasında paylaşılan bellek içi API.</summary>
     public ApiFactory ApiHost => _api ??= new ApiFactory(ConnectionString!);
 
-    /// <summary>Paylaşılan API istemcisi.</summary>
-    public HttpClient Api => _client ??= ApiHost.CreateClient();
+    /// <summary>Paylaşılan API istemcisi (Yönetici olarak giriş yapmış).</summary>
+    public HttpClient Api => _client ??= ApiHost.CreateClientAsAsync(Roles.Admin).GetAwaiter().GetResult();
 
     /// <summary>API'nin DI kapsayıcısı (servisleri doğrudan çağırmak için; her işlemde yeni scope açın).</summary>
     public IServiceProvider Services => ApiHost.Services;

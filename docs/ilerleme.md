@@ -7,6 +7,15 @@
 
 ---
 
+## Aşama 5: Panel (2026-11-16): TAMAM
+- 8 ekran + giriş; rol bazlı yetki (API policy) ve Destek maskelemesi; sadeleştirilmiş hata mesajları.
+- Testler: Unit 105/105, Integration 90/90 (yeni 18: oturum, kilit, rol yetkileri, maskeleme, stok listesi/sapma, genel bakış, hareketler, iade girişi, ayarlar/kullanıcılar).
+- **Playwright 5/5** (3 ardışık çalıştırma): (1) sipariş filtresi + zaman çizelgesi, (2) stok sapması kırmızı satır, (3) hatalı senkron "Yeniden dene"; ek: tüm ekranlar açılıyor, Destek maskeli görüyor.
+- Panel tarayıcıda elle de kontrol edildi (Genel Bakış, Stok Listesi).
+- Eksik: gerçek ortam için ilk Yönetici user-secrets ile oluşturulmalı; Excel içe aktarma ve kullanıcı ekranları Playwright ile ayrıca test edilmedi (API testleri var).
+
+---
+
 ## 000000. Aşama 4: Senkron hattı (2026-11-16): TAMAM (mock adaptörle)
 
 ### Yapılanlar
