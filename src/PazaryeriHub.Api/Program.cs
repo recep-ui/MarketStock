@@ -4,7 +4,9 @@ using Microsoft.Extensions.Options;
 using PazaryeriHub.Api.Endpoints;
 using PazaryeriHub.Api.Errors;
 using PazaryeriHub.Adapters.Mock;
+using Microsoft.AspNetCore.DataProtection;
 using PazaryeriHub.Api.Auth;
+using PazaryeriHub.Api.Channels;
 using PazaryeriHub.Api.Dev;
 using PazaryeriHub.Api.Health;
 using PazaryeriHub.Application.Auth;
@@ -38,12 +40,15 @@ try
 
     builder.Services.AddPazaryeriHubInfrastructure();
 
-    // Kanal adaptörleri. Gerçek adaptörler (Aşama 6) doğrulanana kadar tüm kanallar bellek içi MOCK ile çalışır.
-    // TODO: doğrulanmalı — Trendyol/Hepsiburada/Beymen/softcotton gerçek entegrasyonları.
-    builder.Services.AddSingleton<MockChannelStore>();
-    foreach (var code in ChannelCodes.All)
+    // Kanal adaptörleri: "Kanallar:{KOD}:Mod" = Mock (varsayılan) | Gercek. Şimdilik yalnızca Trendyol'un gerçek adaptörü var.
+    builder.Services.AddChannelAdapters(builder.Configuration);
+
+    // Kanal API kimlik bilgileri IDataProtector ile şifrelenir (ADR-016). Anahtar halkası varsayılan olarak kullanıcı profilinde;
+    // sunucu/konteyner için "DataProtection:KeysPath" ile kalıcı bir klasör verilmelidir.
+    var dataProtection = builder.Services.AddDataProtection().SetApplicationName("PazaryeriHub");
+    if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
     {
-        builder.Services.AddSingleton<IChannelAdapter>(sp => new MockChannelAdapter(code, sp.GetRequiredService<MockChannelStore>()));
+        dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
     }
 
     // Panel kimlik doğrulama ve rol tabanlı yetki (ADR-014)

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { get, post, put, type Channel, type User, type Warehouse } from '../api';
+import { api, get, post, put, type Channel, type User, type Warehouse } from '../api';
 import { roleLabels, useAuth, type Role } from '../auth';
 import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { formatDateTime } from '../format';
@@ -36,6 +36,7 @@ function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m
   const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
   const [rows, setRows] = useState<Record<number, { share: string; active: boolean; cap: string }>>({});
   const [error, setError] = useState<unknown>(null);
+  const [credentialsFor, setCredentialsFor] = useState<number | null>(null);
 
   useEffect(() => {
     if (channels.data) {
@@ -82,14 +83,81 @@ function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m
                 <td><input className="narrow" aria-label={`${c.name} pay`} disabled={!editable} value={r.share} onChange={e => setRows({ ...rows, [c.id]: { ...r, share: e.target.value } })} /></td>
                 <td><input className="narrow" aria-label={`${c.name} üst limit`} disabled={!editable} placeholder="yok" value={r.cap} onChange={e => setRows({ ...rows, [c.id]: { ...r, cap: e.target.value } })} /></td>
                 <td><input type="checkbox" aria-label={`${c.name} aktif`} disabled={!editable} checked={r.active} onChange={e => setRows({ ...rows, [c.id]: { ...r, active: e.target.checked } })} /></td>
-                <td>{c.hasCredentials ? 'Girildi' : <span className="muted">Yok (mock)</span>}</td>
+                <td>
+                  {c.hasCredentials ? 'Girildi' : <span className="muted">Yok</span>}
+                  {editable && c.code === 'TRENDYOL' && (
+                    <button className="small" onClick={() => setCredentialsFor(credentialsFor === c.id ? null : c.id)}>API bilgisi</button>
+                  )}
+                </td>
                 <td>{editable && <button onClick={() => save(c)}>Kaydet</button>}</td>
               </tr>
             );
           })}
         </tbody>
       </table>
+      {credentialsFor !== null && (
+        <TrendyolCredentialsForm
+          channelId={credentialsFor}
+          hasCredentials={!!channels.data?.find(c => c.id === credentialsFor)?.hasCredentials}
+          onDone={message => { setCredentialsFor(null); onSaved(message); channels.reload(); }}
+        />
+      )}
     </Card>
+  );
+}
+
+/**
+ * Trendyol API bilgileri (satıcı paneli → Hesap Bilgilerim → Entegrasyon Bilgileri). Değerler sunucuda şifreli saklanır,
+ * hiçbir zaman geri okunmaz/gösterilmez; değiştirmek için yeniden girilir.
+ */
+function TrendyolCredentialsForm({ channelId, hasCredentials, onDone }: { channelId: number; hasCredentials: boolean; onDone: (m: string) => void }) {
+  const [form, setForm] = useState({ sellerId: '', apiKey: '', apiSecret: '', environment: 'Prod' });
+  const [error, setError] = useState<unknown>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await put(`/api/channels/${channelId}/credentials`, { ...form, sellerId: Number(form.sellerId) });
+      setForm({ sellerId: '', apiKey: '', apiSecret: '', environment: 'Prod' });
+      onDone('Trendyol API bilgileri şifreli olarak kaydedildi.');
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function remove() {
+    setError(null);
+    try {
+      await api('DELETE', `/api/channels/${channelId}/credentials`);
+      onDone('Trendyol API bilgileri silindi.');
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  return (
+    <div className="excel-box">
+      <h3>Trendyol API bilgileri</h3>
+      <p className="muted small">
+        Satıcı paneli → Hesap Bilgilerim → Entegrasyon Bilgileri. Bilgiler şifreli saklanır ve bir daha gösterilmez.
+        Gerçek çağrılar için sunucuda "Kanallar:TRENDYOL:Mod" = Gercek olmalıdır.
+      </p>
+      <ErrorBox error={error} />
+      <form className="filters" onSubmit={submit} autoComplete="off">
+        <Field label="Satıcı (supplier) no"><input inputMode="numeric" value={form.sellerId} onChange={e => setForm({ ...form, sellerId: e.target.value })} required /></Field>
+        <Field label="API Key"><input value={form.apiKey} onChange={e => setForm({ ...form, apiKey: e.target.value })} required /></Field>
+        <Field label="API Secret"><input type="password" autoComplete="new-password" value={form.apiSecret} onChange={e => setForm({ ...form, apiSecret: e.target.value })} required /></Field>
+        <Field label="Ortam">
+          <select value={form.environment} onChange={e => setForm({ ...form, environment: e.target.value })}>
+            <option value="Prod">Canlı</option>
+            <option value="Stage">Test (IP beyaz listesi gerekir)</option>
+          </select>
+        </Field>
+        <button className="primary" type="submit">Kaydet</button>
+        {hasCredentials && <button type="button" className="danger" onClick={remove}>Sil</button>}
+      </form>
+    </div>
   );
 }
 

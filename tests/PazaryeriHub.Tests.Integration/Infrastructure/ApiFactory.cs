@@ -43,6 +43,13 @@ public sealed class ApiFactory(string connectionString, IReadOnlyDictionary<stri
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+
+        // Program'ın servis kaydı sırasında (Build öncesi) okuduğu ayarlar (ör. Kanallar:{KOD}:Mod) ancak UseSetting ile erken görünür.
+        foreach (var (key, value) in overrides ?? new Dictionary<string, string?>())
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             config.AddInMemoryCollection(new Dictionary<string, string?>

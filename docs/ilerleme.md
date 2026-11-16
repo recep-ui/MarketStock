@@ -7,6 +7,17 @@
 
 ---
 
+## Aşama 6a: Trendyol adaptörü (2026-11-16): KOD + CONTRACT TESTLERİ TAMAM, GERÇEK HESAPLA DOĞRULANMADI
+
+- Gerçek `TrendyolAdapter` (v2.0): stok gönderme + batch sonucu, sipariş paketleri (sayfalı, durum eşlemeli), iadeler (claims), kanal stoğu (mutabakat). Fiyat ve durum bildirimi kapsam dışı.
+- Kimlik bilgileri IDataProtector ile şifreli (`PUT/DELETE /api/channels/{id}/credentials`, panelde Ayarlar → Kanallar → "API bilgisi").
+- HTTP hattı: çağrı loglama, hız sınırı (40/10 sn), yeniden deneme (Polly), zaman aşımı; hata çevirisi.
+- Mod: `Kanallar:TRENDYOL:Mod` = Mock (varsayılan) | Gercek.
+- **Testler:** Unit 132/132 (yeni 27 Trendyol contract testi), Integration 92/92 (yeni 2: şifreli saklama, mod seçimi), Playwright 5/5.
+- **Kabul durumu:** sandbox/test hesabı yok → contract testleri **resmi doküman şemasına göre hazırlanmış örnek yanıtlarla** yapıldı (gerçek kayıtlı yanıt değil). Gerçek hesap bilgileri geldiğinde: (1) stage veya canlıda tek SKU ile stok gönderimi + batch sonucu, (2) sipariş çekme, (3) gerçek yanıtları kaydedip contract testlerine eklemek gerekiyor. Doğrulanmamış noktalar ADR-017'de.
+
+---
+
 ## Aşama 5: Panel (2026-11-16): TAMAM
 - 8 ekran + giriş; rol bazlı yetki (API policy) ve Destek maskelemesi; sadeleştirilmiş hata mesajları.
 - Testler: Unit 105/105, Integration 90/90 (yeni 18: oturum, kilit, rol yetkileri, maskeleme, stok listesi/sapma, genel bakış, hareketler, iade girişi, ayarlar/kullanıcılar).

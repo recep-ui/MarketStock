@@ -22,6 +22,37 @@ public static class ChannelEndpoints
         channels.MapPut("/{id:int}", (IChannelService s, int id, ChannelUpdate update, CancellationToken ct) => s.UpdateChannelAsync(id, update, ct))
             .RequireAuthorization(Policies.Admin);
 
+        // Kanal API kimlik bilgileri: yalnızca yazılır/silinir, hiçbir yanıtta geri dönmez (ChannelDto.HasCredentials).
+        channels.MapPut("/{id:int}/credentials", async (IChannelService s, IChannelCredentialStore store, int id, System.Text.Json.JsonElement body, CancellationToken ct) =>
+        {
+            var channel = (await s.GetChannelsAsync(ct)).FirstOrDefault(c => c.Id == id);
+            if (channel is null)
+            {
+                return Results.Problem(statusCode: 404, title: "Kayıt bulunamadı.", detail: $"Kanal bulunamadı (Id={id}).");
+            }
+            var normalized = channel.Code switch
+            {
+                PazaryeriHub.Adapters.Trendyol.TrendyolAdapter.Code => PazaryeriHub.Adapters.Trendyol.TrendyolCredentials.Parse(body.GetRawText()).ToJson(),
+                _ => null
+            };
+            if (normalized is null)
+            {
+                return Results.Problem(statusCode: 400, title: "Desteklenmiyor.", detail: $"{channel.Name} için gerçek adaptör henüz yok; API bilgisi girilemez.");
+            }
+            await store.SaveJsonAsync(channel.Code, normalized, ct);
+            return Results.NoContent();
+        }).RequireAuthorization(Policies.Admin);
+        channels.MapDelete("/{id:int}/credentials", async (IChannelService s, IChannelCredentialStore store, int id, CancellationToken ct) =>
+        {
+            var channel = (await s.GetChannelsAsync(ct)).FirstOrDefault(c => c.Id == id);
+            if (channel is null)
+            {
+                return Results.Problem(statusCode: 404, title: "Kayıt bulunamadı.", detail: $"Kanal bulunamadı (Id={id}).");
+            }
+            await store.ClearAsync(channel.Code, ct);
+            return Results.NoContent();
+        }).RequireAuthorization(Policies.Admin);
+
         var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme").RequireAuthorization(Policies.Read);
         listings.MapGet("/", (IChannelService s, int? channelId, string? search, int? page, int? pageSize, CancellationToken ct) =>
             s.SearchListingsAsync(channelId, search, page, pageSize, ct));

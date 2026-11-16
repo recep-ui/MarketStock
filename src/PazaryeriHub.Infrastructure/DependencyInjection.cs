@@ -48,6 +48,7 @@ public static class DependencyInjection
                    .UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll));
         services.AddScoped<ICatalogService, CatalogService>();
         services.AddScoped<IChannelService, ChannelService>();
+        services.AddSingleton<IChannelCredentialStore, ChannelCredentialStore>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
 
         // Siparişler (Dapper). Kanal adaptörleri (IChannelAdapter) bileşim kökünde (Api) kaydedilir.

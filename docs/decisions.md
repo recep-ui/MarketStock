@@ -119,3 +119,20 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 **Karar:**
 - **Tek depo:** Tüm stok "Ana Depo"dadır. Yeni depo ekleme uç noktası kaldırıldı. Spesifikasyondaki `WarehouseId` kolonları ve yordam parametreleri korunur (ileride çoklu depoya geçiş şema değişikliği gerektirmez); sipariş rezervasyonları `Siparis:DefaultWarehouseName` deposundan yapılır.
 - **Fiyat:** Fiyatlar pazaryeri satıcı panellerinden girilir. Bu uygulama fiyat tutmaz ve göndermez. `IChannelAdapter.PushPriceAsync` spesifikasyon sözleşmesinde kalır ancak kullanılmaz; `SyncQueue.Tip='FIYAT'` kayıt üretilmez. Gerçek adaptörlerde PushPriceAsync "desteklenmiyor" döner.
+
+## ADR-016: Kanal kimlik bilgileri ve adaptör modu
+**Tarih:** 2026-11-16
+**Karar:**
+- Kanal API bilgileri JSON olarak `Channel.KimlikSifreli`'de ASP.NET Core Data Protection (`IDataProtector`, amaç `PazaryeriHub.ChannelCredentials.v1`) ile şifreli tutulur. Panelden yalnızca yazılır/silinir (`PUT/DELETE /api/channels/{id}/credentials`, Yönetici); hiçbir yanıtta dönmez (`hasCredentials` bayrağı hariç). Anahtar halkası varsayılan olarak kullanıcı profilinde; sunucuda `DataProtection:KeysPath` ile kalıcı ve yedekli bir klasör verilmelidir (anahtar kaybolursa bilgiler yeniden girilir).
+- Adaptör modu `Kanallar:{KOD}:Mod` = `Mock` (varsayılan) | `Gercek`. Gerçek adaptörü olmayan kanallar her zaman Mock'tur.
+- Gerçek adaptör HTTP hattı: çağrı loglama (kanal, metot, uç nokta, süre, durum; başlık/gövde yok) → hız sınırı (Trendyol: kayan pencere 40/10 sn; doküman 50/10 sn) → yeniden deneme (429/5xx/ağ, 3 deneme, üstel + jitter, Retry-After) → deneme başına 30 sn zaman aşımı. Üstünde kayıt bazlı Hangfire yeniden denemesi (5 → HATA) vardır.
+- Ham kanal hataları `ChannelApiException` ile sade Türkçe mesaja çevrilir; Senkron Merkezi bu mesajı gösterir.
+
+## ADR-017: Trendyol adaptörü
+**Tarih:** 2026-11-16
+**Karar (kaynak: developers.trendyol.com/v2.0, bkz. docs/kanal-api-notlari.md):**
+- Eşleştirme anahtarı **barkod** (`KanalBarkod`, yoksa `KanalUrunKodu`). Stok gönderiminde yalnızca `barcode` + `quantity` (fiyat yok, ADR-015); ürün başına 20.000 üst sınırına sabitlenir; istek başına ≤1000 kalem.
+- Trendyol'da birim **sipariş paketi**dir; bir sipariş birden çok pakete bölünebilir. Kanal sipariş no = `"{orderNumber}/{paketId}"`. Bölünen (UnPacked) eski paket İptal sayılır; kalemleri yeni paketlerle rezerve edilir.
+- Durum eşlemesi: Created/Awaiting → Yeni; Picking/Invoiced → Hazırlanıyor; Shipped/AtCollectionPoint → Kargoda; Delivered → Teslim edildi; Cancelled/UnSupplied/UnPacked → İptal; Returned/UnDelivered → İade. Bilinmeyen durumdaki paket atlanır ve loglanır.
+- Doğrulanmamış noktalar kodda `// TODO: doğrulanmalı`: sipariş tarih aralığının hangi tarihe uygulandığı ve üst sınırı; `price` alanının birim fiyat olduğu; batch `requestItem` içinde `barcode` olduğu; `barcodes` sorgu biçimi; UnDelivered/UnSupplied anlamları.
+- Kapsam dışı: fiyat gönderimi; Trendyol'a sipariş durumu bildirimi (paket satır kimlikleri saklanınca eklenecek).

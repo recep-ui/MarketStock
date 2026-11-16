@@ -239,6 +239,8 @@ public sealed class StockPushJob(
     /// <summary>Ham hata metni kullanıcıya gösterilmeden önce sadeleştirilir; ayrıntı loglardadır.</summary>
     internal static string SimplifyError(Exception ex) => ex switch
     {
+        ChannelApiException api => api.Message, // adaptör zaten sadeleştirdi
+        NotSupportedException => ex.Message,
         HttpRequestException { StatusCode: { } code } => $"Kanal hata döndü (HTTP {(int)code}): {ex.Message}",
         HttpRequestException => $"Kanala ulaşılamadı: {ex.Message}",
         TaskCanceledException or TimeoutException => "Kanal zamanında yanıt vermedi.",
