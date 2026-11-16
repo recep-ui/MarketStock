@@ -15,8 +15,8 @@ public sealed class HangfireSettings
     public int SchedulePollingIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    /// Aşama 0 ölçüm job'ının cron ifadesi (6 alanlı = saniye çözünürlüklü). Boş ise job kaldırılır.
-    /// Amaç: 10 sn'lik OutboxIsle aralığının Hangfire ile karşılanıp karşılanamadığını ölçmek.
+    /// Bu sunucunun işleyeceği kuyruklar. Boşsa Hangfire varsayılanı ("default").
+    /// Testlerde arka plan sunucusunun gerçek job'ları almaması için farklı bir kuyruk verilir.
     /// </summary>
-    public string? HeartbeatCron { get; set; }
+    public string[]? Queues { get; set; }
 }

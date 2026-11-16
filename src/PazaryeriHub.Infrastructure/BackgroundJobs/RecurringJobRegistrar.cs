@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Orders;
+using PazaryeriHub.Application.Sync;
+using PazaryeriHub.Infrastructure.Sync;
 
 namespace PazaryeriHub.Infrastructure.BackgroundJobs;
 
@@ -13,8 +15,8 @@ namespace PazaryeriHub.Infrastructure.BackgroundJobs;
 /// </summary>
 public sealed class RecurringJobRegistrar(
     IRecurringJobManager recurringJobs,
-    IOptions<HangfireSettings> settings,
     IOptions<OrderOptions> orderOptions,
+    IOptions<SyncOptions> syncOptions,
     IEnumerable<IChannelAdapter> adapters,
     ILogger<RecurringJobRegistrar> logger) : BackgroundService
 {
@@ -47,33 +49,39 @@ public sealed class RecurringJobRegistrar(
         }
     }
 
+    /// <summary>Aşama 0'daki geçici ölçüm job'ı (kaldırıldı); eski kurulumlarda kaydı temizlenir.</summary>
+    private const string LegacyHeartbeatJobId = "asama0-heartbeat";
+
     private void Register()
     {
         var utc = new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc };
+        recurringJobs.RemoveIfExists(LegacyHeartbeatJobId);
 
-        var cron = settings.Value.HeartbeatCron;
+        var codes = adapters.Select(a => a.ChannelCode).Distinct(StringComparer.Ordinal).ToList();
+        var sync = syncOptions.Value;
+
+        // Kanal başına: SiparisCek, StokGonder, Mutabakat. Pasif kanallarda job'lar hemen çıkar.
+        foreach (var code in codes)
+        {
+            Set<OrderFetchJob>(OrderFetchJob.RecurringJobId(code), orderOptions.Value.FetchCron, job => job.RunAsync(code, CancellationToken.None), utc);
+            Set<StockPushJob>(StockPushJob.RecurringJobId(code), sync.PushCron, job => job.RunAsync(code, CancellationToken.None), utc);
+            Set<ReconciliationJob>(ReconciliationJob.RecurringJobId(code), sync.ReconciliationCron, job => job.RunAsync(code, CancellationToken.None), utc);
+        }
+
+        Set<OutboxProcessorJob>(OutboxProcessorJob.RecurringJobId, sync.OutboxCron, job => job.RunAsync(CancellationToken.None), utc);
+        Set<BatchCheckJob>(BatchCheckJob.RecurringJobId, sync.BatchCheckCron, job => job.RunAsync(CancellationToken.None), utc);
+    }
+
+    /// <summary>Cron boşsa job kaldırılır (testler ve devre dışı bırakma için).</summary>
+    private void Set<TJob>(string id, string? cron, System.Linq.Expressions.Expression<Func<TJob, Task>> call, RecurringJobOptions options)
+    {
         if (string.IsNullOrWhiteSpace(cron))
         {
-            recurringJobs.RemoveIfExists(HeartbeatJob.RecurringJobId);
+            recurringJobs.RemoveIfExists(id);
         }
         else
         {
-            recurringJobs.AddOrUpdate<HeartbeatJob>(HeartbeatJob.RecurringJobId, job => job.RunAsync(), cron, utc);
-        }
-
-        // SiparisCek: kayıtlı her kanal adaptörü için bir tekrarlayan job. Pasif kanallarda job hemen çıkar.
-        var fetchCron = orderOptions.Value.FetchCron;
-        foreach (var code in adapters.Select(a => a.ChannelCode).Distinct(StringComparer.Ordinal))
-        {
-            var id = OrderFetchJob.RecurringJobId(code);
-            if (string.IsNullOrWhiteSpace(fetchCron))
-            {
-                recurringJobs.RemoveIfExists(id);
-            }
-            else
-            {
-                recurringJobs.AddOrUpdate<OrderFetchJob>(id, job => job.RunAsync(code, CancellationToken.None), fetchCron, utc);
-            }
+            recurringJobs.AddOrUpdate(id, call, cron, options);
         }
     }
 }

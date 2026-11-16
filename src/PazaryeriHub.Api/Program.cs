@@ -75,6 +75,7 @@ try
     app.MapCatalogEndpoints();
     app.MapChannelEndpoints();
     app.MapOrderEndpoints(app.Environment);
+    app.MapSyncEndpoints();
 
     if (app.Environment.IsDevelopment())
     {

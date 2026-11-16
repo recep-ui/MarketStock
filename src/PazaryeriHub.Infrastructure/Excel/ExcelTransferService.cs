@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using PazaryeriHub.Application.Excel;
 using PazaryeriHub.Application.Stock;
+using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Persistence;
 
 namespace PazaryeriHub.Infrastructure.Excel;
@@ -327,8 +328,15 @@ public sealed class ExcelTransferService(
 
         if (!validateOnly && created + updated > 0)
         {
+            var changedListings = db.ChangeTracker.Entries<ChannelListingEntity>()
+                .Where(e => e.State is EntityState.Added or EntityState.Modified).Select(e => e.Entity).ToList();
             await using var tx = await db.Database.BeginTransactionAsync(ct);
             await db.SaveChangesAsync(ct);
+            // Yeni/değişen eşleştirmeler için kanala stok gönderimi tetiklenir (aynı transaction'da olay).
+            foreach (var listing in changedListings)
+            {
+                await OutboxWriter.AddAsync(db, OutboxEvents.ListingChanged, new { ListingId = listing.Id }, ct);
+            }
             await tx.CommitAsync(ct);
         }
         db.ChangeTracker.Clear();

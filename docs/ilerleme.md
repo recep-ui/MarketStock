@@ -7,6 +7,45 @@
 
 ---
 
+## 000000. Aşama 4: Senkron hattı (2026-11-16): TAMAM (mock adaptörle)
+
+### Yapılanlar
+| Parça | Yer |
+|---|---|
+| OutboxIsle, StokGonder, BatchSorgula, Mutabakat job'ları | `Infrastructure/Sync/SyncJobs.cs` |
+| Hedef stok, debounce kuyruğa alma, başarı/başarısızlık işleme | `Infrastructure/Sync/SyncStore.cs` |
+| Yeniden deneme politikası (saf) ve ayarlar | `Application/Sync/SyncContracts.cs` |
+| Senkron Merkezi sorguları, yeniden dene, kanal yenile, sapma raporu | `Infrastructure/Sync/SyncService.cs`, `Api/Endpoints/SyncEndpoints.cs` |
+| Kanal/eşleştirme değişikliğinde outbox olayı (aynı transaction) | `ChannelService`, `ExcelTransferService`, `Persistence/OutboxWriter.cs` |
+| Mock adaptörde hata enjeksiyonu (kalıcı gönderim hatası, kalem bazlı batch hatası, kanal stoğu kayması) | `Adapters.Mock` |
+| Migration 0004 (SyncQueue ekleri, indeksler) | `Database/Migrations/0004_senkron_hatti.sql` |
+| Geçici `HeartbeatJob` kaldırıldı | |
+
+Uç noktalar: `GET /api/sync/summary`, `GET /api/sync/queue?channelId=&status=`, `POST /api/sync/queue/{id}/retry`,
+`POST /api/sync/channels/{id}/refresh`, `GET /api/sync/reconciliation?channelId=&onlyDeviations=`, `POST /api/sync/reconciliation/{kanal}/run`.
+
+### Testler (gerçek çıktı)
+- `dotnet build`: 0 hata, 0 uyarı.
+- Unit **99/99** (yeni: yeniden deneme politikası).
+- Integration **72/72** (yeni 10 senkron testi). Tam set iki kez arka arkaya yeşil.
+- Uygulama gerçek `PazaryeriHub`'da açıldı: 14 tekrarlayan job kayıtlı, eski heartbeat silindi, OutboxIsle/StokGonder/BatchSorgula 10 sn'de bir başarıyla çalışıyor; senkron uçları 200.
+
+### Kabul kriterleri
+| Kriter | Test | Durum |
+|---|---|---|
+| Stok değişimi → ≤30 sn içinde mock kanalda güncel değer | `Uctan_uca_stok_degisimi_30_saniye_icinde…`: **gerçek Hangfire zamanlaması** (10 sn cron), ayrı uygulama örneği | ✅ 3 çalıştırmada **9,5 / 9,5 / 9,2 sn** |
+| Hata durumunda 5 denemeden sonra HATA ve uyarı | `Bes_basarisiz_denemeden_sonra_HATA_olur…` | ✅ deneme 1–4: BEKLIYOR, bekleme 30/60/120/240 sn (süresi dolmadan gönderilmez); 5.: HATA; `UYARI: senkron kaydı … HATA durumuna alındı` logu (Warning) yazıldı; özet ve HATA listesinde göründü; "yeniden dene" sonrası gönderildi |
+| Ek: debounce (3 değişiklik → 1 kayıt), pay %50 + üst limit + güvenlik stoğu, gönderim sırasında değişiklik kaybolmaz, kısmi batch hatası, pasif kanal/eşleştirme, kanal payı değişince yeniden gönderim, takılı talep kurtarma | 7 test | ✅ |
+| Mutabakat ve sapma raporu | `Mutabakat_kanal_stogunu_kaydeder…` | ✅ 3 eşleştirme: 1 sapma (beklenen 10, kanal 7), 1 kanalda yok, 1 uyumlu; snapshot yazıldı; istek üzerine çalıştırma 202 (Hangfire) |
+
+### Bilinen eksikler / açık konular
+- **Fiyat senkronu yapılmadı:** şemada fiyat kaynağı yok (ürün/SKU/eşleştirmede fiyat kolonu tanımlı değil). Fiyat nereden gelecek? (soru)
+- Sipariş durumunun kanala bildirilmesi ve IadeCek henüz yok.
+- Kanal hata metinlerinin sadeleştirilmesi şimdilik genel (HTTP kodu + mesaj); kanal özel çeviriler gerçek adaptörlerle (Aşama 6).
+- Yetkilendirme yok (Aşama 5).
+
+---
+
 ## 00000. Aşama 3: Sipariş çekirdeği (2026-11-16): TAMAM (mock adaptörle)
 
 ### Yapılanlar

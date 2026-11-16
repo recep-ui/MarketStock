@@ -18,7 +18,8 @@ public sealed class EmbeddedScriptsTests
         migrations.Should().Equal(
             "PazaryeriHub.Infrastructure.Database.Migrations.0001_temel_sema.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0002_baslangic_verisi.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0003_siparis_cekirdegi.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0003_siparis_cekirdegi.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0004_senkron_hatti.sql");
     }
 
     [Fact]

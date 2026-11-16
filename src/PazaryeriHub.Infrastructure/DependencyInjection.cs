@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Infrastructure.Orders;
+using PazaryeriHub.Application.Sync;
+using PazaryeriHub.Infrastructure.Sync;
 using PazaryeriHub.Application.Catalog;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Excel;
@@ -51,6 +53,11 @@ public static class DependencyInjection
         services.AddScoped<IOrderIngestionService>(sp => sp.GetRequiredService<OrderService>());
         services.AddScoped<IOrderService>(sp => sp.GetRequiredService<OrderService>());
 
+        // Senkron hattı (Outbox → SyncQueue → kanal).
+        services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
+        services.AddSingleton<SyncStore>();
+        services.AddScoped<ISyncService, SyncService>();
+
         AddHangfire(services);
 
         services.AddHealthChecks()
@@ -94,10 +101,17 @@ public static class DependencyInjection
             {
                 options.WorkerCount = settings.WorkerCount;
             }
+            if (settings.Queues is { Length: > 0 } queues)
+            {
+                options.Queues = queues;
+            }
         });
 
-        services.AddTransient<HeartbeatJob>();
         services.AddTransient<OrderFetchJob>();
+        services.AddTransient<OutboxProcessorJob>();
+        services.AddTransient<StockPushJob>();
+        services.AddTransient<BatchCheckJob>();
+        services.AddTransient<ReconciliationJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PazaryeriHub.Application.Catalog;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Common;
+using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Persistence;
 
 namespace PazaryeriHub.Infrastructure.Channels;
@@ -27,11 +28,21 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
 
         var channel = await db.Channels.FirstOrDefaultAsync(c => c.Id == id, ct)
                       ?? throw new NotFoundException($"Kanal bulunamadı (Id={id}).");
+        var affectsStock = channel.SharePercent != update.SharePercent || channel.Active != update.Active
+                           || !string.Equals(channel.SettingsJson, Text.Clean(update.SettingsJson), StringComparison.Ordinal);
         channel.Name = update.Name.Trim();
         channel.SharePercent = update.SharePercent;
         channel.Active = update.Active;
         channel.SettingsJson = Text.Clean(update.SettingsJson);
+
+        // Pay/aktiflik/ayar değişirse kanalın tüm eşleştirmeleri yeniden hesaplanıp gönderilir (aynı transaction'da olay).
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         await db.SaveChangesAsync(ct);
+        if (affectsStock)
+        {
+            await OutboxWriter.AddAsync(db, OutboxEvents.ChannelRefresh, new { ChannelId = channel.Id }, ct);
+        }
+        await tx.CommitAsync(ct);
 
         return new ChannelDto(channel.Id, channel.Code, channel.Name, channel.SharePercent, channel.Active, channel.SettingsJson,
             channel.EncryptedCredentials is not null);
@@ -95,7 +106,10 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
 
         try
         {
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
             await db.SaveChangesAsync(ct);
+            await OutboxWriter.AddAsync(db, OutboxEvents.ListingChanged, new { ListingId = listing.Id }, ct);
+            await tx.CommitAsync(ct);
         }
         catch (DbUpdateException ex) when (DbErrors.IsUnique(ex))
         {

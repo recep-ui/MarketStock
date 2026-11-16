@@ -93,3 +93,19 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - Siparişlerde EF yerine Dapper: koşullu güncelleme, kilit ipuçları ve transaction sınırları açıkça yazılabilsin diye (ADR-010'un istisnası).
 - Kanal adaptörleri: Aşama 6'ya kadar tüm kanallar bellek içi `MockChannelAdapter` (`Adapters.Mock`). Gerçek pazaryeri API'si çağrılmaz.
 **Kapsam dışı / sonraya:** sipariş durumunun kanala bildirilmesi (`UpdateOrderStatusAsync`, Hangfire job'ı olarak) ve `IadeCek`.
+
+## ADR-013: Senkron hattı (Outbox → SyncQueue → kanal)
+**Tarih:** 2026-11-16
+**Karar:**
+- **OutboxIsle (10 sn):** `TOP(100) … WITH (ROWLOCK, UPDLOCK, READPAST)` + `UPDATE … OUTPUT` ile olay alınır; alma + kuyruğa yazma tek transaction (hata → olaylar işlenmemiş kalır). Bir çalışmada en fazla 50 parti. Olay tipleri: `StokDegisti` (SkuId), `EslestirmeDegisti` (ListingId; eşleştirme API'si ve Excel yazar), `KanalStokYenile` (ChannelId; kanal payı/aktiflik/ayar değişince ya da `POST /api/sync/channels/{id}/refresh`).
+- **Debounce:** `UX_SyncQueue_Listing_Tip_Bekleyen` + `NOT EXISTS … WITH (UPDLOCK, HOLDLOCK)`. Kuyrukta **değer tutulmaz**; değer gönderim anında en güncel stoktan hesaplanır.
+- **Gönderimdeki kayıt** `BEKLIYOR` kalır (BatchId dolu); bu sırada gelen değişiklik yeni kayıt açamaz. Batch onaylanınca hedef yeniden hesaplanır, farklıysa yeni kayıt açılır (değişiklik kaybolmaz). Spesifikasyondaki 3 durum korunmuştur (ek durum eklenmedi).
+- **Talep:** StokGonder kayıtları `BatchId = 'claim:{guid}'` ile talep eder (READPAST); süreç çökerse BatchSorgula 10 dk sonra serbest bırakır.
+- **Yeniden deneme:** deneme sayacı talep anında artar. Başarısızlıkta üstel bekleme 30 sn × 2^(n−1) (en fazla 30 dk); **5. başarısızlıkta HATA** + `UYARI` logu; Senkron özeti/listesinde görünür; `POST /api/sync/queue/{id}/retry` ile sıfırlanır. Kanal kodu/barkodu olmayan eşleştirme denemeden HATA olur.
+- **Kısmi batch hatası:** yalnızca hatalı kalemler yeniden denenir.
+- **Hedef stok:** `StockAllocator(Σ Satilabilir, Channel.PayYuzde, Channel.Ayarlar.stokUstLimit)`; yalnızca AKTIF eşleştirme + aktif kanal.
+- **Mutabakat:** kanal başına, gece 00:00 UTC (03:00 TR) + `POST /api/sync/reconciliation/{kanal}/run` (Hangfire job'ı olarak kuyruğa alınır; dış çağrı doğrudan yapılmaz). Sonuç `ChannelStockSnapshot`; rapor `GET /api/sync/reconciliation?onlyDeviations=true` (beklenen ≠ kanal veya kanalda bulunamadı).
+- **Şema ekleri (0004):** `SyncQueue.SonrakiDeneme`, `SonDeneme`, `GonderilenDeger` (spesifikasyon listesine EK).
+- **Kuyruk izolasyonu:** `Hangfire:Queues` ayarı; testlerde paylaşılan sunucu boş bir kuyruğu dinler, böylece gerçek job'ları almaz.
+- Aşama 0'daki geçici `HeartbeatJob` kaldırıldı (kayıtlı ise başlangıçta silinir).
+**Kapsam dışı:** FİYAT senkronu: şemada fiyat kaynağı yok (açık soru). Sipariş durumunun kanala bildirilmesi.
