@@ -10,9 +10,6 @@ namespace PazaryeriHub.Tests.Integration.Infrastructure;
 /// </summary>
 public sealed class ApiFactory(string connectionString) : WebApplicationFactory<Program>
 {
-    /// <summary>Gerçek SQL Server testleri için bağlantı dizesini taşıyan ortam değişkeni.</summary>
-    public const string TestDatabaseEnvVar = "PAZARYERIHUB_TEST_DB";
-
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");

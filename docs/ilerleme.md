@@ -7,6 +7,58 @@
 
 ---
 
+## 00. Aşama 1: Veritabanı ve stok motoru (2026-11-16): KOD YAZILDI, DB'DE DOĞRULANMADI
+
+### Yapılanlar
+| Parça | Dosya |
+|---|---|
+| Şema (13 tablo, BIN2 collation'lar, CHECK/ISJSON, filtreli unique'ler, indeksler) | `src/PazaryeriHub.Infrastructure/Database/Migrations/0001_temel_sema.sql` |
+| Başlangıç verisi ("Ana Depo", 4 kanal `Aktif=0`, `PayYuzde=100`) | `.../Migrations/0002_baslangic_verisi.sql` |
+| Saklı yordamlar (6 + 2 iç yardımcı) | `.../Database/Procedures/*.sql` (her açılışta `CREATE OR ALTER`) |
+| DbUp migrator | `src/PazaryeriHub.Infrastructure/Database/DatabaseMigrator.cs` (`Database:MigrateOnStartup`) |
+| Stok defteri sözleşmesi + hata tipleri | `src/PazaryeriHub.Application/Stock/` |
+| Dapper uygulaması (50001 → `InsufficientStockException`) | `src/PazaryeriHub.Infrastructure/Stock/SqlStockLedger.cs` |
+| `StockAllocator` (saf fonksiyon) | `src/PazaryeriHub.Domain/Stock/StockAllocator.cs` |
+| Test veritabanı fixture'ı (env → user-secrets → Testcontainers → atla) | `tests/PazaryeriHub.Tests.Integration/Infrastructure/TestDatabase.cs` |
+
+Yordam ortak deseni: `SET XACT_ABORT ON` → tek `BEGIN TRAN` → koşullu `UPDATE ... OUTPUT INTO` (UPDLOCK) →
+0 satırsa `ROLLBACK` + `THROW 500xx` → `usp_StokHareketYaz` (hareket + `StokDegisti` outbox, transaction dışında çağrılırsa 50020) → `COMMIT`.
+Hata kodları: 50001 stok yetersiz, 50002 sevk için rezerve yok, 50003 iptal için rezerve yok, 50004 sayım < rezerve, 50010 geçersiz adet.
+
+### Test sonuçları (gerçek çıktı)
+- `dotnet build`: 0 hata, 0 uyarı.
+- **Unit: 43/43 geçti** (allocator (d) dahil: pay %, FLOOR, güvenlik stoğu, depo toplamı, negatif→0, üst limit, geçersiz girdiler; gömülü script kontrolü).
+- **Integration: 33 başarısız, 2 geçti.** Tek neden: `PazaryeriHub_Test` veritabanı sunucuda **yok**
+  (`Cannot open database "PazaryeriHub_Test" requested by the login`). Geçen 2 test DB gerektirmeyenler.
+- SQL script'leri sunucuda `SET PARSEONLY ON` ile ayrıştırıldı: **8/8 sözdizimi OK**. Bu yalnızca sözdizimini doğrular; çalışma zamanı davranışını (kilitler, CHECK'ler, nesne çözümleme) değil.
+
+### Kabul kriterleri
+| Kriter | Test | Durum |
+|---|---|---|
+| (a) 100 paralel rezervasyonda stok eksiye düşmez | `StockConcurrencyTests` (2 test) | ❌ Yazıldı, **çalıştırılamadı** (DB yok) |
+| (b) rezerve→iptal→sevk bakiyeleri doğru | `StockFlowTests` (9 test) | ❌ Yazıldı, **çalıştırılamadı** |
+| (c) her değişiklikte hareket + outbox | `LedgerAuditTests` (3 test) | ❌ Yazıldı, **çalıştırılamadı** |
+| (d) allocator birim testleri | `StockAllocatorTests` | ✅ **Geçti** |
+| Ek: collation, unique/filtreli indeks, ISJSON, CHECK, migration tekrarı | `SchemaTests` | ❌ Yazıldı, **çalıştırılamadı** |
+| Aşama 0: `/health` 200 | `HealthWithDatabaseTests` | ❌ Çalıştırılamadı |
+
+### Spesifikasyona yapılan ekler / yorumlar (gözden geçirilmeli)
+- `[Order].StokYetersiz BIT`: ilke 7'deki "stok yetersiz bayrağı" için kolon listesine **ek**.
+- `OrderLine.SkuId NULL` olabilir: eşleşmeyen kanal ürünü olan sipariş de kaydedilebilsin diye.
+- Durum/tip kod kolonları (`Durum`, `Tip`, `OlayTipi`, `Kod`) da BIN2 (Türkçe `I/ı` sorununa karşı).
+- `ChannelListing.Durum` için `AKTIF|PASIF` değerleri seçildi (spesifikasyonda tanımsız).
+- `Channel.PayYuzde DECIMAL(5,2)` (33,33 gibi paylar için).
+- "Kanal üst limiti" için kolon yok; şimdilik `Channel.Ayarlar` JSON'unda tutulması öneriliyor (Aşama 4'te kesinleşecek). Allocator parametre olarak alıyor.
+- `StockMovement.Adet`: SAYIM'da işaretli fark (negatif/0 olabilir), diğerlerinde > 0.
+- Güvenlik stoğu rezervasyonu **engellemez** (spesifikasyon koşulu `Fiziksel - Rezerve >= Adet`). Testle belgelendi.
+- Yordamlar dış bir transaction içinde çağrılırsa hata durumunda dış transaction da geri alınır (XACT_ABORT). Aşama 3'te sipariş kaydı ile rezervasyon ayrı transaction'larda yapılmalı.
+
+### Engel
+`PazaryeriHub` ve `PazaryeriHub_Test` veritabanları sunucuda (bu makinedeki `SQLEXPRESS`, port 1434) hâlâ yok.
+Sunucudaki tek kullanıcı veritabanı `MarketplaceStockSync`.
+
+---
+
 ## 0. Güncelleme (2026-11-16, devralma sonrası ilk düzeltmeler)
 
 | Konu | Durum |

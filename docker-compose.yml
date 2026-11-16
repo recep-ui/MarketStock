@@ -31,6 +31,7 @@ services:
       ConnectionStrings__PazaryeriHub: "Data Source=mssql,1433;Initial Catalog=PazaryeriHub;User ID=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;Application Name=PazaryeriHub.Api"
       # Konteyner içindeki geliştirme SQL Server'ında veritabanını uygulama oluşturur.
       Database__AutoCreate: "true"
+      Database__MigrateOnStartup: "true"
     ports:
       - "5080:8080"
     depends_on:

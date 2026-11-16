@@ -3,6 +3,8 @@
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Test veritabanı bağlantısı: dotnet user-secrets set "ConnectionStrings:PazaryeriHubTest" "..." -->
+    <UserSecretsId>pazaryerihub-tests-integration-4b1e9a2c</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -10,6 +12,7 @@
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="FluentAssertions" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.MsSql" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

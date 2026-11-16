@@ -2,7 +2,10 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Infrastructure.BackgroundJobs;
+using PazaryeriHub.Infrastructure.Database;
+using PazaryeriHub.Infrastructure.Stock;
 using PazaryeriHub.Infrastructure.Health;
 using PazaryeriHub.Infrastructure.Persistence;
 
@@ -20,6 +23,8 @@ public static class DependencyInjection
 
         services.AddSingleton<SqlConnectionFactory>();
         services.AddSingleton<DatabaseBootstrapper>();
+        services.AddSingleton<DatabaseMigrator>();
+        services.AddSingleton<IStockLedger, SqlStockLedger>();
 
         AddHangfire(services);
 

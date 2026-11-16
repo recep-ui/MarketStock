@@ -1,6 +1,8 @@
 using Hangfire;
+using Microsoft.Extensions.Options;
 using PazaryeriHub.Api.Health;
 using PazaryeriHub.Infrastructure;
+using PazaryeriHub.Infrastructure.Database;
 using PazaryeriHub.Infrastructure.Logging;
 using PazaryeriHub.Infrastructure.Persistence;
 using Serilog;
@@ -39,6 +41,13 @@ try
 
     // Geliştirme ortamında veritabanı yoksa oluşturulur (Database:AutoCreate). Hata uygulamayı düşürmez.
     await app.Services.GetRequiredService<DatabaseBootstrapper>().TryEnsureDatabaseAsync(app.Lifetime.ApplicationStopping);
+
+    // Şema migration'ları (Database:MigrateOnStartup). Başarısızsa uygulama başlamaz: şemasız çalışmak anlamsız.
+    if (app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.MigrateOnStartup)
+    {
+        app.Services.GetRequiredService<DatabaseMigrator>()
+            .Migrate(app.Services.GetRequiredService<SqlConnectionFactory>().ConnectionString);
+    }
 
     app.MapPazaryeriHubHealthChecks();
 

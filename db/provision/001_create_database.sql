@@ -3,14 +3,16 @@
     Bir sysadmin (veya dbcreator) tarafından, uygulama ilk kez çalışmadan önce BİR KEZ çalıştırılır.
     Uygulama kullanıcısı (ör. 'ms') CREATE DATABASE yetkisine sahip değilse bu adım zorunludur.
 
-    Kullanım (SSMS veya sqlcmd):
-        sqlcmd -S <sunucu>,<port> -E -C -i 001_create_database.sql -v AppLogin="ms"
-    SSMS'te çalıştırırken: Query > SQLCMD Mode açık olmalı.
+    Kullanım (SSMS):
+        1) Query menüsü > "SQLCMD Mode" AÇIK olmalı (kapalıysa ':setvar' satırları hata verir).
+        2) Sysadmin yetkili bir kullanıcıyla, uygulamanın bağlanacağı SQL Server instance'ına bağlanın.
+        3) Aşağıdaki iki ':setvar' değerini kontrol edip çalıştırın (F5). Sonda sonuç tablosu görünmeli.
+        4) Entegrasyon testleri için aynı script'i DbName = "PazaryeriHub_Test" ile BİR KEZ DAHA çalıştırın.
+    Not: sqlcmd'de ':setvar' komut satırındaki '-v' değerini ezer; değerleri burada değiştirin.
 
     Tablolar burada DEĞİL; uygulamanın sürümlü migration script'leriyle (DbUp, Aşama 1) kurulur.
 */
 :setvar DbName "PazaryeriHub"
--- AppLogin komut satırından verilmezse varsayılan:
 :setvar AppLogin "ms"
 
 USE master;

@@ -15,6 +15,12 @@ public sealed class DatabaseOptions
     /// </summary>
     public bool AutoCreate { get; set; }
 
+    /// <summary>
+    /// true ise uygulama başlarken şema migration'ları (DbUp) çalıştırılır. Migration başarısız olursa uygulama başlamaz.
+    /// Kullanıcının hedef veritabanında db_owner (veya DDL) yetkisi olmalıdır.
+    /// </summary>
+    public bool MigrateOnStartup { get; set; }
+
     /// <summary>Başlangıçtaki veritabanı hazırlığı için üst süre sınırı (saniye).</summary>
     public int BootstrapTimeoutSeconds { get; set; } = 30;
 }

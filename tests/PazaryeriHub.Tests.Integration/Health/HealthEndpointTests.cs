@@ -39,22 +39,23 @@ public sealed class HealthEndpointTests
             .Select(c => c.GetProperty("name").GetString())
             .Should().BeEquivalentTo(["sqlserver", "hangfire"]);
     }
+}
 
+/// <summary>Aşama 0 kabul kriteri: gerçek veritabanıyla /health 200 (SQL Server + Hangfire sağlıklı).</summary>
+[Collection(DatabaseCollection.Name)]
+public sealed class HealthWithDatabaseTests(TestDatabase db)
+{
     [Fact]
     public async Task Gercek_veritabaniyla_health_200_doner()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ApiFactory.TestDatabaseEnvVar);
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            Assert.Skip($"{ApiFactory.TestDatabaseEnvVar} ortam değişkeni tanımlı değil; gerçek SQL Server testi atlandı.");
-        }
+        db.SkipIfUnavailable();
 
-        await using var factory = new ApiFactory(connectionString);
+        await using var factory = new ApiFactory(db.ConnectionString!);
         using var client = factory.CreateClient();
 
         // Hangfire sunucusunun ilk nabzını göndermesi birkaç saniye sürebilir.
         HttpResponseMessage response = null!;
-        string body = "";
+        var body = "";
         for (var attempt = 0; attempt < 20; attempt++)
         {
             response = await client.GetAsync("/health", TestContext.Current.CancellationToken);
