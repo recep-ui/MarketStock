@@ -3,11 +3,45 @@
 **Tarih:** 2026-11-16
 **Denetleyen:** Claude Code (Antigravity'den devralma)
 **Yöntem:** Tüm kaynak dosyalar okundu, derleme ve testler bu makinede çalıştırıldı. Önceki raporlar dikkate alınmadı.
-**Not:** Bu denetimde kod değiştirilmedi. Yeni eklenen tek dosya bu rapor.
+**Not:** En güncel durum en üstteki bölümdedir; §1 ve sonrası ilk devralma denetiminin (değiştirilmemiş) kaydıdır.
 
 ---
 
-## 00. Aşama 1: Veritabanı ve stok motoru (2026-11-16): TAMAM (Testcontainers hariç)
+## 000. Yerel çalıştırma doğrulaması (2026-11-16): Aşama 0 ve 1 TAMAM
+
+Karar: Docker kullanılmıyor; uygulama ve testler yerelde çalışıyor (ADR-008).
+
+### Aşama 0 (yerel çalıştırma ile)
+API `dotnet run` ile gerçek `PazaryeriHub` veritabanına karşı (Development, `.claude/launch.json` → `api`) başlatıldı:
+
+| Uç nokta | Sonuç |
+|---|---|
+| `GET /` | 200 |
+| `GET /health` | **200 `Healthy`**: sqlserver (RCSI + snapshot açık, SQL 17) ve hangfire (aktif sunucu) |
+| `GET /health/live` | 200 |
+| `GET /hangfire` | 200; panelde `asama0-heartbeat` tekrarlayan işi kayıtlı ve çalışıyor |
+
+Hangfire zamanlama ölçümü (95 sn, 10 çalışma): ortalama **10,01 sn**, min 9,15, max 10,38. Bu pencerede Error/Fatal log yok.
+→ `OutboxIsle` için hedeflenen 10 sn aralık Hangfire ile karşılanabilir.
+
+### Testler (Testcontainers kaldırıldı, yerel `PazaryeriHub_Test` ile)
+- `dotnet build`: 0 hata, 0 uyarı.
+- Unit **43/43**, Integration **35/35**, atlanan 0.
+
+### Aşama 0 kabul kriterleri (ADR-008'e göre)
+| Kriter | Durum |
+|---|---|
+| API + SQL Server ayağa kalkar | ✅ yerelde (`dotnet run` + yerel SQL Server 2025 Express) |
+| `/health` 200 | ✅ hem elle hem `HealthWithDatabaseTests` ile |
+| `docker compose up` | ➖ kapsam dışı bırakıldı (ADR-008); compose/Dockerfile doğrulanmadı |
+
+### Bilinen notlar
+- Panelde "Sunucular 2" göründü: önceki çalıştırma zorla kapatıldığı için eski Hangfire sunucu kaydı; Hangfire zaman aşımıyla temizler. İşlevsel etkisi yok.
+- Hangfire paneli yalnızca Development'ta açık ve yetkisiz; yetkilendirme Aşama 5'te.
+
+---
+
+## 00. Aşama 1: Veritabanı ve stok motoru (2026-11-16): TAMAM
 
 ### Yapılanlar
 | Parça | Dosya |
@@ -19,7 +53,7 @@
 | Stok defteri sözleşmesi + hata tipleri | `src/PazaryeriHub.Application/Stock/` |
 | Dapper uygulaması (50001 → `InsufficientStockException`) | `src/PazaryeriHub.Infrastructure/Stock/SqlStockLedger.cs` |
 | `StockAllocator` (saf fonksiyon) | `src/PazaryeriHub.Domain/Stock/StockAllocator.cs` |
-| Test veritabanı fixture'ı (env → user-secrets → Testcontainers → atla) | `tests/PazaryeriHub.Tests.Integration/Infrastructure/TestDatabase.cs` |
+| Test veritabanı fixture'ı (env → user-secrets → yoksa atla) | `tests/PazaryeriHub.Tests.Integration/Infrastructure/TestDatabase.cs` |
 
 Yordam ortak deseni: `SET XACT_ABORT ON` → tek `BEGIN TRAN` → koşullu `UPDATE ... OUTPUT INTO` (UPDLOCK) →
 0 satırsa `ROLLBACK` + `THROW 500xx` → `usp_StokHareketYaz` (hareket + `StokDegisti` outbox, transaction dışında çağrılırsa 50020) → `COMMIT`.
@@ -48,7 +82,7 @@ Hata kodları: 50001 stok yetersiz, 50002 sevk için rezerve yok, 50003 iptal i�
 | (c) her değişiklikte hareket + outbox | `LedgerAuditTests` (3 test) | ✅ Geçti: 6 işlem tipinin her biri tam 1 hareket + 1 outbox; payload bakiye ile tutarlı |
 | (d) allocator birim testleri | `StockAllocatorTests` | ✅ Geçti |
 | Ek: collation, i/İ ayrımı, unique/filtreli indeks, ISJSON, CHECK, migration tekrarı | `SchemaTests` (17 test) | ✅ Geçti |
-| **"Testcontainers ile"** koşulu | `TestDatabase` konteyner yolu | ⚠️ Kod yazıldı ama **Docker olmadığı için çalıştırılmadı**; testler gerçek SQL Server'da (`PazaryeriHub_Test`) koştu |
+| "Testcontainers ile" koşulu | — | ➖ ADR-008 ile yerel SQL Server test veritabanına çevrildi; Testcontainers kaldırıldı |
 
 Not: (a) testinde koşullu UPDATE olmasaydı bile `CK_StockBalance_RezerveFiziksel` CHECK'i eksiye düşmeyi engellerdi (hata 547 ile).
 Koşullu UPDATE, bu durumu iş hatası (50001) olarak ve satır kilidiyle düzgün çözüyor; CHECK ikinci güvenlik ağı.
@@ -65,7 +99,7 @@ Koşullu UPDATE, bu durumu iş hatası (50001) olarak ve satır kilidiyle düzg�
 - Yordamlar dış bir transaction içinde çağrılırsa hata durumunda dış transaction da geri alınır (XACT_ABORT). Aşama 3'te sipariş kaydı ile rezervasyon ayrı transaction'larda yapılmalı.
 
 ### Kalan eksikler
-- Docker yok: `docker compose up` (Aşama 0 kabulü) ve Testcontainers yolu doğrulanmadı.
+- `docker-compose.yml` / `Dockerfile` doğrulanmadı (ADR-008: Docker kullanılmıyor).
 - Güvenlik stoğu (`GuvenlikStogu`) için uygulama düzeyi API yok; Aşama 2 (stok/ayarlar) ile gelecek.
 - Outbox tüketimi (READPAST) Aşama 4'te.
 

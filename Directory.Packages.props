@@ -27,6 +27,5 @@
     <!-- 7.x Apache-2.0 lisanslıdır; 8.x ve sonrası ticari lisans gerektirir (bkz. docs/decisions.md ADR-005) -->
     <PackageVersion Include="FluentAssertions" Version="7.2.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
-    <PackageVersion Include="Testcontainers.MsSql" Version="4.16.0" />
   </ItemGroup>
 </Project>

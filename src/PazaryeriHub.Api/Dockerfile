@@ -1,3 +1,4 @@
+# NOT: Docker şu an kullanılmıyor ve bu dosya doğrulanmadı (bkz. docs/decisions.md ADR-008).
 # Derleme aşaması
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src

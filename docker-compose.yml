@@ -1,3 +1,4 @@
+# NOT: Docker şu an kullanılmıyor ve bu dosya doğrulanmadı (bkz. docs/decisions.md ADR-008).
 # PazaryeriHub geliştirme ortamı: API + SQL Server.
 # Panel servisi Aşama 5'te eklenecek.
 # Kullanım: .env.example dosyasını .env olarak kopyalayıp parolayı belirleyin, sonra: docker compose up --build

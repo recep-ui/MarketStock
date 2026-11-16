@@ -45,3 +45,15 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 **Bağlam:** Repo herkese açık (public) GitHub deposunda.
 **Karar:** Bağlantı dizesi yalnızca `dotnet user-secrets` (yerel) veya ortam değişkeni (konteyner) ile verilir; `appsettings*.json` içinde boş durur. `.env` ve `*.xlsx` (iş verisi) `.gitignore`'da. Testlerde gerçek kimlik bilgisi kullanılmaz.
 **Sonuç:** Kanal API anahtarları Aşama 2+ için `KimlikSifreli` + `IDataProtector` ile saklanacak (spesifikasyon §9).
+
+## ADR-008: Docker yerine yerel çalıştırma ve yerel SQL Server ile test
+**Tarih:** 2026-11-16
+**Bağlam:** Spesifikasyon docker-compose ile çalıştırma (Aşama 0) ve Testcontainers ile entegrasyon testleri (Aşama 1) istiyor. Geliştirme makinesinde Docker yok; hedef SQL Server (2025 Express) aynı makinede çalışıyor.
+**Karar (ürün sahibinin onayıyla):**
+- Uygulama yerelde `dotnet run` ile çalıştırılır (`.claude/launch.json` → `api`, http://localhost:5080). Bağlantı dizesi user-secrets'ta.
+- Entegrasyon testleri yerel SQL Server'daki ayrı **`PazaryeriHub_Test`** veritabanında çalışır (bağlantı: test projesinin user-secrets'ı veya `PAZARYERIHUB_TEST_DB`). Testcontainers bağımlılığı kaldırıldı.
+- `docker-compose.yml` ve `Dockerfile` repoda kalır ancak **doğrulanmamıştır**; ileride konteyner dağıtımı gerekirse doğrulanmalıdır.
+**Sonuç:**
+- Aşama 0 kabulü "`docker compose up` + `/health` 200" yerine "yerel çalıştırma + `/health` 200" olarak değerlendirilir.
+- Testler her çalıştırmada tablo sıfırlamaz; her test kendi benzersiz SKU'sunu oluşturur. Test veritabanı zamanla büyür; gerekirse elle temizlenebilir (yalnızca `PazaryeriHub_Test`).
+- Güvenlik: test fixture'ı adında "Test" geçmeyen veritabanında çalışmayı reddeder.

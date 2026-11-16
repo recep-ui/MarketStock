@@ -1,5 +1,4 @@
 using Dapper;
-using DotNet.Testcontainers.Builders;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -7,7 +6,6 @@ using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Infrastructure.Database;
 using PazaryeriHub.Infrastructure.Persistence;
 using PazaryeriHub.Infrastructure.Stock;
-using Testcontainers.MsSql;
 
 namespace PazaryeriHub.Tests.Integration.Infrastructure;
 
@@ -16,9 +14,9 @@ namespace PazaryeriHub.Tests.Integration.Infrastructure;
 /// <list type="number">
 /// <item><c>PAZARYERIHUB_TEST_DB</c> ortam değişkeni</item>
 /// <item>Test projesinin user-secrets'ı: <c>ConnectionStrings:PazaryeriHubTest</c></item>
-/// <item>Testcontainers ile MSSQL konteyneri (Docker çalışıyorsa)</item>
 /// </list>
-/// Hiçbiri yoksa testler ATLANIR (geçti sayılmaz). Güvenlik: veritabanı adı "Test" içermiyorsa testler çalışmaz;
+/// Docker kullanılmaz (ADR-008); testler yerel SQL Server'daki ayrı bir test veritabanında çalışır.
+/// Bağlantı yoksa testler ATLANIR (geçti sayılmaz). Güvenlik: veritabanı adı "Test" içermiyorsa testler çalışmaz;
 /// testler veri ekler ve gerçek veritabanını kirletmemelidir.
 /// Her test kendi benzersiz SKU'sunu oluşturduğu için testler arasında temizlik gerekmez.
 /// </summary>
@@ -26,9 +24,6 @@ public sealed class TestDatabase : IAsyncLifetime
 {
     public const string EnvVar = "PAZARYERIHUB_TEST_DB";
     public const string UserSecretsKey = "ConnectionStrings:PazaryeriHubTest";
-    private const string ContainerImage = "mcr.microsoft.com/mssql/server:2025-latest";
-
-    private MsSqlContainer? _container;
 
     public string? ConnectionString { get; private set; }
     public string? SkipReason { get; private set; }
@@ -43,20 +38,14 @@ public sealed class TestDatabase : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         var configured = ResolveConfiguredConnectionString(out var source);
-        if (configured is not null)
+        if (configured is null)
         {
-            ConnectionString = configured;
-            Source = source;
+            SkipReason = $"Test veritabanı tanımlı değil: {EnvVar} ortam değişkeni veya test projesinde user-secrets '{UserSecretsKey}'.";
+            return;
         }
-        else
-        {
-            ConnectionString = await TryStartContainerAsync();
-            if (ConnectionString is null)
-            {
-                return; // SkipReason ayarlandı
-            }
-            Source = "Testcontainers";
-        }
+
+        ConnectionString = configured;
+        Source = source;
 
         var databaseName = new SqlConnectionStringBuilder(ConnectionString).InitialCatalog;
         if (!databaseName.Contains("Test", StringComparison.OrdinalIgnoreCase))
@@ -76,13 +65,7 @@ public sealed class TestDatabase : IAsyncLifetime
         Ledger = new SqlStockLedger(new SqlConnectionFactory(config));
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (_container is not null)
-        {
-            await _container.DisposeAsync();
-        }
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     /// <summary>Veritabanı yoksa testi gerekçesiyle atlar.</summary>
     public void SkipIfUnavailable()
@@ -155,34 +138,6 @@ public sealed class TestDatabase : IAsyncLifetime
         return string.IsNullOrWhiteSpace(fromSecrets) ? null : fromSecrets;
     }
 
-    private async Task<string?> TryStartContainerAsync()
-    {
-        try
-        {
-            _container = new MsSqlBuilder(ContainerImage).Build();
-            await _container.StartAsync();
-        }
-        catch (Exception ex) when (ex is DockerUnavailableException or InvalidOperationException or TimeoutException)
-        {
-            SkipReason = $"Test veritabanı yok: {EnvVar} / user-secrets '{UserSecretsKey}' tanımlı değil ve Docker kullanılamıyor ({ex.GetType().Name}).";
-            return null;
-        }
-
-        // Konteynerde sa (sysadmin) ile test veritabanı oluşturulur ve zorunlu izolasyon ayarları açılır.
-        var master = _container.GetConnectionString();
-        await using (var connection = new SqlConnection(master))
-        {
-            await connection.OpenAsync();
-            await connection.ExecuteAsync("""
-                IF DB_ID(N'PazaryeriHub_Test') IS NULL CREATE DATABASE PazaryeriHub_Test COLLATE Turkish_CI_AS;
-                ALTER DATABASE PazaryeriHub_Test SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
-                ALTER DATABASE PazaryeriHub_Test SET ALLOW_SNAPSHOT_ISOLATION ON;
-                ALTER DATABASE PazaryeriHub_Test SET AUTO_CLOSE OFF;
-                """);
-        }
-
-        return new SqlConnectionStringBuilder(master) { InitialCatalog = "PazaryeriHub_Test" }.ConnectionString;
-    }
 }
 
 public sealed record BalanceRow(int Fiziksel, int Rezerve, int GuvenlikStogu, int Satilabilir);
