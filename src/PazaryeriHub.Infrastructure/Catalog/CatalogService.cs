@@ -159,17 +159,6 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
     public async Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken ct) =>
         await db.Warehouses.AsNoTracking().OrderBy(w => w.Id).Select(w => new WarehouseDto(w.Id, w.Name)).ToListAsync(ct);
 
-    public async Task<WarehouseDto> CreateWarehouseAsync(string name, CancellationToken ct)
-    {
-        var v = new Validator();
-        v.Required("name", name, CatalogLimits.WarehouseName);
-        v.ThrowIfInvalid();
-
-        var entity = new WarehouseEntity { Name = name.Trim() };
-        db.Warehouses.Add(entity);
-        await SaveAsync(ct);
-        return new WarehouseDto(entity.Id, entity.Name);
-    }
 
     private async Task SaveAsync(CancellationToken ct, string? referenceConflictMessage = null)
     {

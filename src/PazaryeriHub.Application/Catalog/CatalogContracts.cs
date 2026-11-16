@@ -51,6 +51,6 @@ public interface ICatalogService
     Task<SkuDto> UpdateSkuAsync(int skuId, SkuInput input, CancellationToken ct);
     Task DeleteSkuAsync(int skuId, CancellationToken ct);
 
+    /// <summary>Tek depo modeli (ADR-015): seed'deki "Ana Depo". Yeni depo ekleme kapalı; şema çoklu depoya hazır.</summary>
     Task<IReadOnlyList<WarehouseDto>> GetWarehousesAsync(CancellationToken ct);
-    Task<WarehouseDto> CreateWarehouseAsync(string name, CancellationToken ct);
 }

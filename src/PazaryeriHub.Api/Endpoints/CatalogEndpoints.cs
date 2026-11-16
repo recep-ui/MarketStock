@@ -6,8 +6,6 @@ using PazaryeriHub.Application.Stock;
 
 namespace PazaryeriHub.Api.Endpoints;
 
-public sealed record CreateWarehouseRequest(string Name);
-
 public sealed record StockReceiptRequest(int SkuId, int WarehouseId, int Quantity, string? Reference);
 
 public sealed record StockCountRequest(int SkuId, int WarehouseId, int CountedQuantity, string? Reference);
@@ -57,11 +55,6 @@ public static class CatalogEndpoints
 
         var warehouses = app.MapGroup("/api/warehouses").WithTags("Depolar").RequireAuthorization(Policies.Read);
         warehouses.MapGet("/", (ICatalogService s, CancellationToken ct) => s.GetWarehousesAsync(ct));
-        warehouses.MapPost("/", async (ICatalogService s, CreateWarehouseRequest request, CancellationToken ct) =>
-        {
-            var created = await s.CreateWarehouseAsync(request.Name, ct);
-            return Results.Created($"/api/warehouses/{created.Id}", created);
-        }).RequireAuthorization(Policies.Admin);
 
         var stock = app.MapGroup("/api/stock").WithTags("Stok").RequireAuthorization(Policies.Read);
         stock.MapGet("/{skuId:int}", (IStockLedger l, int skuId, CancellationToken ct) => l.GetBalancesAsync(skuId, ct));
