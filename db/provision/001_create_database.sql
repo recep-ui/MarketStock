@@ -27,6 +27,8 @@ GO
 -- Spesifikasyon §4: zorunlu izolasyon ayarları
 ALTER DATABASE [$(DbName)] SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
 ALTER DATABASE [$(DbName)] SET ALLOW_SNAPSHOT_ISOLATION ON;
+-- SQL Express varsayılan olarak AUTO_CLOSE açar; sürekli bağlanan uygulama için kapatılır.
+ALTER DATABASE [$(DbName)] SET AUTO_CLOSE OFF;
 GO
 
 USE [$(DbName)];
@@ -35,11 +37,21 @@ GO
 -- Uygulama login'ini veritabanına kullanıcı olarak ekle.
 -- db_owner: migration'lar (tablo/yordam oluşturma) ve Hangfire şeması kurulumu için gerekli.
 -- Üretimde ayrı bir "migration" kullanıcısı + daha dar yetkili bir "uygulama" kullanıcısı düşünülebilir.
-IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE name = N'$(AppLogin)')
+-- Login veritabanının sahibiyse (dbo) veya sysadmin ise ayrı kullanıcıya gerek yoktur (CREATE USER hata verir).
+IF SUSER_SID(N'$(AppLogin)') IS NULL
+    THROW 50000, N'AppLogin sunucuda tanımlı değil.', 1;
+
+IF IS_SRVROLEMEMBER('sysadmin', N'$(AppLogin)') = 1
+   OR (SELECT owner_sid FROM sys.databases WHERE name = DB_NAME()) = SUSER_SID(N'$(AppLogin)')
 BEGIN
-    CREATE USER [$(AppLogin)] FOR LOGIN [$(AppLogin)];
+    PRINT N'$(AppLogin) sysadmin veya veritabanı sahibi; kullanıcı eklemeye gerek yok.';
 END
-ALTER ROLE db_owner ADD MEMBER [$(AppLogin)];
+ELSE
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE sid = SUSER_SID(N'$(AppLogin)'))
+        CREATE USER [$(AppLogin)] FOR LOGIN [$(AppLogin)];
+    ALTER ROLE db_owner ADD MEMBER [$(AppLogin)];
+END
 GO
 
 SELECT name, collation_name, is_read_committed_snapshot_on, snapshot_isolation_state_desc

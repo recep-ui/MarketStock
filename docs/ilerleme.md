@@ -7,7 +7,7 @@
 
 ---
 
-## 00. Aşama 1: Veritabanı ve stok motoru (2026-11-16): KOD YAZILDI, DB'DE DOĞRULANMADI
+## 00. Aşama 1: Veritabanı ve stok motoru (2026-11-16): TAMAM (Testcontainers hariç)
 
 ### Yapılanlar
 | Parça | Dosya |
@@ -25,22 +25,33 @@ Yordam ortak deseni: `SET XACT_ABORT ON` → tek `BEGIN TRAN` → koşullu `UPDA
 0 satırsa `ROLLBACK` + `THROW 500xx` → `usp_StokHareketYaz` (hareket + `StokDegisti` outbox, transaction dışında çağrılırsa 50020) → `COMMIT`.
 Hata kodları: 50001 stok yetersiz, 50002 sevk için rezerve yok, 50003 iptal için rezerve yok, 50004 sayım < rezerve, 50010 geçersiz adet.
 
-### Test sonuçları (gerçek çıktı)
+### Ortam
+- `ms` login'ine sysadmin verildi (ürün sahibi). `PazaryeriHub` ve `PazaryeriHub_Test` oluşturuldu:
+  `Turkish_CI_AS`, RCSI açık, snapshot açık, **AUTO_CLOSE kapalı** (Express varsayılan olarak açıyordu; bootstrapper ve provision script'i artık kapatıyor).
+- Test bağlantısı test projesinin user-secrets'ında (`ConnectionStrings:PazaryeriHubTest`).
+
+### Test sonuçları (gerçek çıktı, `PazaryeriHub_Test` üzerinde)
 - `dotnet build`: 0 hata, 0 uyarı.
-- **Unit: 43/43 geçti** (allocator (d) dahil: pay %, FLOOR, güvenlik stoğu, depo toplamı, negatif→0, üst limit, geçersiz girdiler; gömülü script kontrolü).
-- **Integration: 33 başarısız, 2 geçti.** Tek neden: `PazaryeriHub_Test` veritabanı sunucuda **yok**
-  (`Cannot open database "PazaryeriHub_Test" requested by the login`). Geçen 2 test DB gerektirmeyenler.
-- SQL script'leri sunucuda `SET PARSEONLY ON` ile ayrıştırıldı: **8/8 sözdizimi OK**. Bu yalnızca sözdizimini doğrular; çalışma zamanı davranışını (kilitler, CHECK'ler, nesne çözümleme) değil.
+- **Unit: 43/43 geçti.**
+- **Integration: 35/35 geçti, 0 atlanan.** Stok testleri (15 test) ayrıca 3 kez tekrar koşuldu: her seferinde 15/15.
+- `db/provision/001_create_database.sql` sqlcmd ile çalıştırıldı: çıkış kodu 0 (idempotent).
+
+### Uygulama ile uçtan uca (gerçek `PazaryeriHub` veritabanı, Development)
+- Açılışta DbUp çalıştı: journal'da `0001_temel_sema.sql`, `0002_baslangic_verisi.sql`; 13 tablo + `SchemaVersions`, 8 yordam, 11 Hangfire tablosu.
+- `GET /health` → **200**, `Healthy` (sqlserver: RCSI/snapshot true, SQL 17; hangfire: 1 aktif sunucu). Logda Error/Fatal yok.
 
 ### Kabul kriterleri
 | Kriter | Test | Durum |
 |---|---|---|
-| (a) 100 paralel rezervasyonda stok eksiye düşmez | `StockConcurrencyTests` (2 test) | ❌ Yazıldı, **çalıştırılamadı** (DB yok) |
-| (b) rezerve→iptal→sevk bakiyeleri doğru | `StockFlowTests` (9 test) | ❌ Yazıldı, **çalıştırılamadı** |
-| (c) her değişiklikte hareket + outbox | `LedgerAuditTests` (3 test) | ❌ Yazıldı, **çalıştırılamadı** |
-| (d) allocator birim testleri | `StockAllocatorTests` | ✅ **Geçti** |
-| Ek: collation, unique/filtreli indeks, ISJSON, CHECK, migration tekrarı | `SchemaTests` | ❌ Yazıldı, **çalıştırılamadı** |
-| Aşama 0: `/health` 200 | `HealthWithDatabaseTests` | ❌ Çalıştırılamadı |
+| (a) 100 paralel rezervasyonda stok eksiye düşmez | `StockConcurrencyTests` (2 test) | ✅ Geçti: 50 stok / 100 istek → 50 başarılı, 50 `InsufficientStock`, Rezerve=50, 50 hareket + 50 outbox |
+| (b) rezerve→iptal→sevk bakiyeleri doğru | `StockFlowTests` (10 test) | ✅ Geçti: hatalı işlemler bakiye/hareket/outbox'ı değiştirmiyor |
+| (c) her değişiklikte hareket + outbox | `LedgerAuditTests` (3 test) | ✅ Geçti: 6 işlem tipinin her biri tam 1 hareket + 1 outbox; payload bakiye ile tutarlı |
+| (d) allocator birim testleri | `StockAllocatorTests` | ✅ Geçti |
+| Ek: collation, i/İ ayrımı, unique/filtreli indeks, ISJSON, CHECK, migration tekrarı | `SchemaTests` (17 test) | ✅ Geçti |
+| **"Testcontainers ile"** koşulu | `TestDatabase` konteyner yolu | ⚠️ Kod yazıldı ama **Docker olmadığı için çalıştırılmadı**; testler gerçek SQL Server'da (`PazaryeriHub_Test`) koştu |
+
+Not: (a) testinde koşullu UPDATE olmasaydı bile `CK_StockBalance_RezerveFiziksel` CHECK'i eksiye düşmeyi engellerdi (hata 547 ile).
+Koşullu UPDATE, bu durumu iş hatası (50001) olarak ve satır kilidiyle düzgün çözüyor; CHECK ikinci güvenlik ağı.
 
 ### Spesifikasyona yapılan ekler / yorumlar (gözden geçirilmeli)
 - `[Order].StokYetersiz BIT`: ilke 7'deki "stok yetersiz bayrağı" için kolon listesine **ek**.
@@ -53,9 +64,10 @@ Hata kodları: 50001 stok yetersiz, 50002 sevk için rezerve yok, 50003 iptal i�
 - Güvenlik stoğu rezervasyonu **engellemez** (spesifikasyon koşulu `Fiziksel - Rezerve >= Adet`). Testle belgelendi.
 - Yordamlar dış bir transaction içinde çağrılırsa hata durumunda dış transaction da geri alınır (XACT_ABORT). Aşama 3'te sipariş kaydı ile rezervasyon ayrı transaction'larda yapılmalı.
 
-### Engel
-`PazaryeriHub` ve `PazaryeriHub_Test` veritabanları sunucuda (bu makinedeki `SQLEXPRESS`, port 1434) hâlâ yok.
-Sunucudaki tek kullanıcı veritabanı `MarketplaceStockSync`.
+### Kalan eksikler
+- Docker yok: `docker compose up` (Aşama 0 kabulü) ve Testcontainers yolu doğrulanmadı.
+- Güvenlik stoğu (`GuvenlikStogu`) için uygulama düzeyi API yok; Aşama 2 (stok/ayarlar) ile gelecek.
+- Outbox tüketimi (READPAST) Aşama 4'te.
 
 ---
 
@@ -67,7 +79,7 @@ Sunucudaki tek kullanıcı veritabanı `MarketplaceStockSync`.
 | Testler | ✅ `dotnet test` bastırma olmadan: Unit 18/18, Integration 2 geçti, 1 atlandı (gerçek DB testi). |
 | .NET sürümü | ✅ .NET 10 kararı ürün sahibince onaylandı (ADR-002). |
 | SQL sunucusu | Hedef: SQL Server 2025 (17.0) **Express**, collation `Turkish_CI_AS` (ADR-003). |
-| Veritabanı oluşturma | ❌ **Engelli.** `ms` login'inin `CREATE DATABASE` yetkisi yok (sysadmin=0, dbcreator=0). Uygulama denedi → **SQL hata 262**; `/health` → **503**. Çözüm: bir sysadmin `db/provision/001_create_database.sql` script'ini çalıştırmalı. |
+| Veritabanı oluşturma | ✅ (güncel durum için yukarıdaki Aşama 1 bölümüne bakın) Önceki durum: ❌ **Engelli.** `ms` login'inin `CREATE DATABASE` yetkisi yok (sysadmin=0, dbcreator=0). Uygulama denedi → **SQL hata 262**; `/health` → **503**. Çözüm: bir sysadmin `db/provision/001_create_database.sql` script'ini çalıştırmalı. |
 | Gizli bilgi | ✅ Test dosyasındaki gerçek SQL parolası sahte değerle değiştirildi. Bağlantı dizesi yalnızca user-secrets'ta. `*.xlsx` `.gitignore`'a eklendi (repo public). |
 | ADR | ✅ `docs/decisions.md` oluşturuldu (ADR-001…007). |
 | Migration aracı | DbUp seçildi (ADR-004); henüz uygulanmadı (Aşama 1). |

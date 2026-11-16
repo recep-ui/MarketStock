@@ -56,6 +56,9 @@ public sealed class DatabaseBootstrapper(
                     EXEC (N'ALTER DATABASE ' + @q + N' SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;');
                 IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @DbName AND snapshot_isolation_state = 0)
                     EXEC (N'ALTER DATABASE ' + @q + N' SET ALLOW_SNAPSHOT_ISOLATION ON;');
+                -- SQL Express yeni veritabanlarında AUTO_CLOSE'u açar; sürekli bağlanan uygulamada (Hangfire) performansı düşürür.
+                IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @DbName AND is_auto_close_on = 1)
+                    EXEC (N'ALTER DATABASE ' + @q + N' SET AUTO_CLOSE OFF;');
                 """;
 
             await using var command = new SqlCommand(sql, connection) { CommandTimeout = options.Value.BootstrapTimeoutSeconds };

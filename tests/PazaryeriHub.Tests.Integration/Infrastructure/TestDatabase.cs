@@ -177,6 +177,7 @@ public sealed class TestDatabase : IAsyncLifetime
                 IF DB_ID(N'PazaryeriHub_Test') IS NULL CREATE DATABASE PazaryeriHub_Test COLLATE Turkish_CI_AS;
                 ALTER DATABASE PazaryeriHub_Test SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
                 ALTER DATABASE PazaryeriHub_Test SET ALLOW_SNAPSHOT_ISOLATION ON;
+                ALTER DATABASE PazaryeriHub_Test SET AUTO_CLOSE OFF;
                 """);
         }
 
