@@ -77,3 +77,19 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 ## ADR-011: Güvenlik stoğu değişikliği
 **Tarih:** 2026-11-16
 **Karar:** `usp_GuvenlikStoguAyarla` fiziksel/rezerve değiştirmediği için `StockMovement` yazmaz (hareket tipleri spesifikasyonda sabit); satılabilir değiştiği için aynı transaction'da outbox'a `StokDegisti` (Tip=`GUVENLIK_STOGU`) yazar.
+
+## ADR-012: Sipariş çekirdeği: idempotentlik, stok uzlaştırma ve job durumu
+**Tarih:** 2026-11-16
+**Bağlam:** Aynı sipariş örtüşmeli pencere, yeniden deneme veya paralel çalışma nedeniyle defalarca gelebilir; stok iki kez etkilenmemeli (ilke 4). Sipariş kaydı ile stok yordamları ayrı transaction'larda çalışır (yordamlar kendi transaction'ını yönetir ve XACT_ABORT ile dış transaction'ı da geri alır).
+**Karar:**
+- Sipariş: `UNIQUE(ChannelId, KanalSiparisNo)`; eşzamanlı ikinci kayıt 2601/2627 alır ve mevcut kayıtla devam eder.
+- Satır stok hareketleri `KaynakTip='SIPARIS_SATIRI'`, `KaynakId='OL:{OrderLine.Id}'`; filtreli `UNIQUE(KaynakId, Tip)` ile her satır için REZERVE / REZERVE_IPTAL / SEVK en fazla birer kez. İkinci deneme yordamın transaction'ını geri aldırır (2601) ve "zaten yapılmış" sayılır.
+- **Hedef duruma uzlaştırma:** her işlemede siparişin durumuna göre (Yeni/Onaylandı/Hazırlanıyor → rezerve; Kargoda/TeslimEdildi/İade → sevk; İptal → rezerv iadesi) eksik stok adımı yapılır. Yarıda kalan işlem bir sonraki işlemede tamamlanır.
+- **Oversell:** rezerve edilemeyen satır siparişi reddetmez; `StokYetersiz=1`. Sonraki işlemede stok varsa rezerve edilir ve bayrak kalkar.
+- **Durum geçişi:** panelde yalnızca tek adım; kanaldan gelen ileri atlamada (ör. Yeni → Kargoda) ara adımlar da OrderEvent'e yazılır. Geri dönüş ve son durumdan (İptal/İade) çıkış her iki kaynakta reddedilir. Sipariş satırı `UPDLOCK` ile kilitlenir.
+- **Eşleştirme sırası:** kanal barkodu → kanal ürün kodu (ChannelListing) → SKU barkodu → satıcı SKU kodu. Eşleşmeyen satır `SkuId=NULL` kaydedilir, stoğu etkilemez.
+- **Depo:** çoklu depo stratejisi netleşene kadar rezervasyonlar `Siparis:DefaultWarehouseName` ("Ana Depo") deposundan.
+- **SiparisCek:** kanal başına tekrarlayan job (`*/2 * * * *`), pencere başı = son başarılı çalışmanın başlangıcı − 10 dk (ilk çalışmada 24 saat geriye). `DisableConcurrentExecution`; otomatik yeniden deneme yok (bir sonraki tetikleme yeniden dener). Beklenmeyen hatada pencere ilerletilmez. Durum yeni `ChannelJobState` tablosunda (spesifikasyon listesine **ek**).
+- Siparişlerde EF yerine Dapper: koşullu güncelleme, kilit ipuçları ve transaction sınırları açıkça yazılabilsin diye (ADR-010'un istisnası).
+- Kanal adaptörleri: Aşama 6'ya kadar tüm kanallar bellek içi `MockChannelAdapter` (`Adapters.Mock`). Gerçek pazaryeri API'si çağrılmaz.
+**Kapsam dışı / sonraya:** sipariş durumunun kanala bildirilmesi (`UpdateOrderStatusAsync`, Hangfire job'ı olarak) ve `IadeCek`.

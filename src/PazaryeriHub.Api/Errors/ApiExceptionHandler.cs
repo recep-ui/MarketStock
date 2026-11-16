@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using PazaryeriHub.Application.Common;
+using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Application.Stock;
 
 namespace PazaryeriHub.Api.Errors;
@@ -22,12 +23,13 @@ internal sealed class ApiExceptionHandler(IProblemDetailsService problemDetails,
                 Title = "Girdi doğrulanamadı."
             },
             NotFoundException nf => Problem(StatusCodes.Status404NotFound, "Kayıt bulunamadı.", nf.Message),
+            InvalidOrderTransitionException t => Problem(StatusCodes.Status409Conflict, "Geçersiz durum geçişi.", t.Message),
             ConflictException c => Problem(StatusCodes.Status409Conflict, "İşlem yapılamadı.", c.Message),
             StockOperationException { Code: StockErrorCode.InvalidQuantity } s => WithCode(Problem(StatusCodes.Status400BadRequest, "Geçersiz miktar.", s.Message), s.Code),
             StockOperationException s => WithCode(Problem(StatusCodes.Status409Conflict, "Stok işlemi yapılamadı.", s.Message), s.Code),
             SqlException { Number: 547 } sql when sql.Message.Contains("FOREIGN KEY", StringComparison.OrdinalIgnoreCase)
                 => Problem(StatusCodes.Status400BadRequest, "Geçersiz başvuru.", "Belirtilen SKU veya depo bulunamadı."),
-            BadHttpRequestException b => Problem(b.StatusCode, "İstek okunamadı.", "İstek gövdesi geçersiz veya eksik."),
+            BadHttpRequestException b => Problem(b.StatusCode, "İstek okunamadı.", "İstek parametreleri veya gövdesi geçersiz ya da eksik."),
             _ => null
         };
 

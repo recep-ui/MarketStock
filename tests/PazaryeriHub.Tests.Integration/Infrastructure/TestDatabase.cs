@@ -38,8 +38,14 @@ public sealed class TestDatabase : IAsyncLifetime
     private ApiFactory? _api;
     private HttpClient? _client;
 
-    /// <summary>Test veritabanına bağlı, testler arasında paylaşılan bellek içi API istemcisi.</summary>
-    public HttpClient Api => _client ??= (_api = new ApiFactory(ConnectionString!)).CreateClient();
+    /// <summary>Test veritabanına bağlı, testler arasında paylaşılan bellek içi API.</summary>
+    public ApiFactory ApiHost => _api ??= new ApiFactory(ConnectionString!);
+
+    /// <summary>Paylaşılan API istemcisi.</summary>
+    public HttpClient Api => _client ??= ApiHost.CreateClient();
+
+    /// <summary>API'nin DI kapsayıcısı (servisleri doğrudan çağırmak için; her işlemde yeni scope açın).</summary>
+    public IServiceProvider Services => ApiHost.Services;
 
     public async ValueTask InitializeAsync()
     {

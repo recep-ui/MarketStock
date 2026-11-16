@@ -7,6 +7,44 @@
 
 ---
 
+## 00000. Aşama 3: Sipariş çekirdeği (2026-11-16): TAMAM (mock adaptörle)
+
+### Yapılanlar
+| Parça | Yer |
+|---|---|
+| `IChannelAdapter` sözleşmesi + normalize tipler (spesifikasyon §6) | `Application/Channels/IChannelAdapter.cs` |
+| Bellek içi mock adaptör (4 kanal) | `Adapters.Mock/MockChannelAdapter.cs` (gerçek API çağrısı YOK) |
+| Durum makinesi (saf) + stok hedefi | `Domain/Orders/OrderStateMachine.cs` |
+| İdempotent kayıt, durum geçişi, stok uzlaştırma, oversell bayrağı | `Infrastructure/Orders/OrderService.cs` (ADR-012) |
+| `SiparisCek` job'ı (örtüşmeli pencere, kanal başına, eşzamanlısız) | `Infrastructure/BackgroundJobs/OrderFetchJob.cs` |
+| Migration 0003: satır başına stok hareketi benzersizliği, `ChannelJobState`, sipariş indeksleri | `Database/Migrations/0003_siparis_cekirdegi.sql` |
+| API: `GET /api/orders` (kanal/durum/tarih/SKU/stok yetersiz/arama filtreli), `GET /api/orders/{id}` (satırlar + zaman çizelgesi), `POST /api/orders/{id}/status` | `Api/Endpoints/OrderEndpoints.cs` |
+| Geliştirme/test uçları: `POST /api/dev/mock/{kanal}/orders`, `POST /api/dev/jobs/order-fetch/{kanal}` (yalnızca Development/Testing) | aynı dosya |
+
+### Testler (gerçek çıktı)
+- `dotnet build`: 0 hata, 0 uyarı.
+- Unit **91/91** (yeni: durum makinesinin 7×7 tüm geçiş matrisi, yol bulma, son durumlar, stok hedefi).
+- Integration **62/62** (yeni 13 sipariş testi). Sipariş testleri ayrıca 5 kez tekrar koşuldu: 5/5 yeşil.
+- Uygulama gerçek `PazaryeriHub`'da açıldı: 0003 uygulandı (`SchemaVersions`), `/health` Healthy, `/api/orders` 200, Hangfire'da `siparis-cek-{trendyol,hepsiburada,beymen,softcotton}` kayıtlı. Ana veritabanına test siparişi yazılmadı.
+
+### Kabul kriterleri
+| Kriter | Test | Durum |
+|---|---|---|
+| Aynı sipariş 5 kez gelse tek kayıt ve tek rezervasyon | `Ayni_siparis_5_kez_arka_arkaya…`, `…ayni_anda…` (5 paralel), `SiparisCek_job_ortusen_pencerelerle…` | ✅ 1 sipariş, satır başına 1 REZERVE hareketi, 1 outbox, Rezerve = adet |
+| Geçersiz durum geçişi reddedilir | `Gecersiz_durum_gecisi_reddedilir…` (API 409; Yeni→TeslimEdildi, Kargoda→İptal, Kargoda→Yeni), `Kanaldan_gelen_geri_donus_reddedilir…` | ✅ sipariş ve zaman çizelgesi değişmedi |
+| Oversell bayrağı | `Stok_yetersizse_siparis_reddedilmez…` | ✅ sipariş kaydedildi, `StokYetersiz=1`, rezerve yok; stok gelince rezerve edildi ve bayrak kalktı |
+| Ek: iptal rezervi iade eder, kargoda sevk eder, ileri atlama ara adımları yazar, eşleşmeyen ürün, kanal barkodu eşleştirmesi, geçersiz veri, pasif kanal, adaptör hatasında pencere ilerlemez | 8 test | ✅ |
+
+Not: paralel testte 5 işlemenin gerçekten aynı anda çakıştığı ölçülmedi; doğruluk test zamanlamasına değil veritabanı kısıtlarına (`UNIQUE` + filtreli unique indeks) dayanıyor.
+
+### Bilinen eksikler
+- Sipariş durumunun kanala bildirilmesi (`UpdateOrderStatusAsync` job'ı) ve `IadeCek` yapılmadı (sonraki aşamalar).
+- Rezervasyon deposu sabit ("Ana Depo"); çoklu depo kararı bekleniyor.
+- Yetkilendirme ve Destek rolü için müşteri maskelemesi Aşama 5'te. Müşteri özetinde yalnızca ad soyad, il, ilçe tutuluyor (KVKK).
+- Kanallar seed'de pasif; SiparisCek pasif kanalda hemen çıkar. Gerçek adaptörler Aşama 6'da.
+
+---
+
 ## 0000. Aşama 2: Katalog + Excel (2026-11-16): TAMAM
 
 ### Yapılanlar

@@ -12,6 +12,7 @@ COPY src/PazaryeriHub.Adapters.Trendyol/PazaryeriHub.Adapters.Trendyol.csproj sr
 COPY src/PazaryeriHub.Adapters.Hepsiburada/PazaryeriHub.Adapters.Hepsiburada.csproj src/PazaryeriHub.Adapters.Hepsiburada/
 COPY src/PazaryeriHub.Adapters.Beymen/PazaryeriHub.Adapters.Beymen.csproj src/PazaryeriHub.Adapters.Beymen/
 COPY src/PazaryeriHub.Adapters.Softcotton/PazaryeriHub.Adapters.Softcotton.csproj src/PazaryeriHub.Adapters.Softcotton/
+COPY src/PazaryeriHub.Adapters.Mock/PazaryeriHub.Adapters.Mock.csproj src/PazaryeriHub.Adapters.Mock/
 COPY src/PazaryeriHub.Api/PazaryeriHub.Api.csproj src/PazaryeriHub.Api/
 RUN dotnet restore src/PazaryeriHub.Api/PazaryeriHub.Api.csproj
 

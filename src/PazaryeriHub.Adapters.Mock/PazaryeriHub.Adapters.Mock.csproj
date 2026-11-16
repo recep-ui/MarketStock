@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Tüm kanallar için bellek içi sahte adaptör (geliştirme, test, demo). Yalnızca Application'a bağımlıdır. -->
+  <ItemGroup>
+    <ProjectReference Include="..\PazaryeriHub.Application\PazaryeriHub.Application.csproj" />
+  </ItemGroup>
+</Project>

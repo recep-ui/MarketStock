@@ -20,6 +20,8 @@ public sealed class ApiFactory(string connectionString) : WebApplicationFactory<
                 ["ConnectionStrings:PazaryeriHub"] = connectionString,
                 ["Database:AutoCreate"] = "false",
                 ["Hangfire:HeartbeatCron"] = "",
+                // Testlerde SiparisCek arka planda çalışmaz; testler job'ı doğrudan çağırır.
+                ["Siparis:FetchCron"] = "",
                 ["Hangfire:SchedulePollingIntervalSeconds"] = "1",
                 // Test logları kaynak ağacını kirletmesin diye geçici klasöre yazılır
                 ["Serilog:WriteTo:1:Args:path"] = Path.Combine(Path.GetTempPath(), "pazaryerihub-tests", "log-.json")

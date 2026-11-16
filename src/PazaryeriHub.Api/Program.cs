@@ -3,7 +3,10 @@ using Hangfire;
 using Microsoft.Extensions.Options;
 using PazaryeriHub.Api.Endpoints;
 using PazaryeriHub.Api.Errors;
+using PazaryeriHub.Adapters.Mock;
 using PazaryeriHub.Api.Health;
+using PazaryeriHub.Application.Channels;
+using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Infrastructure;
 using PazaryeriHub.Infrastructure.Database;
 using PazaryeriHub.Infrastructure.Logging;
@@ -30,6 +33,14 @@ try
         preserveStaticLogger: true);
 
     builder.Services.AddPazaryeriHubInfrastructure();
+
+    // Kanal adaptörleri. Gerçek adaptörler (Aşama 6) doğrulanana kadar tüm kanallar bellek içi MOCK ile çalışır.
+    // TODO: doğrulanmalı — Trendyol/Hepsiburada/Beymen/softcotton gerçek entegrasyonları.
+    builder.Services.AddSingleton<MockChannelStore>();
+    foreach (var code in ChannelCodes.All)
+    {
+        builder.Services.AddSingleton<IChannelAdapter>(sp => new MockChannelAdapter(code, sp.GetRequiredService<MockChannelStore>()));
+    }
 
     // Hatalar Türkçe ProblemDetails olarak döner; 500'lerde ayrıntı sızdırılmaz.
     builder.Services.AddProblemDetails();
@@ -63,6 +74,7 @@ try
     app.MapPazaryeriHubHealthChecks();
     app.MapCatalogEndpoints();
     app.MapChannelEndpoints();
+    app.MapOrderEndpoints(app.Environment);
 
     if (app.Environment.IsDevelopment())
     {

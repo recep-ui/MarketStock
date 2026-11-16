@@ -3,6 +3,9 @@ using Hangfire.SqlServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using PazaryeriHub.Application.Orders;
+using PazaryeriHub.Infrastructure.Orders;
 using PazaryeriHub.Application.Catalog;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Excel;
@@ -40,6 +43,13 @@ public static class DependencyInjection
         services.AddScoped<ICatalogService, CatalogService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
+
+        // Siparişler (Dapper). Kanal adaptörleri (IChannelAdapter) bileşim kökünde (Api) kaydedilir.
+        services.AddOptions<OrderOptions>().BindConfiguration(OrderOptions.SectionName);
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddScoped<OrderService>();
+        services.AddScoped<IOrderIngestionService>(sp => sp.GetRequiredService<OrderService>());
+        services.AddScoped<IOrderService>(sp => sp.GetRequiredService<OrderService>());
 
         AddHangfire(services);
 
@@ -87,6 +97,7 @@ public static class DependencyInjection
         });
 
         services.AddTransient<HeartbeatJob>();
+        services.AddTransient<OrderFetchJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

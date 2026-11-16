@@ -2,6 +2,8 @@ using Hangfire;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PazaryeriHub.Application.Channels;
+using PazaryeriHub.Application.Orders;
 
 namespace PazaryeriHub.Infrastructure.BackgroundJobs;
 
@@ -12,6 +14,8 @@ namespace PazaryeriHub.Infrastructure.BackgroundJobs;
 public sealed class RecurringJobRegistrar(
     IRecurringJobManager recurringJobs,
     IOptions<HangfireSettings> settings,
+    IOptions<OrderOptions> orderOptions,
+    IEnumerable<IChannelAdapter> adapters,
     ILogger<RecurringJobRegistrar> logger) : BackgroundService
 {
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
@@ -45,17 +49,31 @@ public sealed class RecurringJobRegistrar(
 
     private void Register()
     {
+        var utc = new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc };
+
         var cron = settings.Value.HeartbeatCron;
         if (string.IsNullOrWhiteSpace(cron))
         {
             recurringJobs.RemoveIfExists(HeartbeatJob.RecurringJobId);
-            return;
+        }
+        else
+        {
+            recurringJobs.AddOrUpdate<HeartbeatJob>(HeartbeatJob.RecurringJobId, job => job.RunAsync(), cron, utc);
         }
 
-        recurringJobs.AddOrUpdate<HeartbeatJob>(
-            HeartbeatJob.RecurringJobId,
-            job => job.RunAsync(),
-            cron,
-            new RecurringJobOptions { TimeZone = TimeZoneInfo.Utc });
+        // SiparisCek: kayıtlı her kanal adaptörü için bir tekrarlayan job. Pasif kanallarda job hemen çıkar.
+        var fetchCron = orderOptions.Value.FetchCron;
+        foreach (var code in adapters.Select(a => a.ChannelCode).Distinct(StringComparer.Ordinal))
+        {
+            var id = OrderFetchJob.RecurringJobId(code);
+            if (string.IsNullOrWhiteSpace(fetchCron))
+            {
+                recurringJobs.RemoveIfExists(id);
+            }
+            else
+            {
+                recurringJobs.AddOrUpdate<OrderFetchJob>(id, job => job.RunAsync(code, CancellationToken.None), fetchCron, utc);
+            }
+        }
     }
 }

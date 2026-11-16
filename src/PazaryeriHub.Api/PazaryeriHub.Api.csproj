@@ -14,5 +14,6 @@
     <ProjectReference Include="..\PazaryeriHub.Adapters.Hepsiburada\PazaryeriHub.Adapters.Hepsiburada.csproj" />
     <ProjectReference Include="..\PazaryeriHub.Adapters.Beymen\PazaryeriHub.Adapters.Beymen.csproj" />
     <ProjectReference Include="..\PazaryeriHub.Adapters.Softcotton\PazaryeriHub.Adapters.Softcotton.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Adapters.Mock\PazaryeriHub.Adapters.Mock.csproj" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PazaryeriHub.Adapters.Beymen/PazaryeriHub.Adapters.Beymen.csproj" />
+    <Project Path="src/PazaryeriHub.Adapters.Mock/PazaryeriHub.Adapters.Mock.csproj" />
     <Project Path="src/PazaryeriHub.Adapters.Hepsiburada/PazaryeriHub.Adapters.Hepsiburada.csproj" />
     <Project Path="src/PazaryeriHub.Adapters.Softcotton/PazaryeriHub.Adapters.Softcotton.csproj" />
     <Project Path="src/PazaryeriHub.Adapters.Trendyol/PazaryeriHub.Adapters.Trendyol.csproj" />
