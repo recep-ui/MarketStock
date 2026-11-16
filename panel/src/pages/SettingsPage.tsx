@@ -130,6 +130,15 @@ const credentialSpecs: Record<string, CredentialSpec> = {
       { name: 'userAgent', label: 'User-Agent (opsiyonel)' }
     ],
     environments: [['Prod', 'Canlı'], ['Test', 'Test (SIT)']]
+  },
+  BEYMEN: {
+    title: 'Beymen API bilgileri',
+    hint: 'Partner Portal → Hesap Bilgileri → Entegrasyon Bilgileri.',
+    fields: [
+      { name: 'apiKey', label: 'API Key' },
+      { name: 'apiPassword', label: 'API Password', secret: true }
+    ],
+    environments: [['Prod', 'Canlı'], ['Stage', 'Test (stage)']]
   }
 };
 

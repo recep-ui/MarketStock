@@ -52,8 +52,8 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
             (await depot.PutAsJsonAsync($"/api/channels/{trendyol.Id}/credentials", new { sellerId = 1, apiKey = "a", apiSecret = "b", environment = "Prod" }, Ct))
                 .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
-            var beymen = channels!.Single(c => c.Code == "BEYMEN");
-            (await db.Api.PutAsJsonAsync($"/api/channels/{beymen.Id}/credentials", new { x = 1 }, Ct))
+            var softcotton = channels!.Single(c => c.Code == "SOFTCOTTON");
+            (await db.Api.PutAsJsonAsync($"/api/channels/{softcotton.Id}/credentials", new { x = 1 }, Ct))
                 .StatusCode.Should().Be(HttpStatusCode.BadRequest, "gerçek adaptörü olmayan kanala bilgi girilmez");
         }
         finally
@@ -77,6 +77,11 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
         await using var hb = new ApiFactory(db.ConnectionString!, new Dictionary<string, string?> { ["Kanallar:HEPSIBURADA:Mod"] = "Gercek" });
         hb.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "HEPSIBURADA")
             .Should().BeOfType<PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter>();
+
+        await using var by = new ApiFactory(db.ConnectionString!, new Dictionary<string, string?> { ["Kanallar:BEYMEN:Mod"] = "Gercek" });
+        by.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "BEYMEN")
+            .Should().BeOfType<PazaryeriHub.Adapters.Beymen.BeymenAdapter>();
+        by.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "SOFTCOTTON").Should().BeOfType<MockChannelAdapter>();
 
         // Kimlik bilgisi yokken gerçek adaptör dış çağrı yapmadan sade hata verir
         var act = () => adapters.Single(a => a.ChannelCode == "TRENDYOL").FetchOrdersAsync(DateTime.UtcNow.AddHours(-1), Ct);

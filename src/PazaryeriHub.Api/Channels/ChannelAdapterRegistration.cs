@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
+using PazaryeriHub.Adapters.Beymen;
 using PazaryeriHub.Adapters.Hepsiburada;
 using PazaryeriHub.Adapters.Mock;
 using PazaryeriHub.Adapters.Trendyol;
@@ -32,9 +33,13 @@ public static class ChannelAdapterRegistration
             {
                 AddHepsiburada(services);
             }
+            else if (mode == ChannelMode.Gercek && code == BeymenAdapter.Code)
+            {
+                AddBeymen(services);
+            }
             else
             {
-                // TODO: doğrulanmalı — Beymen gerçek adaptörü sırada; softcotton altyapısı bilinmiyor.
+                // TODO: doğrulanmalı — softcotton.com.tr altyapısı bilinmiyor; mock ile çalışır.
                 services.AddSingleton<IChannelAdapter>(sp => new MockChannelAdapter(code, sp.GetRequiredService<MockChannelStore>()));
             }
         }
@@ -63,6 +68,29 @@ public static class ChannelAdapterRegistration
                 builder.AddTimeout(TimeSpan.FromSeconds(30));
             });
         services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<HepsiburadaAdapter>());
+    }
+
+    /// <summary>
+    /// Beymen HTTP istemcisi. Dokümanda hız limiti yazılmamış; muhafazakâr olarak saniyede 5 istek. // TODO: doğrulanmalı
+    /// </summary>
+    private static void AddBeymen(IServiceCollection services)
+    {
+        services.AddHttpClient<BeymenAdapter>(client => client.Timeout = TimeSpan.FromMinutes(2))
+            .AddHttpMessageHandler(sp => new ChannelCallLoggingHandler(BeymenAdapter.Code, sp.GetRequiredService<ILogger<ChannelCallLoggingHandler>>()))
+            .AddResilienceHandler("beymen", builder =>
+            {
+                builder.AddRateLimiter(new SlidingWindowRateLimiter(new SlidingWindowRateLimiterOptions
+                {
+                    PermitLimit = 5,
+                    Window = TimeSpan.FromSeconds(1),
+                    SegmentsPerWindow = 4,
+                    QueueLimit = 500,
+                    QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+                }));
+                builder.AddRetry(RetryOptions());
+                builder.AddTimeout(TimeSpan.FromSeconds(30));
+            });
+        services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<BeymenAdapter>());
     }
 
     private static HttpRetryStrategyOptions RetryOptions() => new()

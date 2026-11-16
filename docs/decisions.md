@@ -146,3 +146,13 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - Siparişler kalem bazlı ve durumlar ayrı uçlarda: ödeme bekleyen (→ Yeni; doküman stok rezerve edilmesini istiyor), ödemesi tamamlanmış/Open (→ Onaylandı), kargoya verilen (→ Kargoda), teslim edilen (→ Teslim edildi), iptal (→ İptal). Kargo/teslim/iptal listeleri satır taşımadığından sipariş kayıt servisi artık **kayıtlı siparişe satırsız durum güncellemesini** kabul eder; satırsız yeni sipariş reddedilir.
 - Durum listeleri yalnızca son 1 ayı döner ve tarih penceresi en fazla 24 saattir → çekme aralığı 24 saatlik parçalara bölünür.
 - **Doğrulanmamış (TODO):** kullanıcı adı/şifre karşılığı; begindate/enddate biçimi ve saat dilimi (şimdilik `yyyy-MM-dd HH:mm`, Türkiye saati); POST stok yanıtındaki `id`; sonuç `errors[]` şeması; liste yanıtlarının kök şeması (kök dizi veya `items`/`listings`); `orderDate` saat dilimi; teslim edilemeyen uç yolu; kısmi iptal (şimdilik sipariş bütünüyle İptal); "aynı anda en fazla 5 bekleyen yükleme" sınırı; iade (Talep Entegrasyonu) uçları okunmadı → `FetchReturnsAsync` desteklenmiyor.
+
+## ADR-019: Beymen adaptörü
+**Tarih:** 2026-11-16
+**Karar (kaynak: https://partner-docs.beymen.com/en):**
+- Kimlik: `Basic Base64(ApiKey:ApiPassword)`; Prod `partner-api.beymen.com`, Stage `stage-partner-api.beymen.com`.
+- Eşleştirme anahtarı Beymen **productId (GUID)** ("Kanal Ürün Kodu"); barkod "Kanal Barkod". Stok: `POST /batch/products/price-stock` `{items:[{productId, quantity}]}` (≤1000, 0–1.000.000), sonuç `GET /batch/products/price-stock/{processId}`; HTTP 400 "The matching is incomplete." = beklemede.
+- Kanal sipariş no = `"{orderNumber}/{shipmentNumber}"` (paket bölünebilir). Durumlar: NewOrder 1 → Yeni, ReadyToShip 2 → Hazırlanıyor, Shipped 4 → Kargoda, DeliveredToCustomer 8 → Teslim edildi, Cancelled 16 → İptal (teslim edilemeyen gönderi `isReturnedShipment` → İade), Divided 32 → İptal (kalemler yeni paketlerde).
+- Siparişlerde son güncellenme alanı yok; tarih filtresi sipariş tarihine göre → her çalışmada en az **7 gün** geriye bakılır (durum değişiklikleri için) + iptaller ayrıca iptal tarihine göre çekilir.
+- İadeler `GET /claims`; kanal stoğu `GET /products/price-stock/search` (productId ile filtre yok → sayfalanıp süzülür).
+- **Doğrulanmamış (TODO):** tarih parametre biçimi (ISO 8601 UTC gönderiliyor); hız limiti (dokümanda yok; 5 istek/sn uygulanıyor); 7 günlük geriye bakışın hacme uygunluğu; sipariş durumu bildirimi (picking/kargo) henüz yok.

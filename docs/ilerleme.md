@@ -7,6 +7,15 @@
 
 ---
 
+## Aşama 6c: Beymen adaptörü (2026-11-16): KOD + CONTRACT TESTLERİ TAMAM, GERÇEK HESAPLA DOĞRULANMADI
+
+- Gerçek `BeymenAdapter`: toplu stok + sonuç, kanal stoğu, siparişler (yeni + son 7 gün durum takibi + iptaller), iadeler (claims). Panelde API bilgisi formu.
+- **Testler:** Unit 161/161 (yeni 17 Beymen contract testi), Integration 93/93, Playwright 5/5.
+- Doğrulanmamış noktalar ADR-019'da.
+- **Aşama 6 genel durum:** Trendyol, Hepsiburada, Beymen gerçek adaptörleri yazıldı ve contract testleriyle doğrulandı; üçü de varsayılan olarak Mock modda. softcotton.com.tr altyapısı bilinmediği için mock. Kabul kriteri ("sandbox varsa onunla, yoksa kaydedilmiş örnek yanıtlarla") **örnek yanıtlar resmi doküman şemasından hazırlandığı için kısmen** sağlandı; gerçek hesapla yapılacak ilk denemede yanıtlar kaydedilip testlere eklenmeli.
+
+---
+
 ## Aşama 6b: Hepsiburada adaptörü (2026-11-16): KOD + CONTRACT TESTLERİ TAMAM, GERÇEK HESAPLA DOĞRULANMADI
 
 - Gerçek `HepsiburadaAdapter`: stok gönderme + yükleme sonucu, kanal stoğu (listing sorgusu), siparişler (ödeme bekleyen, açık, kargoda, teslim, iptal). İade (talep) entegrasyonu henüz yok.
