@@ -1,0 +1,6 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <!-- softcotton.com.tr kanal adaptörü. Yalnızca Application (sözleşmeler) katmanına bağımlıdır; Infrastructure/Api'ye bağımlı olamaz. -->
+  <ItemGroup>
+    <ProjectReference Include="..\PazaryeriHub.Application\PazaryeriHub.Application.csproj" />
+  </ItemGroup>
+</Project>

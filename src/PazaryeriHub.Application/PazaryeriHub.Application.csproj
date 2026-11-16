@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Uygulama katmanı: kullanım senaryoları ve kanal sözleşmeleri (IChannelAdapter). Yalnızca Domain'e bağımlıdır. -->
+  <ItemGroup>
+    <ProjectReference Include="..\PazaryeriHub.Domain\PazaryeriHub.Domain.csproj" />
+  </ItemGroup>
+</Project>

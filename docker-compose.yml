@@ -1,0 +1,41 @@
+# PazaryeriHub geliştirme ortamı: API + SQL Server.
+# Panel servisi Aşama 5'te eklenecek.
+# Kullanım: .env.example dosyasını .env olarak kopyalayıp parolayı belirleyin, sonra: docker compose up --build
+name: pazaryerihub
+
+services:
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_COLLATION: "Turkish_CI_AS"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD .env dosyasında tanımlanmalı}
+    ports:
+      - "14330:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q \"SELECT 1\" -b -o /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  api:
+    build:
+      context: .
+      dockerfile: src/PazaryeriHub.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Production"
+      ConnectionStrings__PazaryeriHub: "Data Source=mssql,1433;Initial Catalog=PazaryeriHub;User ID=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;Application Name=PazaryeriHub.Api"
+      # Konteyner içindeki geliştirme SQL Server'ında veritabanını uygulama oluşturur.
+      Database__AutoCreate: "true"
+    ports:
+      - "5080:8080"
+    depends_on:
+      mssql:
+        condition: service_healthy
+
+volumes:
+  mssql-data:

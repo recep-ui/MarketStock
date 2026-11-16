@@ -1,0 +1,16 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PazaryeriHub.Adapters.Beymen/PazaryeriHub.Adapters.Beymen.csproj" />
+    <Project Path="src/PazaryeriHub.Adapters.Hepsiburada/PazaryeriHub.Adapters.Hepsiburada.csproj" />
+    <Project Path="src/PazaryeriHub.Adapters.Softcotton/PazaryeriHub.Adapters.Softcotton.csproj" />
+    <Project Path="src/PazaryeriHub.Adapters.Trendyol/PazaryeriHub.Adapters.Trendyol.csproj" />
+    <Project Path="src/PazaryeriHub.Api/PazaryeriHub.Api.csproj" />
+    <Project Path="src/PazaryeriHub.Application/PazaryeriHub.Application.csproj" />
+    <Project Path="src/PazaryeriHub.Domain/PazaryeriHub.Domain.csproj" />
+    <Project Path="src/PazaryeriHub.Infrastructure/PazaryeriHub.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PazaryeriHub.Tests.Integration/PazaryeriHub.Tests.Integration.csproj" />
+    <Project Path="tests/PazaryeriHub.Tests.Unit/PazaryeriHub.Tests.Unit.csproj" />
+  </Folder>
+</Solution>

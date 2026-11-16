@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/logs/
+**/.vs/
+**/.vscode/
+**/*.user
+**/TestResults/
+.git/
+.env
+tests/
+docs/
+*.xlsx

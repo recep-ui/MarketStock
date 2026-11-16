@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Bileşim kökü (composition root): tüm katmanları ve adaptörleri bir araya getirir. -->
+  <PropertyGroup>
+    <UserSecretsId>pazaryerihub-api-7d3c0f6e</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" />
+    <PackageReference Include="Serilog.Sinks.File" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PazaryeriHub.Application\PazaryeriHub.Application.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Infrastructure\PazaryeriHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Adapters.Trendyol\PazaryeriHub.Adapters.Trendyol.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Adapters.Hepsiburada\PazaryeriHub.Adapters.Hepsiburada.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Adapters.Beymen\PazaryeriHub.Adapters.Beymen.csproj" />
+    <ProjectReference Include="..\PazaryeriHub.Adapters.Softcotton\PazaryeriHub.Adapters.Softcotton.csproj" />
+  </ItemGroup>
+</Project>
