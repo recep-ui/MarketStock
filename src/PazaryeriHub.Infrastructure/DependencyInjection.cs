@@ -2,9 +2,16 @@ using Hangfire;
 using Hangfire.SqlServer;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
+using PazaryeriHub.Application.Catalog;
+using PazaryeriHub.Application.Channels;
+using PazaryeriHub.Application.Excel;
 using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Infrastructure.BackgroundJobs;
+using PazaryeriHub.Infrastructure.Catalog;
+using PazaryeriHub.Infrastructure.Channels;
 using PazaryeriHub.Infrastructure.Database;
+using PazaryeriHub.Infrastructure.Excel;
 using PazaryeriHub.Infrastructure.Stock;
 using PazaryeriHub.Infrastructure.Health;
 using PazaryeriHub.Infrastructure.Persistence;
@@ -25,6 +32,14 @@ public static class DependencyInjection
         services.AddSingleton<DatabaseBootstrapper>();
         services.AddSingleton<DatabaseMigrator>();
         services.AddSingleton<IStockLedger, SqlStockLedger>();
+
+        // Genel CRUD: EF Core. Bağlantı dizesi DbContext oluşturulurken (tembel) okunur.
+        services.AddDbContext<PazaryeriHubDbContext>((sp, options) =>
+            options.UseSqlServer(sp.GetRequiredService<SqlConnectionFactory>().ConnectionString)
+                   .UseQueryTrackingBehavior(QueryTrackingBehavior.TrackAll));
+        services.AddScoped<ICatalogService, CatalogService>();
+        services.AddScoped<IChannelService, ChannelService>();
+        services.AddScoped<IExcelTransferService, ExcelTransferService>();
 
         AddHangfire(services);
 

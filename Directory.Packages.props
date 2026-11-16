@@ -18,6 +18,10 @@
     <!-- Veri erişimi -->
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.2" />
     <PackageVersion Include="Dapper" Version="2.1.89" />
+    <!-- Genel CRUD (şemayı DbUp yönetir, EF migration kullanılmaz) -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.15" />
+    <!-- Excel içe/dışa aktarma (MIT lisanslı; bkz. ADR-009) -->
+    <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <!-- Sürümlü SQL migration'ları (bkz. docs/decisions.md ADR-004) -->
     <PackageVersion Include="dbup-sqlserver" Version="7.2.0" />
     <!-- Test -->

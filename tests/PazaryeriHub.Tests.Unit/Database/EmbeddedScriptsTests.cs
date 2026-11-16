@@ -27,7 +27,7 @@ public sealed class EmbeddedScriptsTests
             .Where(r => r.StartsWith("PazaryeriHub.Infrastructure.Database.Procedures.", StringComparison.Ordinal))
             .ToList();
 
-        procedures.Should().HaveCount(6);
+        procedures.Should().HaveCount(7);
 
         var allText = string.Concat(procedures.Select(ReadResource));
         foreach (var proc in new[] { "usp_StokRezerve", "usp_StokSevk", "usp_RezerveIptal", "usp_IadeGiris", "usp_StokGiris", "usp_SayimDuzelt" })

@@ -24,7 +24,19 @@ public interface IStockLedger
 
     /// <summary>Sayım düzeltmesi: Fiziksel = <see cref="StockChangeRequest.Quantity"/> (sayılan miktar).</summary>
     Task<StockChangeResult> AdjustToCountAsync(StockChangeRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Güvenlik stoğunu ayarlar (GuvenlikStogu = Quantity). Fiziksel stok değişmediği için hareket yazılmaz;
+    /// ancak satılabilir stok değiştiği için outbox'a <c>StokDegisti</c> olayı yazılır (kanallar güncellensin).
+    /// Bakiye satırı yoksa 0 fiziksel stokla oluşturulur.
+    /// </summary>
+    Task<WarehouseBalance> SetSafetyStockAsync(StockChangeRequest request, CancellationToken ct = default);
+
+    /// <summary>SKU'nun depo bazında bakiyeleri (bakiyesi olmayan depolar listelenmez).</summary>
+    Task<IReadOnlyList<WarehouseBalance>> GetBalancesAsync(int skuId, CancellationToken ct = default);
 }
+
+public sealed record WarehouseBalance(int WarehouseId, string WarehouseName, int Physical, int Reserved, int SafetyStock, int Available);
 
 /// <param name="SkuId">SKU.</param>
 /// <param name="WarehouseId">Depo.</param>

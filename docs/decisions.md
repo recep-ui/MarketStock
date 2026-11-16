@@ -57,3 +57,23 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - Aşama 0 kabulü "`docker compose up` + `/health` 200" yerine "yerel çalıştırma + `/health` 200" olarak değerlendirilir.
 - Testler her çalıştırmada tablo sıfırlamaz; her test kendi benzersiz SKU'sunu oluşturur. Test veritabanı zamanla büyür; gerekirse elle temizlenebilir (yalnızca `PazaryeriHub_Test`).
 - Güvenlik: test fixture'ı adında "Test" geçmeyen veritabanında çalışmayı reddeder.
+
+## ADR-009: Excel kütüphanesi (ClosedXML) ve içe aktarma kuralları
+**Tarih:** 2026-11-16
+**Bağlam:** Aşama 2 Excel içe/dışa aktarma istiyor. EPPlus 5+ ticari lisans gerektiriyor; NPOI daha düşük seviyeli.
+**Karar:**
+- **ClosedXML 0.105.1** (MIT) kullanılır; yalnızca `.xlsx`. Okuma/yazma `Infrastructure/Excel/ExcelWorkbook` içinde, iş kuralları `Application/Excel/ImportValidators` içinde (saf, birim testli).
+- Başlıklar Türkçe; eşleştirme büyük/küçük harf, boşluk ve Türkçe karakter duyarsız (`Ürün Adı` = `URUN ADI`). Sütun sırası serbest; bilinmeyen sütunlar (ör. dışa aktarmadaki gri bilgi sütunları) yok sayılır.
+- **Kısmi uygulama:** tüm satırlar doğrulanır, yalnızca geçerli satırlar uygulanır; hatalar Excel satır numarasıyla raporlanır. `validateOnly=true` hiçbir şey yazmaz.
+- **Dosya içi tekrar** (aynı SKU, aynı barkod, aynı SKU+depo, aynı SKU+kanal): hangisinin doğru olduğu belirsiz olduğundan TÜM tekrar eden satırlar reddedilir.
+- **Ürün gruplama:** Product tablosunda model kodu kolonu yok; yeni SKU'lar aynı *Ürün Adı + Marka*'ya sahip ürüne bağlanır (Türkçe, harf duyarsız). Mevcut SKU'nun satırı ürün alanlarını da günceller (son satır kazanır).
+- **Stok dosyası:** `GIRIS` ekler (dosyayı iki kez yüklemek iki kez ekler; şablonda uyarı var), `SAYIM` eşitler ve fark yoksa hareket yazmaz (tekrar yüklemek güvenli). Her satır kendi transaction'ında defter yordamıyla yazılır; satırlar arası atomiklik yoktur.
+- Sınırlar: 10 MB, 20.000 veri satırı.
+
+## ADR-010: EF Core kullanım sınırı
+**Tarih:** 2026-11-16
+**Karar:** EF Core 10 yalnızca katalog/kanal/eşleştirme CRUD'u için. Şema DbUp'ta kalır (EF migration yok). `StockBalance` EF'te salt okunur; stok yazımları yalnızca saklı yordamlarla (`IStockLedger`). Kısıt ihlalleri (2601/2627/547) kullanıcıya sade 409/400 mesajı olarak döner, SQL metni sızmaz.
+
+## ADR-011: Güvenlik stoğu değişikliği
+**Tarih:** 2026-11-16
+**Karar:** `usp_GuvenlikStoguAyarla` fiziksel/rezerve değiştirmediği için `StockMovement` yazmaz (hareket tipleri spesifikasyonda sabit); satılabilir değiştiği için aynı transaction'da outbox'a `StokDegisti` (Tip=`GUVENLIK_STOGU`) yazar.

@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
 using Hangfire;
 using Microsoft.Extensions.Options;
+using PazaryeriHub.Api.Endpoints;
+using PazaryeriHub.Api.Errors;
 using PazaryeriHub.Api.Health;
 using PazaryeriHub.Infrastructure;
 using PazaryeriHub.Infrastructure.Database;
@@ -28,7 +31,15 @@ try
 
     builder.Services.AddPazaryeriHubInfrastructure();
 
+    // Hatalar Türkçe ProblemDetails olarak döner; 500'lerde ayrıntı sızdırılmaz.
+    builder.Services.AddProblemDetails();
+    builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+    builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+
     var app = builder.Build();
+
+    app.UseExceptionHandler();
+    app.UseStatusCodePages();
 
     app.UseSerilogRequestLogging(options =>
     {
@@ -50,6 +61,8 @@ try
     }
 
     app.MapPazaryeriHubHealthChecks();
+    app.MapCatalogEndpoints();
+    app.MapChannelEndpoints();
 
     if (app.Environment.IsDevelopment())
     {

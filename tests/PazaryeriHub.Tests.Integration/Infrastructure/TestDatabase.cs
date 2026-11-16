@@ -35,6 +35,12 @@ public sealed class TestDatabase : IAsyncLifetime
 
     public IStockLedger Ledger { get; private set; } = null!;
 
+    private ApiFactory? _api;
+    private HttpClient? _client;
+
+    /// <summary>Test veritabanına bağlı, testler arasında paylaşılan bellek içi API istemcisi.</summary>
+    public HttpClient Api => _client ??= (_api = new ApiFactory(ConnectionString!)).CreateClient();
+
     public async ValueTask InitializeAsync()
     {
         var configured = ResolveConfiguredConnectionString(out var source);
@@ -65,7 +71,14 @@ public sealed class TestDatabase : IAsyncLifetime
         Ledger = new SqlStockLedger(new SqlConnectionFactory(config));
     }
 
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    public async ValueTask DisposeAsync()
+    {
+        _client?.Dispose();
+        if (_api is not null)
+        {
+            await _api.DisposeAsync();
+        }
+    }
 
     /// <summary>Veritabanı yoksa testi gerekçesiyle atlar.</summary>
     public void SkipIfUnavailable()

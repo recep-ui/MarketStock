@@ -30,10 +30,40 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
     public Task<StockChangeResult> AdjustToCountAsync(StockChangeRequest request, CancellationToken ct = default) =>
         ExecuteAsync("dbo.usp_SayimDuzelt", "@SayilanAdet", request, ct);
 
-    private async Task<StockChangeResult> ExecuteAsync(string procedure, string quantityParameter, StockChangeRequest request, CancellationToken ct)
+    public async Task<WarehouseBalance> SetSafetyStockAsync(StockChangeRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        try
+        {
+            await using var connection = connectionFactory.Create();
+            var row = await connection.QuerySingleAsync<(int Fiziksel, int Rezerve, int GuvenlikStogu, int Satilabilir)>(new CommandDefinition(
+                "dbo.usp_GuvenlikStoguAyarla", BuildParameters("@Adet", request), commandType: CommandType.StoredProcedure, cancellationToken: ct));
+            var name = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+                "SELECT Ad FROM dbo.Warehouse WHERE Id = @id", new { id = request.WarehouseId }, cancellationToken: ct));
+            return new WarehouseBalance(request.WarehouseId, name ?? "", row.Fiziksel, row.Rezerve, row.GuvenlikStogu, row.Satilabilir);
+        }
+        catch (SqlException ex) when (TranslateError(ex) is { } translated)
+        {
+            throw translated;
+        }
+    }
 
+    public async Task<IReadOnlyList<WarehouseBalance>> GetBalancesAsync(int skuId, CancellationToken ct = default)
+    {
+        await using var connection = connectionFactory.Create();
+        var rows = await connection.QueryAsync<WarehouseBalance>(new CommandDefinition("""
+            SELECT sb.WarehouseId, w.Ad AS WarehouseName, sb.Fiziksel AS Physical, sb.Rezerve AS Reserved,
+                   sb.GuvenlikStogu AS SafetyStock, sb.Satilabilir AS Available
+              FROM dbo.StockBalance AS sb
+              JOIN dbo.Warehouse AS w ON w.Id = sb.WarehouseId
+             WHERE sb.SkuId = @skuId
+             ORDER BY w.Ad
+            """, new { skuId }, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    private static DynamicParameters BuildParameters(string quantityParameter, StockChangeRequest request)
+    {
         var parameters = new DynamicParameters();
         parameters.Add("@SkuId", request.SkuId, DbType.Int32);
         parameters.Add("@WarehouseId", request.WarehouseId, DbType.Int32);
@@ -41,6 +71,14 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
         parameters.Add("@KaynakTip", request.SourceType, DbType.AnsiString, size: 30);
         parameters.Add("@KaynakId", request.SourceId, DbType.String, size: 100);
         parameters.Add("@Kullanici", request.User, DbType.String, size: 100);
+        return parameters;
+    }
+
+    private async Task<StockChangeResult> ExecuteAsync(string procedure, string quantityParameter, StockChangeRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var parameters = BuildParameters(quantityParameter, request);
 
         try
         {

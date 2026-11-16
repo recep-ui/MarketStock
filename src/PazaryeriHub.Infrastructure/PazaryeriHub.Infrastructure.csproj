@@ -10,6 +10,8 @@
     <PackageReference Include="Microsoft.Data.SqlClient" />
     <PackageReference Include="Dapper" />
     <PackageReference Include="dbup-sqlserver" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+    <PackageReference Include="ClosedXML" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\PazaryeriHub.Application\PazaryeriHub.Application.csproj" />

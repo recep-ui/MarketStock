@@ -7,6 +7,46 @@
 
 ---
 
+## 0000. Aşama 2: Katalog + Excel (2026-11-16): TAMAM
+
+### Yapılanlar
+| Parça | Yer |
+|---|---|
+| Ürün/SKU/depo CRUD (EF Core, mevcut tablolara eşli) | `Infrastructure/Catalog/CatalogService.cs`, `Persistence/PazaryeriHubDbContext.cs` |
+| Stok girişi, sayım, güvenlik stoğu, bakiye | `IStockLedger` + yeni `usp_GuvenlikStoguAyarla` (outbox yazar, hareket yazmaz; ADR-011) |
+| Kanal ayarları + SKU↔kanal eşleştirme | `Infrastructure/Channels/ChannelService.cs` |
+| Excel şablon / içe / dışa aktarma (ürün, stok, eşleştirme) | `Application/Excel/*` (saf doğrulama), `Infrastructure/Excel/*` (ClosedXML) |
+| Türkçe ProblemDetails hata yanıtları (SQL metni sızmaz) | `Api/Errors/ApiExceptionHandler.cs` |
+
+### Uç noktalar (kimlik doğrulama yok, Aşama 5'te eklenecek)
+- `GET/POST /api/products`, `GET/PUT/DELETE /api/products/{id}`, `POST /api/products/{id}/skus`
+- `GET /api/skus?search=`, `PUT/DELETE /api/skus/{id}`; `GET/POST /api/warehouses`
+- `GET /api/stock/{skuId}`, `POST /api/stock/receipts`, `POST /api/stock/counts`, `PUT /api/stock/safety-stock`
+- `GET /api/channels`, `PUT /api/channels/{id}`; `GET/PUT /api/listings`, `DELETE /api/listings/{id}`
+- `GET /api/excel/{products|stock|listings}/template`, `GET .../export`, `POST .../import?validateOnly=`
+
+### Testler (gerçek çıktı)
+- `dotnet build`: 0 hata, 0 uyarı.
+- Unit **58/58** (yeni: Excel okuma, başlık normalizasyonu, sayısal barkod, satır doğrulama kuralları).
+- Integration **49/49** (yeni 14: Excel 8, katalog/stok/kanal/eşleştirme API 6). İki kez arka arkaya koşuldu, ikisi de yeşil.
+- Uygulama yerelde gerçek `PazaryeriHub`'a karşı çalıştırıldı: `/health`, `/api/channels`, `/api/warehouses`, `/api/products`, şablon ve dışa aktarma 200 döndü; bilinmeyen tür 404 (problem+json).
+
+### Kabul kriteri
+| Kriter | Durum |
+|---|---|
+| 1.000 satırlık Excel içe aktarılır, hatalı satırlar satır numarasıyla raporlanır | ✅ 1.000 satır, bilinen 9 hatalı satır (boş SKU, boş ad, uzun SKU, dosya içi SKU tekrarı ×2, dosya içi barkod tekrarı ×2, DB'de başka SKU'ya ait barkod, uzun renk) → tam olarak 10, 50, 100, 200, 300, 400, 500, 600, 700 raporlandı; 991 SKU / 200 ürün yazıldı. Süre ~2 sn. Tekrar yükleme: 0 yeni, 991 değişmedi. validateOnly hiçbir şey yazmadı. |
+| Şablon indirme dahil | ✅ 3 tür için şablon + "Aciklama" sayfası; başlıklar testle doğrulandı |
+| Dışa aktarma | ✅ dışa aktarılan dosya değiştirilmeden geri yüklenince 0 değişiklik |
+
+### Bilinen eksikler / kararlar
+- Yetkilendirme yok (Aşama 5). API şu an yalnızca yerelde kullanılmalı.
+- Kanal kimlik bilgisi girişi (`KimlikSifreli`, `IDataProtector`) yok; Aşama 6'da.
+- Ürün gruplama *Ürün Adı + Marka* ile (model kodu kolonu yok; ADR-009). Gerekirse `Product`'a model kodu eklenebilir.
+- Stok Excel'inde `GIRIS` tekrar yüklenirse tekrar ekler (şablonda uyarı); ilk yükleme için `SAYIM` önerilir.
+- "Kanal üst limiti" şimdilik `Channel.Ayarlar` JSON'unda serbest alan; Aşama 4'te kesinleşecek.
+
+---
+
 ## 000. Yerel çalıştırma doğrulaması (2026-11-16): Aşama 0 ve 1 TAMAM
 
 Karar: Docker kullanılmıyor; uygulama ve testler yerelde çalışıyor (ADR-008).
