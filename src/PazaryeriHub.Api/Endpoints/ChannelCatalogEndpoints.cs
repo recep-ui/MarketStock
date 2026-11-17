@@ -3,6 +3,10 @@ using PazaryeriHub.Api.Auth;
 using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.ChannelCatalog;
 using PazaryeriHub.Application.Excel;
+using Hangfire;
+using PazaryeriHub.Application.Channels;
+using PazaryeriHub.Infrastructure.ChannelCatalog;
+using PazaryeriHub.Infrastructure.Persistence;
 
 namespace PazaryeriHub.Api.Endpoints;
 
@@ -37,6 +41,27 @@ public static class ChannelCatalogEndpoints
                 return report.FileErrors.Count > 0 ? Results.UnprocessableEntity(report) : Results.Ok(report);
             })
             .WithTags("Kanal kataloğu").DisableAntiforgery().RequireAuthorization(Policies.Admin);
+
+        // B) Kanal API'sinden katalog çekme (ADR-022): Hangfire job'ı (dış çağrılar yalnızca job'dan, ilke 5).
+        app.MapPost("/api/channels/{id:int}/catalog/fetch", async (IChannelService channels, IBackgroundJobClient jobs, SqlConnectionFactory connections,
+                TimeProvider clock, ClaimsPrincipal user, int id, bool? validateOnly, bool? createMissing, CancellationToken ct) =>
+            {
+                if ((await channels.GetChannelsAsync(ct)).All(c => c.Id != id))
+                {
+                    return Results.Problem(statusCode: 404, title: "Kayıt bulunamadı.", detail: $"Kanal bulunamadı (Id={id}).");
+                }
+                if (!await CatalogFetchJob.TryMarkQueuedAsync(connections, clock, id, ct))
+                {
+                    return Results.Problem(statusCode: 409, title: "Zaten çalışıyor.", detail: "Bu kanal için katalog çekme işi zaten çalışıyor.");
+                }
+                var userName = user.UserName();
+                var jobId = jobs.Enqueue<CatalogFetchJob>(job => job.RunAsync(id, validateOnly ?? true, createMissing ?? false, userName, CancellationToken.None));
+                return Results.Accepted(value: new { jobId });
+            })
+            .WithTags("Kanal kataloğu").RequireAuthorization(Policies.Admin);
+        app.MapGet("/api/channels/{id:int}/catalog/fetch-status", (SqlConnectionFactory connections, int id, CancellationToken ct) =>
+                CatalogFetchJob.GetStatusAsync(connections, id, ct))
+            .WithTags("Kanal kataloğu").RequireAuthorization(Policies.Read);
 
         var unmatched = app.MapGroup("/api/channel-catalog/unmatched").WithTags("Kanal kataloğu").RequireAuthorization(Policies.Read);
         unmatched.MapGet("/", (IChannelCatalogService s, int? channelId, string? status, string? search, int? page, int? pageSize, CancellationToken ct) =>

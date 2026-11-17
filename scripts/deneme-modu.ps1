@@ -98,7 +98,8 @@ $env:Kimlik__SeedUsers__2__Role = 'Destek'
 $env:Kimlik__SeedUsers__2__Password = $password
 # Tüm kanallar mock; arka plan job'ları kapalı (veriler siz işlem yapana kadar sabit kalsın)
 foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') { Set-Item -Path "env:Kanallar__$($code)__Mod" -Value 'Mock' }
-$env:Hangfire__Queues__0 = 'deneme-bos'
+# Zamanlanmış job'lar kapalı (cron boş); elle tetiklenen işler (Kanaldan Ürün Çek, mutabakat) varsayılan kuyrukta çalışır.
+$env:Hangfire__Queues__0 = 'default'
 $env:Senkron__OutboxCron = ''
 $env:Senkron__PushCron = ''
 $env:Senkron__BatchCheckCron = ''

@@ -7,6 +7,24 @@
 
 ---
 
+## Kanal kataloğu içe alma B: kanal API'si (2026-11-17): TAMAM (gerçek hesapla doğrulanmadı)
+
+- `IChannelAdapter.FetchCatalogAsync`, `KatalogCek` job'ı (panelden tetiklenir; önizleme → uygula) ve migration 0007 (`ChannelJobState.SonSonuc`).
+- **Adaptörler:**
+  - Trendyol: filterApprovedProducts (model, renk, beden, stok kodu, arşiv).
+  - Hepsiburada: HBSKU ve merchantSku.
+  - Beymen: id ve barkod.
+  - Mock: sayfalı katalog. Ayrıntılar ADR-022'de.
+- **Panel:** Eşleştirme ekranında "Kanaldan ürün çek (API)" bölümü (durum 2 sn'de bir yenilenir). Deneme modunda Beymen mock kataloğu demo veriyle gelir.
+- **Testler:**
+  - Unit 185/185: yeni Trendyol, Hepsiburada ve Beymen katalog contract testleri ve öğe dönüştürücü.
+  - Integration 98/98: sayfalı çekme, önizleme/uygulama, durum kaydı, 409, kanal hatası.
+  - Playwright 5/5.
+  - Deneme modunda tarayıcıyla uçtan uca denendi: Beymen mock kataloğundan 4 eşleşme, 2 eşleşmeyen.
+- **Bilinen eksikler:** Gerçek kanal hesaplarıyla denenmedi. Hepsiburada ve Beymen API'leri model/renk/beden vermediği için bu kanallarda eşleştirme yalnızca mevcut eşleştirme, barkod ve stok kodu adımlarıyla yapılır.
+
+---
+
 ## Kanal kataloğu içe alma A: Excel (2026-11-17): TAMAM
 
 - **Migration 0006:** `Product.ModelKodu` ve `UnmatchedChannelItem` tablosu.

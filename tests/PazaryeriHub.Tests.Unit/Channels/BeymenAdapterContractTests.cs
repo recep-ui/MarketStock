@@ -198,4 +198,21 @@ public sealed class BeymenAdapterContractTests
         ex.Message.Should().Contain(expected);
         ex.Transient.Should().Be(transient);
     }
+
+    // ------------------------------------------------------------------ katalog (ADR-022)
+
+    [Fact]
+    public async Task Katalog_price_stock_aramasindan_cekilir_id_kanal_kodu_barkod()
+    {
+        var (adapter, http) = Create();
+        http.Respond = _ => (HttpStatusCode.OK, """
+            {"items":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","barcode":"BRK-1","stock":{"count":9}}],"total":1,"size":1000,"page":0,"pageCount":1}
+            """);
+
+        var page = await adapter.FetchCatalogAsync(null, Ct);
+
+        http.Requests.Single().Uri.PathAndQuery.Should().Be("/products/price-stock/search?size=1000&page=0");
+        page.NextCursor.Should().BeNull();
+        page.Items.Should().Equal(new ChannelCatalogEntry("3fa85f64-5717-4562-b3fc-2c963f66afa6", "BRK-1", null, null, null, null, null, null, null, null, false));
+    }
 }

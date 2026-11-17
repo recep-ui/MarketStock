@@ -218,4 +218,24 @@ public sealed class HepsiburadaAdapterContractTests
         await FluentActions.Invoking(() => adapter.PushPriceAsync([], Ct)).Should().ThrowAsync<NotSupportedException>();
         http.Requests.Should().BeEmpty();
     }
+
+    // ------------------------------------------------------------------ katalog (ADR-022)
+
+    [Fact]
+    public async Task Katalog_listing_sorgusundan_cekilir_hbsku_kanal_kodu_merchantsku_stok_kodu()
+    {
+        var (adapter, http) = Create();
+        http.Respond = _ => (HttpStatusCode.OK, """
+            {"listings":[{"HepsiburadaSku":"HBV0000106NM0","MerchantSku":"SC-1","AvailableStock":14,"IsSalable":true},
+                         {"HepsiburadaSku":"HBV0000106NM1","MerchantSku":null,"AvailableStock":0,"IsSalable":false}]}
+            """);
+
+        var page = await adapter.FetchCatalogAsync("200", Ct);
+
+        http.Requests.Single().Uri.ToString().Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}?offset=200&limit=100");
+        page.NextCursor.Should().BeNull("100'den az kayıt → son sayfa");
+        page.Items.Should().Equal(
+            new ChannelCatalogEntry("HBV0000106NM0", null, "SC-1", null, null, null, null, null, null, "Satışta", false),
+            new ChannelCatalogEntry("HBV0000106NM1", null, null, null, null, null, null, null, null, "Satışta değil", false));
+    }
 }

@@ -2,7 +2,7 @@ namespace PazaryeriHub.Adapters.Trendyol;
 
 // Trendyol API v2.0 yanıt/istek modelleri. Yalnızca resmi dokümanda adı geçen ve bizim kullandığımız alanlar.
 // Kaynaklar (developers.trendyol.com/v2.0/reference/...): updatepriceandinventory, getbatchrequestresult,
-// getshipmentpackages, getclaims, filterapprovedproductsinventoryandprice.
+// getshipmentpackages, getclaims, filterapprovedproductsinventoryandprice, filterapprovedproducts.
 
 internal sealed record PriceAndInventoryRequest(IReadOnlyList<PriceAndInventoryItem> Items);
 
@@ -128,6 +128,50 @@ internal sealed class ClaimReason
 internal sealed class ClaimStatus
 {
     public string? Name { get; init; }
+}
+
+/// <summary>filterApprovedProducts içeriği (ürün grubu). Kaynak: /v2.0/reference/filterapprovedproducts (2026-11-17 okundu).</summary>
+internal sealed class ApprovedContent
+{
+    public string? ProductMainId { get; init; }
+    public NamedRef? Brand { get; init; }
+    public NamedRef? Category { get; init; }
+    public string? Title { get; init; }
+    public List<ContentAttribute> Attributes { get; init; } = [];
+    public List<ApprovedVariant> Variants { get; init; } = [];
+}
+
+internal sealed class NamedRef
+{
+    public string? Name { get; init; }
+}
+
+internal sealed class ContentAttribute
+{
+    public string? AttributeName { get; init; }
+    public List<AttributeValueRef> AttributeValues { get; init; } = [];
+}
+
+internal sealed class AttributeValueRef
+{
+    public string? AttributeValue { get; init; }
+}
+
+internal sealed class ApprovedVariant
+{
+    public string? Barcode { get; init; }
+    public string? StockCode { get; init; }
+    public bool? OnSale { get; init; }
+    public bool? Locked { get; init; }
+    public bool? Archived { get; init; }
+    public bool? Blacklisted { get; init; }
+    public List<VariantAttribute> Attributes { get; init; } = [];
+}
+
+internal sealed class VariantAttribute
+{
+    public string? AttributeName { get; init; }
+    public string? AttributeValue { get; init; }
 }
 
 internal sealed class ApprovedProduct

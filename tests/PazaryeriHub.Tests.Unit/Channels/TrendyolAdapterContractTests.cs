@@ -273,4 +273,46 @@ public sealed class TrendyolAdapterContractTests
         await FluentActions.Invoking(() => adapter.PushPriceAsync([], Ct)).Should().ThrowAsync<NotSupportedException>();
         http.Requests.Should().BeEmpty();
     }
+
+    // ------------------------------------------------------------------ katalog (ADR-022)
+
+    /// <summary>Örnek yanıt: /v2.0/reference/filterapprovedproducts şemasına göre (2026-11-17 okundu).</summary>
+    [Fact]
+    public async Task Katalog_onayli_urunlerden_cekilir_model_renk_beden_ve_arsiv_eslenir()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"totalElements":2,"totalPages":2,"page":0,"size":100,"content":[
+              {"contentId":1,"productMainId":"MDL-1","brand":{"id":1,"name":"Softcotton"},"category":{"id":2,"name":"Bornoz"},"title":"Deluxe Bornoz",
+               "attributes":[{"attributeId":47,"attributeName":"Renk","attributeValues":[{"attributeValueId":1,"attributeValue":"Beyaz"}]}],
+               "variants":[
+                 {"variantId":11,"supplierId":12345,"barcode":" SC-1 ","stockCode":"STK-1","onSale":true,"archived":false,"locked":false,
+                  "attributes":[{"attributeId":338,"attributeName":"Beden","attributeValueId":5,"attributeValue":"M"}]},
+                 {"variantId":12,"barcode":"SC-2","stockCode":"STK-1","onSale":false,"archived":true,
+                  "attributes":[{"attributeId":338,"attributeName":"Beden","attributeValueId":6,"attributeValue":"L"}]},
+                 {"variantId":13,"barcode":"","stockCode":"BOS"}]}]}
+            """));
+
+        var page = await adapter.FetchCatalogAsync(null, Ct);
+
+        http.Requests.Single().Uri.PathAndQuery.Should().Be("/integration/product/sellers/12345/products/approved?page=0&size=100");
+        page.NextCursor.Should().Be("p:1");
+        page.Items.Should().HaveCount(2, "barkodsuz varyant atlanır");
+        page.Items[0].Should().Be(new ChannelCatalogEntry(null, "SC-1", "STK-1", "MDL-1", "Beyaz", "M", "Deluxe Bornoz", "Softcotton", "Bornoz", "Satışta", false));
+        page.Items[1].Should().Match<ChannelCatalogEntry>(e => e.Size == "L" && e.Passive && e.ChannelStatus == "Arşivlendi");
+    }
+
+    [Fact]
+    public async Task Katalog_10000_otesinde_nextPageToken_ile_devam_eder()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """{"totalPages":200,"page":99,"size":100,"nextPageToken":"tok-1","content":[{"productMainId":"M","variants":[{"barcode":"B1"}]}]}"""));
+        http.Responses.Enqueue((HttpStatusCode.OK, """{"content":[]}"""));
+
+        (await adapter.FetchCatalogAsync("p:99", Ct)).NextCursor.Should().Be("t:tok-1");
+        (await adapter.FetchCatalogAsync("t:tok-1", Ct)).NextCursor.Should().BeNull();
+
+        http.Requests[0].Uri.Query.Should().Be("?page=99&size=100");
+        http.Requests[1].Uri.Query.Should().Be("?size=100&nextPageToken=tok-1");
+    }
 }

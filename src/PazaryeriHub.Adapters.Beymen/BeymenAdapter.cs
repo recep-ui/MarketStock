@@ -90,6 +90,46 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
     }
 
     /// <summary>
+    /// Kanal kataloğu: <c>GET /products/price-stock/search</c> (size ≤ 1000; 10.000 kayıttan sonra searchAfter).
+    /// Doğrulanmış alanlar yalnızca <c>id</c> (→ Kanal Ürün Kodu, productId) ve <c>barcode</c>; model/renk/beden bu uçta yok.
+    /// TODO: doğrulanmalı — Beymen'in ürün içeriği (model, renk, beden) dönen bir listeleme ucu dokümanda bulunursa eklenmeli.
+    /// İmleç: "p:{sayfa}" veya "s:{sayfa}:{searchAfter}".
+    /// </summary>
+    public async Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
+    {
+        const int size = 1000;
+        var page = 0;
+        string? searchAfter = null;
+        if (cursor is not null)
+        {
+            var parts = cursor.Split(':', 3);
+            page = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+            searchAfter = parts[0] == "s" && parts.Length == 3 ? parts[2] : null;
+        }
+
+        var creds = await CredentialsAsync(ct);
+        var query = searchAfter is null ? $"?size={size}&page={page}" : $"?size={size}&searchAfter={Uri.EscapeDataString(searchAfter)}";
+        using var doc = await SendAsync(creds, HttpMethod.Get, "/products/price-stock/search" + query, null, ct);
+        if (doc is null)
+        {
+            return new ChannelCatalogPage([], null);
+        }
+        var items = Items(doc.RootElement).ToList();
+        var entries = items
+            .Select(i => (Id: Str(i, "id"), Barcode: Str(i, "barcode")))
+            .Where(x => x.Id is not null)
+            .Select(x => new ChannelCatalogEntry(x.Id!.Trim(), x.Barcode?.Trim(), null, null, null, null, null, null, null, null, false))
+            .ToList();
+
+        var pageCount = Int(doc.RootElement, "pageCount");
+        var nextSearchAfter = (page + 1) * size >= 10_000 ? Str(doc.RootElement, "searchAfter") : null;
+        var last = items.Count < size || (nextSearchAfter is null && ((page + 1) * size >= 10_000 || (pageCount is { } pc && page + 1 >= pc)));
+        var nextPage = (page + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var next = last ? null : nextSearchAfter is not null ? $"s:{nextPage}:{nextSearchAfter}" : $"p:{nextPage}";
+        return new ChannelCatalogPage(entries, next);
+    }
+
+    /// <summary>
     /// Kanal stoğu (mutabakat): <c>GET /products/price-stock/search</c> (size ≤1000; 10.000 kayıttan sonra searchAfter).
     /// Arama productId ile filtrelenemediği için tüm liste sayfalanır ve istenen productId'ler süzülür.
     /// </summary>

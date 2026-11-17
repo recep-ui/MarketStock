@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { get, post, qs, upload, type CatalogImportReport, type CatalogImportRow, type Channel, type Paged, type UnmatchedItem } from '../api';
+import { useEffect, useState } from 'react';
+import { get, post, qs, upload, type CatalogFetchStatus, type CatalogImportReport, type CatalogImportRow, type Channel, type Paged, type UnmatchedItem } from '../api';
 import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
@@ -89,6 +89,83 @@ export function ChannelCatalogImport({ channels, onApplied }: { channels: Channe
       </div>
       <ErrorBox error={error} />
       {report && <CatalogReport report={report} filter={filter} onFilter={setFilter} />}
+    </Card>
+  );
+}
+
+/**
+ * Kanal API'sinden katalog çekme (Hangfire job'ı). Önizlemede hiçbir şey yazılmaz. Durum her 2 sn'de sorgulanır.
+ * Kanal API'leri yalnızca doğrulanmış alanları döndürür (Hepsiburada/Beymen'de model-renk-beden yok; ADR-022).
+ */
+export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel[]; onApplied: () => void }) {
+  const [channelId, setChannelId] = useState('');
+  const [createMissing, setCreateMissing] = useState(false);
+  const [status, setStatus] = useState<CatalogFetchStatus | null>(null);
+  const [filter, setFilter] = useState('');
+  const [error, setError] = useState<unknown>(null);
+  const [tick, setTick] = useState(0);
+  const selected = channelId || String(channels[0]?.id ?? '');
+  const running = status?.state === 'CALISIYOR';
+
+  useEffect(() => {
+    if (!selected) return;
+    let cancelled = false;
+    get<CatalogFetchStatus>(`/api/channels/${selected}/catalog/fetch-status`)
+      .then(s => {
+        if (cancelled) return;
+        setStatus(prev => {
+          if (prev?.state === 'CALISIYOR' && s.state === 'TAMAMLANDI' && s.report && !s.report.validateOnly) onApplied();
+          return s;
+        });
+      })
+      .catch(setError);
+    return () => { cancelled = true; };
+  }, [selected, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!running) return;
+    const t = setTimeout(() => setTick(x => x + 1), 2000);
+    return () => clearTimeout(t);
+  }, [running, tick]);
+
+  async function start(validateOnly: boolean) {
+    setError(null);
+    try {
+      await post(`/api/channels/${selected}/catalog/fetch${qs({ validateOnly: String(validateOnly), createMissing: String(createMissing) })}`);
+      setTick(x => x + 1);
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  return (
+    <Card title="Kanaldan ürün çek (API)">
+      <p className="muted">
+        Kanalın API'sinden ürün listesini çeker ve dosya içe alma ile aynı kurallarla eşleştirir. Önce önizleyin; uygulama ayrı bir adımdır.
+        Hepsiburada ve Beymen API'leri yalnızca kanal kodu/barkod/stok kodu verir (model-renk-beden yok).
+      </p>
+      <div className="filters">
+        <select aria-label="Kanal (API)" value={selected} onChange={e => { setChannelId(e.target.value); setStatus(null); }}>
+          {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}</option>)}
+        </select>
+        <label className="check">
+          <input type="checkbox" checked={createMissing} onChange={e => setCreateMissing(e.target.checked)} />
+          Eşleşmeyenlerden ürün/SKU oluştur
+        </label>
+        <button disabled={running || !selected} onClick={() => start(true)}>Kanaldan çek ve önizle</button>
+        {status?.state === 'TAMAMLANDI' && status.report?.validateOnly && (
+          <button className="primary" disabled={running} onClick={() => start(false)} data-testid="catalog-fetch-apply">Çek ve uygula</button>
+        )}
+      </div>
+      <ErrorBox error={error} />
+      {running && <div className="alert alert-warn">Kanaldan ürünler çekiliyor… (başlangıç {formatDateTime(status?.lastAttemptUtc ?? null)})</div>}
+      {status?.state === 'HATA' && <div className="alert alert-error">Son çekme başarısız: {status.lastError}</div>}
+      {status?.state === 'TAMAMLANDI' && status.report && (
+        <>
+          <p className="muted">Son çekme: {formatDateTime(status.lastSuccessUtc)}</p>
+          <CatalogReport report={status.report} filter={filter} onFilter={setFilter} />
+        </>
+      )}
     </Card>
   );
 }

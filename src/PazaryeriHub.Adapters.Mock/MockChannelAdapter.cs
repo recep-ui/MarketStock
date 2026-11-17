@@ -14,6 +14,18 @@ public sealed class MockChannelStore
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, int>> _stock = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentQueue<NormalizedReturn>> _returns = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<(OrderStatus Status, CargoInfo? Cargo)>> _statusUpdates = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, IReadOnlyList<ChannelCatalogEntry>> _catalog = new(StringComparer.Ordinal);
+
+    /// <summary>Mock kanal kataloğunun sayfa boyutu (sayfalama testleri için değiştirilebilir).</summary>
+    public int CatalogPageSize { get; set; } = 100;
+
+    /// <summary>Sonraki FetchCatalogAsync çağrısında fırlatılacak hata.</summary>
+    public ConcurrentDictionary<string, Exception> FailNextCatalog { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Kanalın ürün kataloğunu ayarlar (öncekinin yerine geçer).</summary>
+    public void SetCatalog(string channelCode, IEnumerable<ChannelCatalogEntry> entries) => _catalog[channelCode] = entries.ToList();
+
+    public IReadOnlyList<ChannelCatalogEntry> CatalogOf(string channelCode) => _catalog.TryGetValue(channelCode, out var c) ? c : [];
 
     public TimeProvider Clock { get; set; } = TimeProvider.System;
 
@@ -136,4 +148,19 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
 
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) =>
         Task.FromResult(store.ReturnsSince(ChannelCode, sinceUtc));
+
+    /// <summary>Mock katalog: imleç = sıradaki öğenin konumu.</summary>
+    public Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
+    {
+        if (store.FailNextCatalog.TryRemove(ChannelCode, out var error))
+        {
+            throw error;
+        }
+        var all = store.CatalogOf(ChannelCode);
+        var offset = cursor is null ? 0 : int.Parse(cursor, System.Globalization.CultureInfo.InvariantCulture);
+        var size = Math.Max(1, store.CatalogPageSize);
+        var page = all.Skip(offset).Take(size).ToList();
+        var next = offset + page.Count < all.Count ? (offset + page.Count).ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        return Task.FromResult(new ChannelCatalogPage(page, next));
+    }
 }

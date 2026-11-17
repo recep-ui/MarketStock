@@ -183,3 +183,22 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 ## ADR-021: Product.ModelKodu
 **Tarih:** 2026-11-17
 **Karar:** `Product` tablosuna `ModelKodu NVARCHAR(100) BIN2 NULL` eklendi (migration 0006). Bu, spesifikasyonun tablo listesine bir **ektir**. Kanalların "Model Kodu" alanı ürün grubunu tanımlar ve eşleştirmenin 3. adımı için gereklidir. Kolon ürün Excel'ine isteğe bağlı "Model Kodu" sütunu olarak eklendi; boş hücre mevcut değeri silmez.
+
+## ADR-022: Kanal API'sinden katalog çekme (KatalogCek)
+**Tarih:** 2026-11-17
+**Karar:**
+- `IChannelAdapter.FetchCatalogAsync(cursor, ct)` → `ChannelCatalogPage(Items, NextCursor)`. Spesifikasyondaki sözleşmeye (§6) bir **ektir**. İmleç adaptöre özeldir ve opaktır.
+- Panelden elle tetiklenen `CatalogFetchJob` (Hangfire, ilke 5) sayfaları birleştirir. Güvenlik sınırı: 2.000 sayfa veya 50.000 öğe. Sonuç, Excel içe alma ile **aynı** eşleştirme ve yazma yolundan geçer (`ApplyAsync`, kaynak `API`). Varsayılan önizlemedir. Son durum ve rapor `ChannelJobState` tablosunda (`IsTipi = KATALOG_CEK`, `SonSonuc` JSON; migration 0007) tutulur. Aynı kanal için ikinci istek iş çalışırken 409 döner.
+- Kanal başına yalnızca resmi dokümanla doğrulanmış alanlar kullanılır:
+
+  | Kanal | Uç nokta | Alanlar |
+  |---|---|---|
+  | Trendyol | `GET /product/sellers/{sellerId}/products/approved` (filterApprovedProducts; size ≤ 100, page × size ≤ 10.000, ötesi nextPageToken; 2026-11-17 okundu) | productMainId → model, title, brand.name, category.name; varyant barcode, stockCode, archived (→ PASIF), onSale/locked; renk/beden öznitelikleri |
+  | Hepsiburada | listing sorgusu (FetchStock ile aynı uç) | hepsiburadaSku → kanal kodu, merchantSku → stok kodu, isSalable. Barkod/model/renk/beden yok, bu yüzden bu kanaldan SKU oluşturulamaz. |
+  | Beymen | `GET /products/price-stock/search` | id → kanal kodu, barcode |
+  | softcotton | — | mock |
+
+- **Doğrulanmamış (TODO):**
+  - Trendyol renk/beden öznitelik adlarının "Renk"/"Beden" olduğu (kategoriye göre değişebilir).
+  - Beymen'in model/renk/beden veren bir listeleme ucu.
+- Deneme modunda Hangfire varsayılan kuyruğu dinler; zamanlanmış job'lar cron boş olduğu için kapalıdır. Böylece elle tetiklenen işler çalışır.

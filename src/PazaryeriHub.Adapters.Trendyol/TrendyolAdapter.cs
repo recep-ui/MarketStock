@@ -141,6 +141,73 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         return result;
     }
 
+    /// <summary>
+    /// Kanal kataloğu: <c>GET /product/sellers/{sellerId}/products/approved</c> (filterApprovedProducts; size ≤ 100,
+    /// page × size ≤ 10.000, ötesi nextPageToken). İçerik: productMainId → model kodu, title, brand.name, category.name;
+    /// varyant: barcode, stockCode, archived/locked/onSale, attributes. İmleç: "p:{sayfa}" veya "t:{nextPageToken}".
+    /// </summary>
+    public async Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
+    {
+        var creds = await CredentialsAsync(ct);
+        var basePath = $"/product/sellers/{creds.SellerId}/products/approved";
+        var page = 0;
+        string? token = null;
+        if (cursor is not null && cursor.StartsWith("t:", StringComparison.Ordinal))
+        {
+            token = cursor[2..];
+        }
+        else if (cursor is not null && cursor.StartsWith("p:", StringComparison.Ordinal))
+        {
+            page = int.Parse(cursor[2..], CultureInfo.InvariantCulture);
+        }
+
+        var query = token is null ? $"?page={page}&size=100" : $"?size=100&nextPageToken={Uri.EscapeDataString(token)}";
+        var response = await SendAsync<PagedResponse<ApprovedContent>>(creds, HttpMethod.Get, basePath + query, null, ct);
+        if (response is null || response.Content.Count == 0)
+        {
+            return new ChannelCatalogPage([], null);
+        }
+
+        var items = response.Content.SelectMany(ToCatalogEntries).ToList();
+        string? next = response.NextPageToken is { Length: > 0 } nt ? "t:" + nt
+            : token is null && page + 1 < response.TotalPages ? "p:" + (page + 1).ToString(CultureInfo.InvariantCulture)
+            : null;
+        return new ChannelCatalogPage(items, next);
+    }
+
+    private static IEnumerable<ChannelCatalogEntry> ToCatalogEntries(ApprovedContent content)
+    {
+        // TODO: doğrulanmalı — renk/beden öznitelik adları kategoriye göre değişebilir; "Renk" ve "Beden" adları varsayılır.
+        var contentColor = content.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValues.FirstOrDefault()?.AttributeValue;
+        foreach (var v in content.Variants.Where(v => !string.IsNullOrWhiteSpace(v.Barcode)))
+        {
+            var color = v.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValue ?? contentColor;
+            var size = v.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Beden"))?.AttributeValue;
+            var status = v.Archived == true ? "Arşivlendi"
+                : v.Blacklisted == true ? "Kara listede"
+                : v.Locked == true ? "Kilitli"
+                : v.OnSale == true ? "Satışta"
+                : "Satışta değil";
+            yield return new ChannelCatalogEntry(
+                ChannelProductCode: null,
+                Barcode: v.Barcode!.Trim(),
+                StockCode: Clean(v.StockCode),
+                ModelCode: Clean(content.ProductMainId),
+                Color: Clean(color),
+                Size: Clean(size),
+                Name: Clean(content.Title),
+                Brand: Clean(content.Brand?.Name),
+                Category: Clean(content.Category?.Name),
+                ChannelStatus: status,
+                Passive: v.Archived == true);
+        }
+    }
+
+    private static bool IsAttribute(string? name, string expected) =>
+        name is not null && string.Equals(name.Trim(), expected, StringComparison.OrdinalIgnoreCase);
+
+    private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
     private static IEnumerable<ChannelStock> ToChannelStock(IEnumerable<ApprovedProduct> products) =>
         products.SelectMany(p => p.Variants)
             .Where(v => !string.IsNullOrEmpty(v.Barcode))

@@ -21,7 +21,33 @@ public interface IChannelAdapter
     Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct);
     Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct);
     Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct);
+
+    /// <summary>
+    /// Kanaldaki ürün kataloğu (sayfalı; ADR-022). <paramref name="cursor"/> null → ilk sayfa; dönen
+    /// <see cref="ChannelCatalogPage.NextCursor"/> null ise son sayfadır. İmleç adaptöre özeldir (opak).
+    /// Yalnızca resmi dokümanla doğrulanmış alanlar doldurulur; kanal vermiyorsa alan null kalır.
+    /// </summary>
+    Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct);
 }
+
+/// <summary>Kanal kataloğundaki tek ürün (varyant). Alanlar kanalın verdiği kadar doludur.</summary>
+/// <param name="ChannelProductCode">Kanalın ürün kimliği (Hepsiburada HBSKU, Beymen productId). Trendyol'da barkod kimliktir → null.</param>
+/// <param name="StockCode">Satıcının kendi stok kodu (Hepsiburada merchantSku, Trendyol stockCode…).</param>
+/// <param name="Passive">Kanalda kapalı / arşivlenmiş.</param>
+public sealed record ChannelCatalogEntry(
+    string? ChannelProductCode,
+    string? Barcode,
+    string? StockCode,
+    string? ModelCode,
+    string? Color,
+    string? Size,
+    string? Name,
+    string? Brand,
+    string? Category,
+    string? ChannelStatus,
+    bool Passive);
+
+public sealed record ChannelCatalogPage(IReadOnlyList<ChannelCatalogEntry> Items, string? NextCursor);
 
 /// <summary>Kanaldan gelen siparişin kanal bağımsız hali.</summary>
 /// <param name="ChannelOrderNo">Kanal sipariş numarası (idempotentlik anahtarı, büyük/küçük harf duyarlı).</param>

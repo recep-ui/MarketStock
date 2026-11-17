@@ -163,6 +163,10 @@ export type CatalogImportReport = {
   rows: CatalogImportRow[]; rowsTruncated: boolean;
   errors: { row: number; column: string | null; message: string }[]; fileErrors: string[]; warnings: string[];
 };
+export type CatalogFetchStatus = {
+  channelId: number; state: 'YOK' | 'CALISIYOR' | 'TAMAMLANDI' | 'HATA'; lastAttemptUtc: string | null; lastSuccessUtc: string | null;
+  lastError: string | null; report: CatalogImportReport | null;
+};
 export type UnmatchedItem = {
   id: number; channelId: number; channelCode: string; source: string; channelProductCode: string | null; channelBarcode: string | null;
   channelStockCode: string | null; modelCode: string | null; color: string | null; size: string | null; productName: string | null;

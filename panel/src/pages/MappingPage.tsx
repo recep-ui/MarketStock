@@ -6,7 +6,7 @@ import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
-import { ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
+import { ChannelCatalogFetch, ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
 
 const columns: ColumnDef<Listing>[] = [
   { header: 'SKU', accessorKey: 'skuCode' },
@@ -39,7 +39,10 @@ export function MappingPage() {
     <>
       <h1>Eşleştirme</h1>
       {can('admin') && (
-        <ChannelCatalogImport channels={channels.data ?? []} onApplied={() => { listings.reload(); setRefreshKey(k => k + 1); }} />
+        <>
+          <ChannelCatalogImport channels={channels.data ?? []} onApplied={() => { listings.reload(); setRefreshKey(k => k + 1); }} />
+          <ChannelCatalogFetch channels={channels.data ?? []} onApplied={() => { listings.reload(); setRefreshKey(k => k + 1); }} />
+        </>
       )}
       <UnmatchedChannelItems channels={channels.data ?? []} canWrite={can('catalogWrite')} refreshKey={refreshKey} onLinked={listings.reload} />
       {can('catalogWrite') && <ListingForm channels={channels.data ?? []} onDone={listings.reload} />}

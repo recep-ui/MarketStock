@@ -22,7 +22,8 @@ public sealed class DemoDataSeeder(
     IStockLedger ledger,
     IOrderIngestionService ingestion,
     SyncStore syncStore,
-    SqlConnectionFactory connectionFactory)
+    SqlConnectionFactory connectionFactory,
+    IServiceProvider services)
 {
     public async Task<DemoDataResult> SeedAsync(CancellationToken ct)
     {
@@ -44,6 +45,18 @@ public sealed class DemoDataSeeder(
         await using var connection = connectionFactory.Create();
         await connection.OpenAsync(ct);
         var channels = (await connection.QueryAsync<(int Id, string Kod)>("SELECT Id, Kod FROM dbo.Channel")).ToDictionary(c => c.Kod, c => c.Id);
+
+        // Mock Beymen kataloğu ("Kanaldan ürün çek" denemesi): demo SKU'lar barkodla eşleşir, iki ürün eşleşmez
+        if (services.GetService<PazaryeriHub.Adapters.Mock.MockChannelStore>() is { } mock)
+        {
+            var entries = product.Skus.Select((s, i) => new ChannelCatalogEntry(
+                    $"00000000-0000-4000-8000-{tag}{i:D2}", s.Barcode, null, $"DEMO-{tag}", s.Color, s.Size, product.Name, "Softcotton", "Tişört", "Satışta", false))
+                .Append(new ChannelCatalogEntry($"00000000-0000-4000-9000-{tag}01", $"870{tag}1", null, $"DEMO-B-{tag}", "Lacivert", "M",
+                    $"Demo Bornoz {tag}", "Softcotton", "Bornoz", "Satışta", false))
+                .Append(new ChannelCatalogEntry($"00000000-0000-4000-9000-{tag}02", $"870{tag}2", null, $"DEMO-B-{tag}", "Lacivert", "L",
+                    $"Demo Bornoz {tag}", "Softcotton", "Bornoz", "Beymen'e Seçilmedi", true));
+            mock.SetCatalog(ChannelCodes.Beymen, entries);
+        }
 
         // Eşleştirmeler: her SKU Trendyol ve Hepsiburada'da
         var listingIds = new Dictionary<(int Sku, string Channel), int>();

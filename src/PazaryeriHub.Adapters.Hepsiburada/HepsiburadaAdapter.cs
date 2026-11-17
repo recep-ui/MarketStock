@@ -136,6 +136,33 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         return result;
     }
 
+    /// <summary>
+    /// Kanal kataloğu: listing sorgusu <c>GET …/listings/merchantid/{merchantId}?offset&amp;limit</c> (FetchStock ile aynı uç).
+    /// Doğrulanmış alanlar yalnızca <c>hepsiburadaSku</c> (→ Kanal Ürün Kodu), <c>merchantSku</c> (→ satıcı stok kodu) ve
+    /// <c>isSalable</c>; barkod/model/renk/beden bu uçta yok → eşleştirme mevcut eşleştirme ve stok kodu adımlarıyla yapılır.
+    /// İmleç: sıradaki offset.
+    /// </summary>
+    public async Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
+    {
+        const int limit = 100;
+        var creds = await CredentialsAsync(ct);
+        var offset = cursor is null ? 0 : int.Parse(cursor, CultureInfo.InvariantCulture);
+        var url = $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}?offset={offset}&limit={limit}";
+        using var doc = await SendAsync(creds, HttpMethod.Get, url, null, ct);
+        var items = Items(doc?.RootElement, "listings").ToList();
+        var entries = items
+            .Select(i => (HbSku: Str(i, "hepsiburadaSku"), MerchantSku: Str(i, "merchantSku"), Salable: Prop(i, "isSalable")))
+            .Where(x => x.HbSku is not null)
+            .Select(x => new ChannelCatalogEntry(
+                ChannelProductCode: x.HbSku!.Trim(), Barcode: null, StockCode: x.MerchantSku?.Trim(), ModelCode: null, Color: null, Size: null,
+                Name: null, Brand: null, Category: null,
+                ChannelStatus: x.Salable?.ValueKind switch { JsonValueKind.True => "Satışta", JsonValueKind.False => "Satışta değil", _ => null },
+                Passive: false))
+            .ToList();
+        var next = items.Count < limit ? null : (offset + limit).ToString(CultureInfo.InvariantCulture);
+        return new ChannelCatalogPage(entries, next);
+    }
+
     // ------------------------------------------------------------------ Siparişler
 
     /// <summary>

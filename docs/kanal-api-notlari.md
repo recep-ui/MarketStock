@@ -1,4 +1,4 @@
-# Kanal API Notları (Aşama 6 hazırlık)
+﻿# Kanal API Notları (Aşama 6 hazırlık)
 
 **Tarih:** 2026-11-16 · **Kaynak:** yalnızca resmi geliştirici dokümanları (üçüncü taraf bloglar kullanılmadı).
 **Kapsam kararları:** tek depo; fiyat gönderilmez (fiyatlar satıcı panellerinden girilir, ADR-015). Gerekenler: **stok gönderme + sonuç sorgulama, sipariş çekme, iade/iptal çekme, mutabakat için kanal stoğu okuma.**
@@ -21,6 +21,7 @@
 | Durum bildirme | ✅ `PUT /order/sellers/{sellerId}/shipment-packages/{packageId}` `{status: Picking|Invoiced, lines[], params}` | `/v2.0/reference/updatepackagestatus` |
 | İadeler | ✅ `GET /order/sellers/{sellerId}/claims` (`startDate/endDate`, `page`, `size≤200`, `claimItemStatus`) → `orderNumber`, `items[].orderLine.barcode`, `claimItems[].claimItemStatus.name` | `/v2.0/reference/getclaims` |
 | Kanal stoğu | ✅ `GET /product/sellers/{sellerId}/products/approved/inventory-and-price?barcodes=` (≤50) → `variants[].barcode`, `quantity` | `/v2.0/reference/filterapprovedproductsinventoryandprice` |
+| Katalog | ✅ `GET /product/sellers/{sellerId}/products/approved?page&size(≤100)&nextPageToken` (page×size ≤ 10.000) → `content[]{productMainId, title, brand{name}, category{name}, attributes[], variants[]{barcode, stockCode, attributes[]{attributeName, attributeValue}, onSale, locked, archived, blacklisted}}`. ⚠️ Renk/beden öznitelik adları kategoriye bağlı → doğrulanmalı | `/v2.0/reference/filterapprovedproducts` (2026-11-17) |
 | Limitler | ✅ Aynı uca 10 sn'de en fazla 50 istek (51. → 429). Sipariş listeleme 30–100 istek/dk (mağaza seviyesine göre). | authorization, 1-service-limitations |
 | ⚠️ Belirsiz | Sipariş sorgusunda en fazla tarih aralığı; durum anlamları; satırda komisyon alanı yok; claims tarih birimi açıkça yazmıyor (diğerleri ms). | |
 
