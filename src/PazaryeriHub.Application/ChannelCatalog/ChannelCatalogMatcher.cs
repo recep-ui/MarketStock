@@ -70,9 +70,10 @@ public sealed record CatalogMatch(
 /// <summary>
 /// Kanal ürünlerini SKU'larla eşleştiren SAF fonksiyon (ADR-020). Sıra:
 /// (0) bu kanaldaki mevcut eşleştirme → (1) barkod = Sku.Barkod → (2) satıcı stok kodu = SkuKodu (iki tarafta tekilse)
-/// → (3) model kodu + renk + beden (tek aday varsa). Belirsizlikte bağlama yapılmaz.
+/// → (3) model kodu + renk + beden (bizde tek aday SKU varsa). Bir satır için birden fazla aday varsa bağlama yapılmaz (belirsiz).
 /// Ürün adı benzerliği yalnızca eşleşmeyenler için ÖNERİ üretir; asla otomatik bağlamaz.
-/// Aynı SKU'ya birden fazla kanal satırı düşerse hiçbiri bağlanmaz (UNIQUE(SkuId, ChannelId) korunur).
+/// Aynı SKU'ya birden fazla kanal satırı düşebilir (ADR-023): her satır o SKU'nun ayrı ilanı olur (ör. Trendyol
+/// "Çoklanan Ürün Satışı"); tam ortak havuz gereği her ilan aynı stoğu görür.
 /// </summary>
 public static class ChannelCatalogMatcher
 {
@@ -129,20 +130,6 @@ public static class ChannelCatalogMatcher
             results[i] = MatchOne(items[i], skuById, byBarcode, byCode, byModelColorSize, listingByBarcode, listingByCode, stockCodeCounts, modelKeyCounts);
         }
 
-        // Aynı SKU'ya birden fazla satır düştüyse: hiçbiri bağlanmaz.
-        foreach (var group in results.Select((r, idx) => (r, idx)).Where(x => x.r.IsMatched).GroupBy(x => x.r.Sku!.SkuId).Where(g => g.Count() > 1))
-        {
-            var rows = string.Join(", ", group.Select(x => x.r.Item.Row).Order());
-            foreach (var (r, idx) in group)
-            {
-                results[idx] = r with
-                {
-                    Sku = null, Step = null, Reason = UnmatchedReasons.Ambiguous,
-                    Detail = $"Birden fazla kanal satırı aynı SKU'ya ({r.Sku!.SkuCode}) eşleşti (satırlar: {rows})."
-                };
-            }
-        }
-
         AddSuggestions(results, skus);
         return results;
     }
@@ -189,20 +176,18 @@ public static class ChannelCatalogMatcher
             ambiguity = $"Satıcı stok kodu dosyada {count} satırda geçiyor (beden düzeyinde değil); stok koduyla bağlanmadı.";
         }
 
-        // 3) Model kodu + renk + beden
+        // 3) Model kodu + renk + beden: bizde tek aday SKU varsa bağlanır. Dosyada aynı varyant birden fazla satırdaysa
+        //    (çoklanan ilan) hepsi aynı SKU'nun ayrı ilanları olur (ADR-023).
         if (item.ModelCode is not null)
         {
             var key = ModelColorSizeKey(item.ModelCode, item.Color, item.Size);
             if (byModelColorSize.TryGetValue(key, out var candidates))
             {
-                var inFile = modelKeyCounts.GetValueOrDefault(key);
-                if (candidates.Count == 1 && inFile == 1)
+                if (candidates.Count == 1)
                 {
                     return Matched(item, candidates[0], CatalogMatchStep.ModelColorSize);
                 }
-                ambiguity = candidates.Count > 1
-                    ? $"Aynı model + renk + bedende {candidates.Count} SKU var ({string.Join(", ", candidates.Take(3).Select(c => c.SkuCode))})."
-                    : $"Dosyada aynı model + renk + bedende {inFile} satır var.";
+                ambiguity = $"Aynı model + renk + bedende {candidates.Count} SKU var ({string.Join(", ", candidates.Take(3).Select(c => c.SkuCode))}).";
             }
         }
 

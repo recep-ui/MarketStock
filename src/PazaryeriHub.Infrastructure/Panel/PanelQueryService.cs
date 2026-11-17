@@ -3,6 +3,7 @@ using Dapper;
 using Microsoft.Data.SqlClient;
 using PazaryeriHub.Application.Common;
 using PazaryeriHub.Application.Panel;
+using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Persistence;
 using PazaryeriHub.Infrastructure.Sync;
 
@@ -149,20 +150,45 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
     public async Task<AppSettingsDto> GetSettingsAsync(CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct);
-        return new AppSettingsDto(await ThresholdAsync(connection, ct));
+        return new AppSettingsDto(await ThresholdAsync(connection, ct), await LowStockThresholdAsync(connection, null, ct));
     }
 
     public async Task<AppSettingsDto> UpdateSettingsAsync(AppSettingsDto settings, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        new Validator().Must(settings.CriticalStockThreshold is >= 0 and <= 100_000, "criticalStockThreshold", "Eşik 0 ile 100.000 arasında olmalı.").ThrowIfInvalid();
+        new Validator()
+            .Must(settings.CriticalStockThreshold is >= 0 and <= 100_000, "criticalStockThreshold", "Eşik 0 ile 100.000 arasında olmalı.")
+            .Must(settings.LowStockThreshold is null or (>= 0 and <= 100_000), "lowStockThreshold", "Eşik 0 ile 100.000 arasında olmalı.")
+            .ThrowIfInvalid();
 
         await using var connection = await OpenAsync(ct);
-        await connection.ExecuteAsync(new CommandDefinition("""
+        await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(ct);
+        await SaveSettingAsync(connection, tx, CriticalStockKey, settings.CriticalStockThreshold, ct);
+
+        var lowStock = await LowStockThresholdAsync(connection, tx, ct);
+        if (settings.LowStockThreshold is { } newThreshold && newThreshold != lowStock)
+        {
+            // Eşik değişti: aynı transaction'da olay → OutboxIsle tüm aktif ilanları yeniden hesaplar (ADR-023)
+            await SaveSettingAsync(connection, tx, StockSettingKeys.LowStockThreshold, newThreshold, ct);
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT dbo.Outbox (OlayTipi, Payload) VALUES (@type, N'{}')", new { type = OutboxEvents.LowStockThresholdChanged }, tx, cancellationToken: ct));
+            lowStock = newThreshold;
+        }
+        await tx.CommitAsync(ct);
+        return new AppSettingsDto(settings.CriticalStockThreshold, lowStock);
+    }
+
+    private static Task SaveSettingAsync(SqlConnection connection, SqlTransaction tx, string key, int value, CancellationToken ct) =>
+        connection.ExecuteAsync(new CommandDefinition("""
             UPDATE dbo.AppSetting SET Deger = @value, Guncelleme = SYSUTCDATETIME() WHERE Anahtar = @key;
             IF @@ROWCOUNT = 0 INSERT dbo.AppSetting (Anahtar, Deger) VALUES (@key, @value);
-            """, new { key = CriticalStockKey, value = settings.CriticalStockThreshold.ToString(CultureInfo.InvariantCulture) }, cancellationToken: ct));
-        return settings;
+            """, new { key, value = value.ToString(CultureInfo.InvariantCulture) }, tx, cancellationToken: ct));
+
+    private static async Task<int> LowStockThresholdAsync(SqlConnection connection, SqlTransaction? tx, CancellationToken ct)
+    {
+        var value = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT Deger FROM dbo.AppSetting WHERE Anahtar = @key", new { key = StockSettingKeys.LowStockThreshold }, tx, cancellationToken: ct));
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var t) && t >= 0 ? t : 0;
     }
 
     private async Task<List<StockOverviewRow>> BuildRowsAsync(SqlConnection connection, IReadOnlyList<SkuRow> skus, CancellationToken ct)
@@ -174,13 +200,14 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
 
         var listings = (await connection.QueryAsync<ListingRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.SkuId, c.Kod AS ChannelCode, l.Durum AS Status, l.SonGonderilenStok AS LastSent,
+                   l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
                    snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc
               FROM dbo.ChannelListing l
               JOIN dbo.Channel c ON c.Id = l.ChannelId
               OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
                             WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
              WHERE l.SkuId IN @skuIds
-             ORDER BY c.Id
+             ORDER BY c.Id, l.Id
             """, new { skuIds = skus.Select(s => s.SkuId).ToList() }, cancellationToken: ct))).ToList();
 
         var targets = (await syncStore.ComputeTargetsAsync(connection, null, listings.Select(l => l.ListingId).ToList(), ct))
@@ -188,7 +215,8 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
 
         return skus.Select(s => new StockOverviewRow(s.SkuId, s.SkuCode, s.ProductName, s.Physical, s.Reserved, s.SafetyStock, s.Available,
             listings.Where(l => l.SkuId == s.SkuId).Select(l => new ChannelStockCell(
-                l.ChannelCode, l.ListingId, l.Status, targets[l.ListingId], l.LastSent, l.ChannelStock, Utc(l.FetchedAtUtc))).ToList())).ToList();
+                l.ChannelCode, l.ListingId, l.Status, targets[l.ListingId], l.LastSent, l.ChannelStock, Utc(l.FetchedAtUtc),
+                l.ChannelBarcode, l.ChannelProductCode)).ToList())).ToList();
     }
 
     private static async Task<int> ThresholdAsync(SqlConnection connection, CancellationToken ct)
@@ -229,5 +257,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public int? LastSent { get; init; }
         public int? ChannelStock { get; init; }
         public DateTime? FetchedAtUtc { get; init; }
+        public string? ChannelBarcode { get; init; }
+        public string? ChannelProductCode { get; init; }
     }
 }

@@ -24,8 +24,10 @@ public sealed record DashboardDto(
 /// <summary>Stok listesinde bir kanal hücresi.</summary>
 /// <param name="Expected">Kanala gitmesi gereken (hesaplanan) stok.</param>
 /// <param name="ChannelStock">Son mutabakatta kanalda görülen stok (hiç mutabakat yoksa null).</param>
+/// <summary>Bir ilanın kanal stoğu. Aynı SKU'nun aynı kanalda birden fazla ilanı olabilir (ADR-023): her ilan ayrı hücre.</summary>
 public sealed record ChannelStockCell(
-    string ChannelCode, int ListingId, string Status, int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc)
+    string ChannelCode, int ListingId, string Status, int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc,
+    string? ChannelBarcode = null, string? ChannelProductCode = null)
 {
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
 }
@@ -45,7 +47,11 @@ public sealed record MovementQuery(
     string? Sku = null, string? Type = null, int? WarehouseId = null, DateTime? FromUtc = null, DateTime? ToUtc = null,
     string? SourceType = null, int? Page = null, int? PageSize = null);
 
-public sealed record AppSettingsDto(int CriticalStockThreshold);
+/// <param name="CriticalStockThreshold">Panel "kritik stok" uyarı eşiği (yalnızca uyarı).</param>
+/// <param name="LowStockThreshold">
+/// Genel düşük stok eşiği (ADR-023): satılabilir &lt;= değer ise TÜM kanallara 0 gönderilir. null → değiştirilmez.
+/// </param>
+public sealed record AppSettingsDto(int CriticalStockThreshold, int? LowStockThreshold = null);
 
 public interface IPanelQueryService
 {

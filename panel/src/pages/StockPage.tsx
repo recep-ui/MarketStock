@@ -30,8 +30,24 @@ export function StockPage() {
       id: ch.code,
       header: channelNames[ch.code] ?? ch.code,
       cell: ({ row }) => {
-        const cell = row.original.channels.find(c => c.channelCode === ch.code);
-        if (!cell) return <span className="muted">—</span>;
+        // Aynı SKU'nun bu kanalda birden fazla ilanı olabilir (ADR-023): hepsi gösterilir, herhangi biri saparsa hücre kırmızı.
+        const cells = row.original.channels.filter(c => c.channelCode === ch.code);
+        if (cells.length === 0) return <span className="muted">—</span>;
+        if (cells.length > 1) {
+          const deviates = cells.some(c => c.hasDeviation);
+          return (
+            <span
+              className={deviates ? 'cell-deviation' : undefined}
+              data-testid={`cell-${ch.code}`}
+              title={cells.map(c => `${c.channelBarcode ?? c.channelProductCode ?? `#${c.listingId}`}: beklenen ${c.expected} · son gönderilen ${c.lastSent ?? '—'} · kanalda ${c.channelStock ?? '—'} (${formatDateTime(c.fetchedAtUtc)})${c.status === 'PASIF' ? ' · pasif' : ''}`).join('\n')}
+            >
+              {cells.map(c => c.channelStock ?? c.lastSent ?? '—').join(' · ')}
+              <small className="muted"> ({cells.length} ilan)</small>
+              {deviates && <small> (beklenen {cells[0].expected})</small>}
+            </span>
+          );
+        }
+        const cell = cells[0];
         const visible = cell.channelStock ?? cell.lastSent;
         return (
           <span

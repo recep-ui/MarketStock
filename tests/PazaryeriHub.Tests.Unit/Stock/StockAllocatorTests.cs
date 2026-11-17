@@ -91,4 +91,31 @@ public sealed class StockAllocatorTests
     public void Negatif_limit_reddedilir() =>
         FluentActions.Invoking(() => StockAllocator.Allocate(10, 100m, -1))
             .Should().Throw<ArgumentOutOfRangeException>();
+
+    // ------------------------------------------------------------------ genel düşük stok eşiği (ADR-023)
+
+    [Theory]
+    [InlineData(5, 0, 5)]     // eşik 0: mevcut davranış
+    [InlineData(0, 0, 0)]
+    [InlineData(5, 5, 0)]     // satılabilir == eşik → 0
+    [InlineData(6, 5, 6)]     // eşik + 1 → hesaplanan değer
+    [InlineData(3, 5, 0)]
+    public void Esik_ve_altinda_0_gonderilir(long available, int threshold, int expected) =>
+        StockAllocator.Allocate(available, 100m, null, threshold).Should().Be(expected);
+
+    [Fact]
+    public void Esik_paydan_once_ortak_havuz_uzerinde_uygulanir()
+    {
+        // Havuz 10 > eşik 6 → pay %50 uygulanır: 5 (eşiğin altında kalsa da sıfırlanmaz; eşik kanal payına değil havuza bakar)
+        StockAllocator.Allocate(10, 50m, null, 6).Should().Be(5);
+        StockAllocator.Allocate(6, 50m, null, 6).Should().Be(0);
+        StockAllocator.Allocate(100, 100m, 7, 50).Should().Be(7, "üst limit eşikten sonra uygulanır");
+    }
+
+    [Fact]
+    public void Negatif_esik_reddedilir()
+    {
+        var act = () => StockAllocator.Allocate(10, 100m, null, -1);
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
 }

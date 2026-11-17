@@ -73,6 +73,19 @@ public static class OutboxEvents
 
     /// <summary>Kanal payı/aktifliği/ayarı değişti; kanalın tüm eşleştirmeleri yeniden hesaplanır (payload: ChannelId).</summary>
     public const string ChannelRefresh = "KanalStokYenile";
+
+    /// <summary>
+    /// Genel düşük stok eşiği değişti (payload: {}). Tüm aktif ilanlar yeniden hesaplanır; yalnızca hedefi son gönderilenden
+    /// farklı olanlar kuyruğa girer (aynı değer yeniden gönderilmez).
+    /// </summary>
+    public const string LowStockThresholdChanged = "StokEsigiDegisti";
+}
+
+/// <summary>AppSetting anahtarları (senkronu etkileyenler).</summary>
+public static class StockSettingKeys
+{
+    /// <summary>Genel düşük stok eşiği (ADR-023): satılabilir &lt;= değer ise kanallara 0 gönderilir. Varsayılan 0.</summary>
+    public const string LowStockThreshold = "DusukStokEsigi";
 }
 
 public sealed record SyncQueueItem(

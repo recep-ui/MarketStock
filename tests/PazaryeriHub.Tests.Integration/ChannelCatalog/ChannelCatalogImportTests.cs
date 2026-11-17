@@ -14,8 +14,9 @@ using PazaryeriHub.Tests.Integration.Infrastructure;
 namespace PazaryeriHub.Tests.Integration.ChannelCatalog;
 
 /// <summary>
-/// Kanal kataloğu içe alma (ADR-020): Trendyol biçimli sentetik dosya ile önizleme, uygulama, tekrar yükleme (idempotent),
-/// çakışmanın üzerine yazılmaması, eşleşmeyenler, elle bağlama / yok sayma ve stoğu olmayan SKU'nun kanala gönderilmemesi.
+/// Kanal kataloğu içe alma (ADR-020, ADR-023): Trendyol biçimli sentetik dosya ile önizleme, uygulama, tekrar yükleme (idempotent),
+/// aynı SKU'nun ikinci ilanı, çoklanan ilanların tek SKU'da toplanması, eşleşmeyenler, elle bağlama ve stoğu olmayan SKU'nun
+/// kanala gönderilmemesi.
 /// </summary>
 [Collection(DatabaseCollection.Name)]
 public sealed class ChannelCatalogImportTests(TestDatabase db)
@@ -38,7 +39,7 @@ public sealed class ChannelCatalogImportTests(TestDatabase db)
         var skuA = await SkuAsync(p, $"{p}-A", barcode: $"{p}-B1");                                  // barkodla eşleşecek (stoğu var)
         var skuB = await SkuAsync(p, $"{p}-STK2");                                                   // stok koduyla eşleşecek
         var skuC = await SkuAsync(p, $"{p}-C", model: $"{p}-MDL", color: "Siyah", size: "L");        // model+renk+beden
-        var skuD = await SkuAsync(p, $"{p}-D", barcode: $"{p}-B4");                                  // bu kanalda başka barkoda bağlı → çakışma
+        var skuD = await SkuAsync(p, $"{p}-D", barcode: $"{p}-B4");                                  // bu kanalda başka barkoda bağlı → ikinci ilan
         var skuE = await SkuAsync(p, $"{p}-E", name: $"{p} Keten Gömlek", brand: brand, size: "M"); // ad benzerliği önerisi
         await db.Ledger.ReceiveAsync(new StockChangeRequest(skuA, db.DefaultWarehouseId, 5, "TEST", p, "test"), Ct);
         await using (var c = db.Open())
@@ -51,37 +52,38 @@ public sealed class ChannelCatalogImportTests(TestDatabase db)
             Row($"{p}-B1"),                                                                       // 2: barkod
             Row($"{p}-X2", stock: $"{p}-STK2"),                                                   // 3: stok kodu
             Row($"{p}-X3", model: $"{p}-MDL", color: "SİYAH", size: "l"),                         // 4: model+renk+beden
-            Row($"{p}-B4"),                                                                       // 5: çakışma
+            Row($"{p}-B4"),                                                                       // 5: D'nin ikinci ilanı (ADR-023)
             Row($"{p}-X5", name: $"{p} Keten Gömlek", size: "M"),                                 // 6: öneri (otomatik bağlanmaz/oluşturulmaz)
             Row($"{p}-X6", stock: $"{p}-DUP", model: $"{p}-NEW", color: "Mavi", size: "S", status: "Ürün arşivlendi",
                 name: $"{p} Zeytin Sweatshirt"),                                                  // 7: yeni SKU (PASIF)
             Row($"{p}-X7", stock: $"{p}-DUP", model: $"{p}-NEW", color: "Mavi", size: "M", name: $"{p} Zeytin Sweatshirt"), // 8: yeni SKU
             Row("8,69E+12"),                                                                      // 9: bilimsel gösterim → hatalı
-            Row($"{p}-X10", model: $"{p}-CIFT", color: "Gri", size: "XL", name: $"{p} Kadife Bornoz"),   // 10-11: aynı varyant iki satır
-            Row($"{p}-X11", model: $"{p}-CIFT", color: "gri", size: "XL", name: $"{p} Kadife Bornoz")); //        → SKU açılmaz (belirsiz)
+            Row($"{p}-X10", model: $"{p}-CIFT", color: "Gri", size: "XL", name: $"{p} Kadife Bornoz"),   // 10-11: çoklanan ilan →
+            Row($"{p}-X11", model: $"{p}-CIFT", color: "gri", size: "XL", name: $"{p} Kadife Bornoz")); //        tek SKU, iki ilan
 
         // 1) Önizleme: hiçbir şey yazılmaz
         var preview = await ImportAsync(trendyol, file, validateOnly: true, createMissing: true);
         preview.Format.Should().Be("TRENDYOL_URUNLER");
         preview.TotalRows.Should().Be(10);
         preview.Errors.Select(e => e.Row).Should().Equal(9);
-        (preview.MatchedByBarcode, preview.MatchedByStockCode, preview.MatchedByModelColorSize).Should().Be((1, 1, 1));
-        preview.Conflicts.Should().Be(1);
-        preview.SkusCreated.Should().Be(2);
-        preview.ProductsCreated.Should().Be(1, "aynı model kodu + marka tek ürün");
+        (preview.MatchedByBarcode, preview.MatchedByStockCode, preview.MatchedByModelColorSize).Should().Be((2, 1, 1));
+        preview.Conflicts.Should().Be(0, "aynı SKU'nun farklı barkodu ikinci ilandır (ADR-023)");
+        preview.SkusCreated.Should().Be(3, "NEW-S, NEW-M ve çoklanan CIFT grubu için tek SKU");
+        preview.ProductsCreated.Should().Be(2, "model kodu + marka başına tek ürün");
+        preview.ListingsCreated.Should().Be(8);
         preview.Unmatched.Should().Be(1);
-        preview.Ambiguous.Should().Be(2);
-        preview.Rows.Single(r => r.Row == 10).Detail.Should().Contain("satırlar: 10, 11");
+        preview.Ambiguous.Should().Be(0);
+        preview.Rows.Single(r => r.Row == 11).Detail.Should().Contain("ek ilanı");
+        preview.Rows.Single(r => r.Row == 11).SkuCode.Should().Be(preview.Rows.Single(r => r.Row == 10).SkuCode);
         preview.WithSuggestion.Should().Be(1);
         preview.Rows.Single(r => r.Row == 6).SuggestedSkuCode.Should().Be($"{p}-E");
-        preview.Rows.Single(r => r.Row == 5).Detail.Should().Contain($"{p}-OLD");
         (await CountAsync("SELECT COUNT(*) FROM dbo.Sku WHERE SkuKodu LIKE @p", p)).Should().Be(5, "önizleme yazmaz");
         (await CountAsync("SELECT COUNT(*) FROM dbo.UnmatchedChannelItem WHERE KanalAnahtar LIKE @p", p)).Should().Be(0);
 
         // 2) Uygula
         var applied = await ImportAsync(trendyol, file, validateOnly: false, createMissing: true);
-        applied.ListingsCreated.Should().Be(5);
-        applied.PushDeferred.Should().Be(4, "yalnızca stoğu girilmiş SKU (A) kanala gönderilir");
+        applied.ListingsCreated.Should().Be(8);
+        applied.PushDeferred.Should().Be(7, "yalnızca stoğu girilmiş SKU (A) kanala gönderilir");
 
         await using (var c = db.Open())
         {
@@ -89,8 +91,10 @@ public sealed class ChannelCatalogImportTests(TestDatabase db)
                 SELECT s.SkuKodu, l.KanalBarkod, l.Durum, l.Id FROM dbo.ChannelListing l JOIN dbo.Sku s ON s.Id = l.SkuId
                 WHERE l.ChannelId = @trendyol AND s.SkuKodu LIKE @p
                 """, new { trendyol, p = p + "%" })).ToList();
-            listings.Should().HaveCount(6);
-            listings.Single(l => l.SkuKodu == $"{p}-D").KanalBarkod.Should().Be($"{p}-OLD", "çakışmada üzerine yazılmaz");
+            listings.Should().HaveCount(9);
+            listings.Where(l => l.SkuKodu == $"{p}-D").Select(l => l.KanalBarkod).Should().BeEquivalentTo([$"{p}-OLD", $"{p}-B4"],
+                "mevcut ilanın üzerine yazılmaz; yeni barkod ikinci ilan olur");
+            listings.Where(l => l.KanalBarkod == $"{p}-X10" || l.KanalBarkod == $"{p}-X11").Select(l => l.SkuKodu).Distinct().Should().ContainSingle();
             listings.Single(l => l.KanalBarkod == $"{p}-X6").Durum.Should().Be("PASIF");
             listings.Single(l => l.KanalBarkod == $"{p}-X3").SkuKodu.Should().Be($"{p}-C");
 
@@ -109,24 +113,18 @@ public sealed class ChannelCatalogImportTests(TestDatabase db)
 
             var unmatched = (await c.QueryAsync<(string KanalAnahtar, string Neden, string Durum, int? OnerilenSkuId)>(
                 "SELECT KanalAnahtar, Neden, Durum, OnerilenSkuId FROM dbo.UnmatchedChannelItem WHERE KanalAnahtar LIKE @p", new { p = p + "%" })).ToList();
-            unmatched.Should().BeEquivalentTo(new[]
-            {
-                ($"{p}-B4", "CAKISMA", "BEKLIYOR", (int?)null),
-                ($"{p}-X5", "ESLESME_YOK", "BEKLIYOR", (int?)skuE),
-                ($"{p}-X10", "BELIRSIZ", "BEKLIYOR", (int?)null),
-                ($"{p}-X11", "BELIRSIZ", "BEKLIYOR", (int?)null)
-            });
+            unmatched.Should().BeEquivalentTo(new[] { ($"{p}-X5", "ESLESME_YOK", "BEKLIYOR", (int?)skuE) });
         }
 
         // 3) Aynı dosya tekrar: yeni kayıt yok
         var again = await ImportAsync(trendyol, file, validateOnly: false, createMissing: true);
         again.ListingsCreated.Should().Be(0);
         again.SkusCreated.Should().Be(0);
-        again.ListingsUnchanged.Should().Be(5);
-        again.MatchedExisting.Should().Be(5);
-        (await CountAsync("SELECT COUNT(*) FROM dbo.UnmatchedChannelItem WHERE KanalAnahtar LIKE @p", p)).Should().Be(4);
+        again.ListingsUnchanged.Should().Be(8);
+        again.MatchedExisting.Should().Be(8);
+        (await CountAsync("SELECT COUNT(*) FROM dbo.UnmatchedChannelItem WHERE KanalAnahtar LIKE @p", p)).Should().Be(1);
 
-        // 4) Eşleşmeyenler: listele, öneriyi elle bağla, çakışanı yok say
+        // 4) Eşleşmeyenler: listele, öneriyi elle bağla
         var page = await db.Api.GetFromJsonAsync<PagedResult<UnmatchedItemDto>>($"/api/channel-catalog/unmatched?channelId={trendyol}&search={p}-X5",
             ExcelImportApiTests.Json, Ct);
         var suggested = page!.Items.Single();
@@ -138,16 +136,10 @@ public sealed class ChannelCatalogImportTests(TestDatabase db)
         (await db.Api.PostAsJsonAsync($"/api/channel-catalog/unmatched/{suggested.Id}/link", new { skuId = skuE }, Ct))
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
 
-        var conflictItem = (await db.Api.GetFromJsonAsync<PagedResult<UnmatchedItemDto>>(
-            $"/api/channel-catalog/unmatched?channelId={trendyol}&search={p}-B4", ExcelImportApiTests.Json, Ct))!.Items.Single();
-        (await db.Api.PostAsJsonAsync($"/api/channel-catalog/unmatched/{conflictItem.Id}/link", new { skuId = skuD }, Ct))
-            .StatusCode.Should().Be(HttpStatusCode.Conflict, "SKU bu kanalda başka barkoda bağlı");
-        (await db.Api.PostAsync($"/api/channel-catalog/unmatched/{conflictItem.Id}/ignore", null, Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
-
         await using (var c = db.Open())
         {
             (await c.QueryAsync<(string KanalAnahtar, string Durum)>("SELECT KanalAnahtar, Durum FROM dbo.UnmatchedChannelItem WHERE KanalAnahtar LIKE @p",
-                new { p = p + "%" })).Should().BeEquivalentTo(new[] { ($"{p}-B4", "YOKSAYILDI"), ($"{p}-X5", "BAGLANDI"), ($"{p}-X10", "BEKLIYOR"), ($"{p}-X11", "BEKLIYOR") });
+                new { p = p + "%" })).Should().BeEquivalentTo(new[] { ($"{p}-X5", "BAGLANDI") });
         }
     }
 

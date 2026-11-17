@@ -142,8 +142,11 @@ public static class ImportValidators
         }
 
         var invalid = new HashSet<int>(errors.Select(e => e.Row));
-        AddDuplicateErrors(candidates, r => (r.SkuCode, r.ChannelCode), r => r.Row, null, "SKU Kodu",
-            rowsText => $"Aynı SKU + kanal dosyada birden fazla satırda var (satırlar: {rowsText}).", errors, invalid);
+        // İlan kanal içinde barkod / kanal ürün koduyla tanınır (ADR-023); aynı SKU + kanal için birden fazla satır serbesttir.
+        AddDuplicateErrors(candidates.Where(r => r.ChannelBarcode is not null), r => (r.ChannelCode, r.ChannelBarcode!), r => r.Row, null, "Kanal Barkod",
+            rowsText => $"Aynı kanal + kanal barkodu dosyada birden fazla satırda var (satırlar: {rowsText}).", errors, invalid);
+        AddDuplicateErrors(candidates.Where(r => r.ChannelProductCode is not null), r => (r.ChannelCode, r.ChannelProductCode!), r => r.Row, null, "Kanal Ürün Kodu",
+            rowsText => $"Aynı kanal + kanal ürün kodu dosyada birden fazla satırda var (satırlar: {rowsText}).", errors, invalid);
 
         return new ValidationOutcome<ListingRow>(candidates.Where(r => !invalid.Contains(r.Row)).ToList(), Sorted(errors));
     }

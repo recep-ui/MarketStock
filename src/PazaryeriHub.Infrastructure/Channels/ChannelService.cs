@@ -94,14 +94,44 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
             throw new NotFoundException($"Kanal bulunamadı (Id={input.ChannelId}).");
         }
 
-        var listing = await db.Listings.FirstOrDefaultAsync(l => l.SkuId == input.SkuId && l.ChannelId == input.ChannelId, ct);
+        var barcode = Text.Clean(input.ChannelBarcode);
+        var code = Text.Clean(input.ChannelProductCode);
+        ChannelListingEntity? listing;
+        if (input.Id is { } listingId)
+        {
+            listing = await db.Listings.FirstOrDefaultAsync(l => l.Id == listingId, ct)
+                      ?? throw new NotFoundException($"Eşleştirme bulunamadı (Id={listingId}).");
+            if (listing.ChannelId != input.ChannelId)
+            {
+                throw new ConflictException("İlanın kanalı değiştirilemez; yeni eşleştirme ekleyin.");
+            }
+        }
+        else
+        {
+            // İlan kanal içinde barkod / kanal ürün koduyla tanınır (ADR-023): aynı SKU'nun başka ilanının üzerine yazılmaz.
+            var matches = await db.Listings
+                .Where(l => l.ChannelId == input.ChannelId && ((barcode != null && l.ChannelBarcode == barcode) || (code != null && l.ChannelProductCode == code)))
+                .ToListAsync(ct);
+            if (matches.Count > 1)
+            {
+                throw new ConflictException("Kanal barkodu ve kanal ürün kodu bu kanalda farklı ilanlara bağlı.");
+            }
+            listing = matches.SingleOrDefault();
+            if (listing is not null && listing.SkuId != input.SkuId)
+            {
+                var ownerId = listing.SkuId;
+                var owner = await db.Skus.Where(s => s.Id == ownerId).Select(s => s.SkuCode).FirstOrDefaultAsync(ct);
+                throw new ConflictException($"Bu barkod/kod bu kanalda başka bir SKU'ya ({owner}) bağlı. Önce o eşleştirmeyi silin.");
+            }
+        }
         if (listing is null)
         {
             listing = new ChannelListingEntity { SkuId = input.SkuId, ChannelId = input.ChannelId };
             db.Listings.Add(listing);
         }
-        listing.ChannelProductCode = Text.Clean(input.ChannelProductCode);
-        listing.ChannelBarcode = Text.Clean(input.ChannelBarcode);
+        listing.SkuId = input.SkuId;
+        listing.ChannelProductCode = code;
+        listing.ChannelBarcode = barcode;
         listing.Status = status;
 
         try

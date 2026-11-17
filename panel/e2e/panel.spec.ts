@@ -63,6 +63,11 @@ test('2) Stok listesinde kanal sapması kırmızı satırla görünür', async (
   await expect(deviating.getByTestId('cell-HEPSIBURADA')).toContainText(`beklenen ${d.deviationExpected}`);
   await expect(deviating.getByTestId('cell-TRENDYOL')).not.toHaveClass(/cell-deviation/);
 
+  // Çoklu ilan (ADR-023): aynı SKU'nun Trendyol'daki iki ilanı tek hücrede, ikisi de aynı (ortak havuz) değerle
+  const multi = rows.filter({ hasText: d.multiListingSkuCode });
+  await expect(multi.getByTestId('cell-TRENDYOL')).toContainText('(2 ilan)');
+  await expect(multi.getByTestId('cell-TRENDYOL')).not.toHaveClass(/cell-deviation/);
+
   await page.getByLabel('Yalnızca sapmalar').check();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(d.deviationSkuCode);

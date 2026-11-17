@@ -31,7 +31,8 @@ internal static class DbErrors
             message.Contains("UQ_Sku_SkuKodu", StringComparison.Ordinal) ? "Bu SKU kodu zaten kayıtlı." :
             message.Contains("UX_Sku_Barkod", StringComparison.Ordinal) ? "Bu barkod başka bir SKU'da kayıtlı." :
             message.Contains("UQ_Warehouse_Ad", StringComparison.Ordinal) ? "Bu depo adı zaten kayıtlı." :
-            message.Contains("UQ_ChannelListing_Sku_Channel", StringComparison.Ordinal) ? "Bu SKU bu kanalda zaten eşleştirilmiş." :
+            message.Contains("UX_ChannelListing_Channel_KanalBarkod", StringComparison.Ordinal) ? "Bu kanal barkodu bu kanalda başka bir ilana bağlı." :
+            message.Contains("UX_ChannelListing_Channel_KanalUrunKodu", StringComparison.Ordinal) ? "Bu kanal ürün kodu bu kanalda başka bir ilana bağlı." :
             "Kayıt benzersizlik kuralını ihlal ediyor.";
         return new ConflictException(field, ex);
     }

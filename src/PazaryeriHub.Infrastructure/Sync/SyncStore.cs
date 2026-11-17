@@ -23,6 +23,8 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
     /// (Channel.PayYuzde, Channel.Ayarlar.stokUstLimit). Syncable = eşleştirme AKTIF, kanal aktif ve SKU'ya en az bir kez
     /// stok girilmiş (bakiye satırı var). Stoğu hiç girilmemiş SKU kanala gönderilmez: kanal kataloğu içe alınırken
     /// oluşturulan SKU'lar pazaryerindeki stoğu 0'a çekmesin (ADR-020). Sayım ile 0 girilmişse gönderilir.
+    /// Genel düşük stok eşiği (AppSetting DusukStokEsigi, ADR-023) aynı sorguda okunur ve allocator'a verilir.
+    /// Bir SKU'nun aynı kanaldaki her ilanı aynı hedefi alır (tam ortak havuz; stok bölünmez).
     /// </summary>
     public async Task<IReadOnlyList<ListingTarget>> ComputeTargetsAsync(SqlConnection connection, SqlTransaction? tx, IReadOnlyCollection<int> listingIds, CancellationToken ct)
     {
@@ -35,15 +37,16 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
             SELECT l.Id AS ListingId, l.SkuId, l.ChannelId, c.Kod AS ChannelCode, l.KanalUrunKodu, l.KanalBarkod,
                    l.SonGonderilenStok, c.PayYuzde, c.Ayarlar, CAST(CASE WHEN l.Durum = 'AKTIF' AND c.Aktif = 1
                                 AND EXISTS (SELECT 1 FROM dbo.StockBalance AS sb WHERE sb.SkuId = l.SkuId) THEN 1 ELSE 0 END AS bit) AS Syncable,
-                   ISNULL((SELECT SUM(CAST(b.Satilabilir AS BIGINT)) FROM dbo.StockBalance b WHERE b.SkuId = l.SkuId), 0) AS TotalAvailable
+                   ISNULL((SELECT SUM(CAST(b.Satilabilir AS BIGINT)) FROM dbo.StockBalance b WHERE b.SkuId = l.SkuId), 0) AS TotalAvailable,
+                   (SELECT TRY_CAST(s.Deger AS INT) FROM dbo.AppSetting s WHERE s.Anahtar = @thresholdKey) AS LowStockThreshold
               FROM dbo.ChannelListing AS l
               JOIN dbo.Channel AS c ON c.Id = l.ChannelId
              WHERE l.Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
-            """, new { ids = JsonSerializer.Serialize(listingIds) }, tx, cancellationToken: ct));
+            """, new { ids = JsonSerializer.Serialize(listingIds), thresholdKey = StockSettingKeys.LowStockThreshold }, tx, cancellationToken: ct));
 
         return rows.Select(r => new ListingTarget(
             r.ListingId, r.SkuId, r.ChannelId, r.ChannelCode, r.KanalUrunKodu, r.KanalBarkod, r.SonGonderilenStok,
-            StockAllocator.Allocate(r.TotalAvailable, r.PayYuzde, ReadCap(r.Ayarlar, r.ChannelCode)), r.Syncable)).ToList();
+            StockAllocator.Allocate(r.TotalAvailable, r.PayYuzde, ReadCap(r.Ayarlar, r.ChannelCode), Threshold(r.LowStockThreshold)), r.Syncable)).ToList();
     }
 
     /// <summary>
@@ -152,6 +155,16 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
         return null;
     }
 
+    private int Threshold(int? value)
+    {
+        if (value is < 0)
+        {
+            logger.LogWarning("Düşük stok eşiği negatif ({Deger}); 0 kabul edildi.", value);
+            return 0;
+        }
+        return value ?? 0;
+    }
+
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 
     private sealed class TargetRow
@@ -167,5 +180,6 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
         public string? Ayarlar { get; init; }
         public bool Syncable { get; init; }
         public long TotalAvailable { get; init; }
+        public int? LowStockThreshold { get; init; }
     }
 }

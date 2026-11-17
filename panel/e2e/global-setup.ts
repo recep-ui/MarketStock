@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 export type Demo = {
   tag: string; skuCodes: string[]; orderNos: string[]; failedSyncId: number;
-  deviationSkuCode: string; deviationExpected: number; deviationChannelStock: number;
+  deviationSkuCode: string; deviationExpected: number; deviationChannelStock: number; multiListingSkuCode: string;
 };
 
 export const demoFile = join(process.cwd(), 'test-results', 'demo.json');

@@ -212,19 +212,23 @@ function CredentialsForm({ channel, onDone }: { channel: Channel; onDone: (m: st
 }
 
 function ThresholdSettings({ editable, onSaved }: { editable: boolean; onSaved: (m: string) => void }) {
-  const settings = useLoad(() => get<{ criticalStockThreshold: number }>('/api/settings'), []);
+  const settings = useLoad(() => get<{ criticalStockThreshold: number; lowStockThreshold: number | null }>('/api/settings'), []);
   const [value, setValue] = useState('');
+  const [lowStock, setLowStock] = useState('');
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
-    if (settings.data) setValue(String(settings.data.criticalStockThreshold));
+    if (settings.data) {
+      setValue(String(settings.data.criticalStockThreshold));
+      setLowStock(String(settings.data.lowStockThreshold ?? 0));
+    }
   }, [settings.data]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await put('/api/settings', { criticalStockThreshold: Number(value) });
-      onSaved('Uyarı eşiği kaydedildi.');
+      await put('/api/settings', { criticalStockThreshold: Number(value), lowStockThreshold: Number(lowStock) });
+      onSaved('Eşikler kaydedildi. Düşük stok eşiği değiştiyse tüm ilanlar yeniden hesaplanıp kanallara gönderilir.');
     } catch (err) {
       setError(err);
     }
@@ -232,10 +236,18 @@ function ThresholdSettings({ editable, onSaved }: { editable: boolean; onSaved: 
 
   return (
     <Card title="Uyarı eşikleri">
+      <p className="muted">
+        Kritik stok eşiği yalnızca panelde uyarı gösterir. Kanala 0 gönderme eşiği tüm ürün ve kanallar için geçerlidir: satılabilir stok bu
+        değere eşit veya altındaysa tüm kanallardaki tüm ilanlara 0 gönderilir (0 = kapalı).
+      </p>
       <ErrorBox error={error ?? settings.error} />
       <form className="filters" onSubmit={submit}>
         <Field label="Kritik stok eşiği (satılabilir ≤)">
           <input type="number" min={0} disabled={!editable} value={value} onChange={e => setValue(e.target.value)} />
+        </Field>
+        <Field label="Kanala 0 gönderme eşiği (satılabilir ≤)">
+          <input type="number" min={0} disabled={!editable} value={lowStock} onChange={e => setLowStock(e.target.value)}
+            aria-label="Kanala 0 gönderme eşiği" />
         </Field>
         {editable && <button className="primary" type="submit">Kaydet</button>}
       </form>

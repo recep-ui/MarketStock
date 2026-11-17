@@ -67,17 +67,36 @@ public sealed class ChannelCatalogMatcherTests
     }
 
     [Fact]
-    public void Ayni_skuya_dusen_birden_fazla_satir_baglanmaz()
+    public void Ayni_skuya_dusen_birden_fazla_satir_ayri_ilan_olarak_baglanir()
     {
         var skus = new[] { Sku(1, "STK-1", barcode: "B1") };
         var result = ChannelCatalogMatcher.Match([Item(2, barcode: "B1"), Item(3, barcode: "B9", stock: "STK-1")], skus, []);
 
+        result.Should().AllSatisfy(r => r.Sku!.SkuId.Should().Be(1), "ADR-023: aynı SKU'nun birden fazla ilanı olabilir");
+    }
+
+    [Fact]
+    public void Coklanan_ilanlar_ayni_model_renk_bedende_tek_adaya_baglanir()
+    {
+        var skus = new[] { Sku(1, "X", model: "MDL-1", color: "Gri", size: "XL") };
+        var result = ChannelCatalogMatcher.Match(
+            [Item(2, barcode: "B1", model: "MDL-1", color: "Gri", size: "XL"), Item(3, barcode: "B2", model: "MDL-1", color: "gri", size: "XL")], skus, []);
+
         result.Should().AllSatisfy(r =>
         {
-            r.IsMatched.Should().BeFalse();
-            r.Reason.Should().Be(UnmatchedReasons.Ambiguous);
-            r.Detail.Should().Contain("2, 3");
+            r.Sku!.SkuId.Should().Be(1);
+            r.Step.Should().Be(CatalogMatchStep.ModelColorSize);
         });
+    }
+
+    [Fact]
+    public void Barkod_ve_kanal_kodu_farkli_skulara_bagliysa_cakismadir()
+    {
+        var skus = new[] { Sku(1, "A"), Sku(2, "B") };
+        var result = ChannelCatalogMatcher.Match([Item(2, barcode: "B1", code: "HB1")], skus,
+            [new ExistingListingRef(1, null, "B1"), new ExistingListingRef(2, "HB1", null)]);
+
+        result.Single().Reason.Should().Be(UnmatchedReasons.Conflict);
     }
 
     [Fact]

@@ -60,18 +60,20 @@ public sealed class OutboxProcessorJob(
                 break;
             }
 
-            var (skuIds, listingIds, channelIds) = Parse(claimed);
+            var (skuIds, listingIds, channelIds, allListings) = Parse(claimed);
             var candidates = (await connection.QueryAsync<int>(new CommandDefinition("""
                 SELECT l.Id FROM dbo.ChannelListing AS l JOIN dbo.Channel AS c ON c.Id = l.ChannelId
                  WHERE l.Durum = 'AKTIF' AND c.Aktif = 1
-                   AND (l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@skus))
+                   AND (@all = 1
+                        OR l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@skus))
                         OR l.Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@listings))
                         OR l.ChannelId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@channels)))
                 """, new
                 {
                     skus = JsonSerializer.Serialize(skuIds),
                     listings = JsonSerializer.Serialize(listingIds),
-                    channels = JsonSerializer.Serialize(channelIds)
+                    channels = JsonSerializer.Serialize(channelIds),
+                    all = allListings
                 }, tx, cancellationToken: ct))).ToList();
 
             var targets = await store.ComputeTargetsAsync(connection, tx, candidates, ct);
@@ -93,9 +95,10 @@ public sealed class OutboxProcessorJob(
         return new OutboxRunResult(events, batches, enqueued);
     }
 
-    private (HashSet<int> Skus, HashSet<int> Listings, HashSet<int> Channels) Parse(IEnumerable<(long Id, string OlayTipi, string Payload)> events)
+    private (HashSet<int> Skus, HashSet<int> Listings, HashSet<int> Channels, bool All) Parse(IEnumerable<(long Id, string OlayTipi, string Payload)> events)
     {
         HashSet<int> skus = [], listings = [], channels = [];
+        var all = false;
         foreach (var e in events)
         {
             try
@@ -113,6 +116,9 @@ public sealed class OutboxProcessorJob(
                     case OutboxEvents.ChannelRefresh when root.TryGetProperty("ChannelId", out var c) && c.TryGetInt32(out var channelId):
                         channels.Add(channelId);
                         break;
+                    case OutboxEvents.LowStockThresholdChanged:
+                        all = true; // tüm aktif ilanlar; yalnızca değişen hedefler kuyruğa girer
+                        break;
                     default:
                         logger.LogWarning("Outbox olayı {OlayId} ({OlayTipi}) tanınmadı; işlendi sayıldı.", e.Id, e.OlayTipi);
                         break;
@@ -123,7 +129,7 @@ public sealed class OutboxProcessorJob(
                 logger.LogWarning("Outbox olayı {OlayId} okunamadı; işlendi sayıldı.", e.Id);
             }
         }
-        return (skus, listings, channels);
+        return (skus, listings, channels, all);
     }
 }
 

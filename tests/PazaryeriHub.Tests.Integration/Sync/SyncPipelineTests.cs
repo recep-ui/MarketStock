@@ -535,4 +535,164 @@ public sealed class SyncPipelineTests(TestDatabase db)
         }
         return sw.Elapsed;
     }
+
+    // ------------------------------------------------------------------ çoklu ilan + düşük stok eşiği (ADR-023)
+
+    private async Task<int> AddListingAsync(int skuId, int channelId, string? code, string? barcode = null)
+    {
+        var response = await db.Api.PutAsJsonAsync("/api/listings", new ListingInput(skuId, channelId, code, barcode, null), Json, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<ListingDto>(Json, Ct))!.Id;
+    }
+
+    private static string NewCode() => "SC-" + Guid.NewGuid().ToString("N")[..12];
+
+    [Fact]
+    public async Task Ayni_skunun_iki_ilani_ortak_havuzdan_tam_stok_alir_stok_bitince_ikisine_0_gider()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, listingA, codeA) = await SkuWithListingAsync(channelId, 6);
+            var codeB = NewCode();
+            var listingB = await AddListingAsync(skuId, channelId, codeB);
+            listingB.Should().NotBe(listingA, "aynı SKU'nun farklı kanal kodu ikinci ilandır");
+
+            // Debounce ilan bazlı: her ilan için tek bekleyen kayıt, ikinci işleme yeni kayıt açmaz
+            await OutboxAsync();
+            await OutboxAsync();
+            (await QueueAsync(listingA)).Should().ContainSingle(q => q.Durum == "BEKLIYOR");
+            (await QueueAsync(listingB)).Should().ContainSingle(q => q.Durum == "BEKLIYOR");
+
+            await PushAsync();
+            await BatchCheckAsync();
+            Mock.GetChannelStock(Channel, codeA).Should().Be(6);
+            Mock.GetChannelStock(Channel, codeB).Should().Be(6, "tam ortak havuz: stok ilanlar arasında bölünmez");
+
+            await db.Ledger.ReserveAsync(new(skuId, db.DefaultWarehouseId, 6), Ct);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, codeA).Should().Be(0);
+            Mock.GetChannelStock(Channel, codeB).Should().Be(0);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Coklu_ilanda_kismi_hata_yalnizca_hatali_ilani_yeniden_denemeye_birakir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, listingA, codeA) = await SkuWithListingAsync(channelId, 4);
+            var codeB = NewCode();
+            var listingB = await AddListingAsync(skuId, channelId, codeB);
+            Mock.FailingItems[codeB] = "Kanal: ilan kilitli";
+
+            await SyncOnceAsync();
+
+            Mock.GetChannelStock(Channel, codeA).Should().Be(4);
+            Mock.GetChannelStock(Channel, codeB).Should().BeNull();
+            (await QueueAsync(listingA)).Last().Durum.Should().Be("GONDERILDI");
+            (await QueueAsync(listingB)).Last().Should().Match<QueueRow>(q => q.Durum == "BEKLIYOR" && q.Hata!.Contains("kilitli"));
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Ikinci_ilanin_barkoduyla_gelen_siparis_ayni_skudan_rezerve_eder()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, _, _) = await SkuWithListingAsync(channelId, 5);
+            var barcodeB = "BRK-" + Guid.NewGuid().ToString("N")[..12];
+            await AddListingAsync(skuId, channelId, null, barcodeB);
+
+            using var scope = db.Services.CreateScope();
+            var result = await scope.ServiceProvider.GetRequiredService<IOrderIngestionService>().IngestAsync(Channel,
+                new NormalizedOrder("CI-" + Guid.NewGuid().ToString("N")[..10], DateTime.UtcNow, PazaryeriHub.Domain.Orders.OrderStatus.Yeni, 100m,
+                    [new NormalizedOrderLine(null, barcodeB, null, 2, 50m)]), Ct);
+
+            result.InsufficientStock.Should().BeFalse();
+            (await db.GetBalanceAsync(skuId))!.Rezerve.Should().Be(2, "ikinci ilanın barkodu SKU'ya çözülür (eskiden yok sayılan ilanın siparişi rezerve etmiyordu)");
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Mutabakat_ayni_skunun_iki_ilanini_ayri_degerlendirir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, _, _) = await SkuWithListingAsync(channelId, 3);
+            var codeB = NewCode();
+            var listingB = await AddListingAsync(skuId, channelId, codeB);
+            await SyncOnceAsync();
+            Mock.SetChannelStock(Channel, codeB, 9);
+
+            var result = await RunAsync(sp => sp.GetRequiredService<ReconciliationJob>().RunAsync(Channel, Ct));
+
+            result.Should().BeEquivalentTo(new { Listings = 2, Matched = 2, Missing = 0, Deviations = 1 });
+            var report = (await db.Api.GetFromJsonAsync<List<ReconciliationRow>>($"/api/sync/reconciliation?channelId={channelId}&onlyDeviations=true", Json, Ct))!;
+            report.Should().ContainSingle().Which.ListingId.Should().Be(listingB);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Genel_dusuk_stok_esiginde_kanallara_0_gider_esik_degisince_yeniden_hesaplanir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        var settings = (await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Panel.AppSettingsDto>("/api/settings", Json, Ct))!;
+        try
+        {
+            var (_, listingId, code) = await SkuWithListingAsync(channelId, 5);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(5);
+
+            var saved = await db.Api.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = settings.CriticalStockThreshold, lowStockThreshold = 5 }, Json, Ct);
+            saved.StatusCode.Should().Be(HttpStatusCode.OK);
+            await using (var c = db.Open())
+            {
+                (await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Outbox WHERE OlayTipi = 'StokEsigiDegisti' AND IslendiAt IS NULL"))
+                    .Should().BeGreaterThan(0, "eşik değişimi aynı transaction'da outbox olayı yazar");
+            }
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(0, "satılabilir (5) <= eşik (5)");
+            (await LastSentAsync(listingId)).Should().Be(0);
+
+            await db.Api.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = settings.CriticalStockThreshold, lowStockThreshold = 4 }, Json, Ct);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(5);
+
+            (await db.Api.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = 3, lowStockThreshold = -1 }, Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            using var depot = await db.ApiHost.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Warehouse);
+            (await depot.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = 3, lowStockThreshold = 9 }, Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
+        finally
+        {
+            await db.Api.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = settings.CriticalStockThreshold, lowStockThreshold = 0 }, Json, Ct);
+            await RestoreChannelAsync();
+        }
+    }
 }

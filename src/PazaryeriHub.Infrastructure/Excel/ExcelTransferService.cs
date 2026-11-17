@@ -290,9 +290,24 @@ public sealed class ExcelTransferService(
             .ToDictionary(x => x.SkuCode, x => x.Id, StringComparer.Ordinal);
         var channels = (await db.Channels.AsNoTracking().ToListAsync(ct)).ToDictionary(c => c.Code, c => c.Id, StringComparer.Ordinal);
 
-        var ids = skuIds.Values.ToList();
-        var existing = (await db.Listings.Where(l => ids.Contains(l.SkuId)).ToListAsync(ct))
-            .ToDictionary(l => (l.SkuId, l.ChannelId));
+        // İlan kanal içinde barkod / kanal ürün koduyla tanınır (ADR-023): dosyadaki kanalların ilanları indekslenir.
+        var channelIds = rows.Select(r => channels.GetValueOrDefault(r.ChannelCode)).Where(id => id != 0).Distinct().ToList();
+        var channelListings = await db.Listings.Where(l => channelIds.Contains(l.ChannelId)).ToListAsync(ct);
+        var byBarcode = new Dictionary<(int, string), ChannelListingEntity>();
+        var byCode = new Dictionary<(int, string), ChannelListingEntity>();
+        void Index(ChannelListingEntity l)
+        {
+            if (l.ChannelBarcode is not null)
+            {
+                byBarcode[(l.ChannelId, l.ChannelBarcode)] = l;
+            }
+            if (l.ChannelProductCode is not null)
+            {
+                byCode[(l.ChannelId, l.ChannelProductCode)] = l;
+            }
+        }
+        channelListings.ForEach(Index);
+        var skuCodesById = skuIds.ToDictionary(kv => kv.Value, kv => kv.Key);
 
         int created = 0, updated = 0, unchanged = 0;
         foreach (var r in rows)
@@ -308,25 +323,47 @@ public sealed class ExcelTransferService(
                 continue;
             }
 
-            if (existing.TryGetValue((skuId, channelId), out var listing))
+            var bcMatch = r.ChannelBarcode is not null ? byBarcode.GetValueOrDefault((channelId, r.ChannelBarcode)) : null;
+            var codeMatch = r.ChannelProductCode is not null ? byCode.GetValueOrDefault((channelId, r.ChannelProductCode)) : null;
+            if (bcMatch is not null && codeMatch is not null && !ReferenceEquals(bcMatch, codeMatch))
             {
-                if (Same(listing.ChannelProductCode, r.ChannelProductCode) && Same(listing.ChannelBarcode, r.ChannelBarcode) && listing.Status == r.Status)
+                errors.Add(new(r.Row, "Kanal Barkod", "Kanal barkodu ve kanal ürün kodu bu kanalda farklı ilanlara bağlı."));
+                continue;
+            }
+            var listing = bcMatch ?? codeMatch;
+            if (listing is not null && listing.SkuId != skuId)
+            {
+                var ownerId = listing.SkuId;
+                var owner = skuCodesById.GetValueOrDefault(ownerId)
+                            ?? await db.Skus.Where(s => s.Id == ownerId).Select(s => s.SkuCode).FirstOrDefaultAsync(ct);
+                errors.Add(new(r.Row, "Kanal Barkod", $"Bu barkod/kod bu kanalda başka bir SKU'ya ({owner}) bağlı; ilan başka SKU'ya taşınmaz."));
+                continue;
+            }
+
+            if (listing is not null)
+            {
+                var newCode = r.ChannelProductCode ?? listing.ChannelProductCode;
+                var newBarcode = r.ChannelBarcode ?? listing.ChannelBarcode;
+                if (Same(listing.ChannelProductCode, newCode) && Same(listing.ChannelBarcode, newBarcode) && listing.Status == r.Status)
                 {
                     unchanged++;
                     continue;
                 }
                 updated++;
+                listing.ChannelProductCode = newCode;
+                listing.ChannelBarcode = newBarcode;
             }
             else
             {
-                listing = new ChannelListingEntity { SkuId = skuId, ChannelId = channelId };
+                listing = new ChannelListingEntity
+                {
+                    SkuId = skuId, ChannelId = channelId, ChannelProductCode = r.ChannelProductCode, ChannelBarcode = r.ChannelBarcode
+                };
                 db.Listings.Add(listing);
-                existing[(skuId, channelId)] = listing;
                 created++;
             }
-            listing.ChannelProductCode = r.ChannelProductCode;
-            listing.ChannelBarcode = r.ChannelBarcode;
             listing.Status = r.Status;
+            Index(listing);
         }
 
         if (!validateOnly && created + updated > 0)

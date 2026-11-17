@@ -16,7 +16,8 @@ namespace PazaryeriHub.Infrastructure.ChannelCatalog;
 /// (isteğe bağlı) eşleşmeyenlerden ürün/SKU oluştur → kalanları UnmatchedChannelItem'a yaz.
 /// <para>Güvenlik kuralları:</para>
 /// <list type="bullet">
-/// <item>Mevcut bir eşleştirme farklı bir barkod/kodu gösteriyorsa ÜZERİNE YAZILMAZ ("çakışma").</item>
+/// <item>İlan kanal içinde barkod / kanal ürün koduyla tanınır (ADR-023). Barkod veya kod bu kanalda BAŞKA bir SKU'ya bağlıysa
+///       üzerine yazılmaz ("çakışma"). Aynı SKU'nun yeni barkodu ikinci ilan olarak eklenir.</item>
 /// <item>Ad benzerliği yalnızca öneridir; bağlama elle yapılır.</item>
 /// <item>Stoğu hiç girilmemiş SKU'ların eşleştirmeleri kanala gönderilmez (pazaryerinde stok 0'a çekilmesin);
 ///       stok girildiğinde StokDegisti olayıyla gönderilir.</item>
@@ -95,27 +96,24 @@ public sealed class ChannelCatalogService(
                 continue;
             }
 
-            var change = Upsert(state, sku.SkuId, channel.Id, item, source, changedListings);
+            var (change, _) = Upsert(state, sku.SkuId, channel.Id, item, source, changedListings);
             counts.Count(m.Step!.Value, change);
             resolvedKeys.Add(item.Key);
             rows.Add(Row(item, CatalogRowOutcomes.Matched, sku.SkuCode, StepName(m.Step), change, null, null, null));
         }
 
-        // Eşleşmeyenlerden ürün/SKU oluşturma (yalnızca açıkça istenirse; belirsiz/çakışan satırlar hariç)
+        // Eşleşmeyenlerden ürün/SKU oluşturma (yalnızca açıkça istenirse; belirsiz/çakışan/önerili satırlar hariç)
         if (options.CreateMissing)
         {
-            var (created, ambiguousNew) = await CreateMissingAsync(channel, items, unmatched, skus, state, source, changedListings, ct);
-            foreach (var (original, replaced) in ambiguousNew)
-            {
-                unmatched[unmatched.IndexOf(original)] = replaced;
-            }
+            var created = await CreateMissingAsync(channel, items, unmatched, skus, state, source, changedListings, ct);
             foreach (var (match, skuCode, detail) in created)
             {
                 unmatched.Remove(match);
                 resolvedKeys.Add(match.Item.Key);
                 rows.Add(Row(match.Item, CatalogRowOutcomes.Created, skuCode, null, "YENI", detail, null, null));
             }
-            counts.SkusCreated = created.Count;
+            counts.NewSkuListings = created.Count;
+            counts.SkusCreated = db.ChangeTracker.Entries<SkuEntity>().Count(e => e.State == EntityState.Added);
             counts.ProductsCreated = db.ChangeTracker.Entries<ProductEntity>().Count(e => e.State == EntityState.Added);
         }
 
@@ -166,7 +164,7 @@ public sealed class ChannelCatalogService(
         var report = new CatalogImportReport(
             channel.Code, format, source, options.ValidateOnly, options.CreateMissing, totalRows, items.Count,
             counts.Existing, counts.Barcode, counts.StockCode, counts.ModelColorSize,
-            counts.Created + counts.SkusCreated, counts.Updated, counts.Unchanged, counts.ProductsCreated, counts.SkusCreated,
+            counts.Created + counts.NewSkuListings, counts.Updated, counts.Unchanged, counts.ProductsCreated, counts.SkusCreated,
             unmatched.Count(u => u.Reason == UnmatchedReasons.NoMatch),
             unmatched.Count(u => u.Reason == UnmatchedReasons.Ambiguous),
             unmatched.Count(u => u.Reason == UnmatchedReasons.Conflict),
@@ -187,10 +185,12 @@ public sealed class ChannelCatalogService(
         return report;
     }
 
-    private string Upsert(ListingIndex state, int skuId, int channelId, ChannelCatalogItem item, string source, List<ChannelListingEntity> changed)
+    /// <summary>İlanı barkod / kanal ürün koduyla bulur (ADR-023); yoksa SKU'nun yeni ilanı olarak açar.</summary>
+    private (string Change, ChannelListingEntity Listing) Upsert(ListingIndex state, int skuId, int channelId, ChannelCatalogItem item, string source, List<ChannelListingEntity> changed)
     {
         var json = ChannelData(item, source);
-        if (!state.BySku.TryGetValue(skuId, out var listing))
+        var listing = state.Find(item);
+        if (listing is null)
         {
             listing = new ChannelListingEntity
             {
@@ -198,9 +198,9 @@ public sealed class ChannelCatalogService(
                 Status = item.Passive ? ListingStatus.Passive : ListingStatus.Active, ChannelDataJson = json
             };
             db.Listings.Add(listing);
-            state.Add(listing);
+            state.IndexCodes(listing);
             changed.Add(listing);
-            return "YENI";
+            return ("YENI", listing);
         }
 
         // Kanal "kapalı" diyorsa PASIF; aksi halde elle verilmiş durum korunur.
@@ -210,38 +210,41 @@ public sealed class ChannelCatalogService(
         listing.ChannelDataJson = json;
         if (Same(listing.ChannelBarcode, barcode) && Same(listing.ChannelProductCode, code) && listing.Status == status)
         {
-            return "DEGISMEDI";
+            return ("DEGISMEDI", listing);
         }
         listing.ChannelBarcode = barcode;
         listing.ChannelProductCode = code;
         listing.Status = status;
-        state.Index(listing);
+        state.IndexCodes(listing);
         changed.Add(listing);
-        return "GUNCELLENDI";
+        return ("GUNCELLENDI", listing);
     }
 
-    private async Task<(List<(CatalogMatch Match, string SkuCode, string Detail)> Created, List<(CatalogMatch Original, CatalogMatch Ambiguous)> Ambiguous)> CreateMissingAsync(
+    /// <summary>
+    /// Eşleşmeyen satırlardan ürün/SKU oluşturur. Aynı model + renk + bedendeki satırlar (çoklanan ilanlar) TEK SKU olur ve her satır
+    /// o SKU'nun ayrı ilanıdır (ADR-023); SKU barkodu grubun ilk satırınınkidir.
+    /// </summary>
+    private async Task<List<(CatalogMatch Match, string SkuCode, string Detail)>> CreateMissingAsync(
         ChannelEntity channel, IReadOnlyList<ChannelCatalogItem> items, List<CatalogMatch> unmatched, IReadOnlyList<CatalogSkuRef> skus,
         ListingIndex state, string source, List<ChannelListingEntity> changed, CancellationToken ct)
     {
         var result = new List<(CatalogMatch, string, string)>();
-        var ambiguous = new List<(CatalogMatch, CatalogMatch)>();
         // Ad benzerliği önerisi olan satırlar mevcut bir ürünün kopyası olabilir: onlardan SKU oluşturulmaz, karar kullanıcıda.
         var candidates = unmatched.Where(u => u.Reason == UnmatchedReasons.NoMatch && u.Item.Barcode is not null && u.Suggestion is null).ToList();
         if (candidates.Count == 0)
         {
-            return (result, ambiguous);
+            return result;
         }
 
         var usedCodes = skus.Select(s => s.SkuCode).ToHashSet(StringComparer.Ordinal);
         var usedBarcodes = skus.Where(s => s.Barcode is not null).Select(s => s.Barcode!).ToHashSet(StringComparer.Ordinal);
         var stockCodeCounts = items.Where(i => i.StockCode is not null).GroupBy(i => i.StockCode!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        var variantCodeCounts = items.Select(VariantCode).OfType<string>().GroupBy(c => c, StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
-        var modelKeyRows = items.Where(i => i.ModelCode is not null)
-            .GroupBy(i => ChannelCatalogMatcher.ModelColorSizeKey(i.ModelCode, i.Color, i.Size), StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.Select(i => i.Row).ToList(), StringComparer.Ordinal);
+        // MODEL-RENK-BEDEN kodu kaç farklı varyant grubunda geçiyor (1 ise SKU kodu olarak kullanılabilir)
+        var variantCodeCounts = items.Where(i => VariantCode(i) is not null)
+            .GroupBy(i => VariantCode(i)!, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.Select(i => ChannelCatalogMatcher.ModelColorSizeKey(i.ModelCode, i.Color, i.Size)).Distinct(StringComparer.Ordinal).Count(),
+                StringComparer.Ordinal);
 
         // Ürün grubu: aynı Model Kodu + Marka → aynı ürün (yoksa Ürün Adı + Marka). Mevcut ürünler Model Kodu ile bulunur.
         var modelCodes = candidates.Select(c => c.Item.ModelCode).OfType<string>().Distinct(StringComparer.Ordinal).ToList();
@@ -252,68 +255,63 @@ public sealed class ChannelCatalogService(
             products.TryAdd(ProductKey(p.ModelCode, p.Name, p.Brand), p);
         }
 
-        foreach (var match in candidates)
+        var groups = candidates
+            .Where(c => !usedBarcodes.Contains(c.Item.Barcode!))
+            .GroupBy(c => c.Item.ModelCode is not null
+                ? "M:" + ChannelCatalogMatcher.ModelColorSizeKey(c.Item.ModelCode, c.Item.Color, c.Item.Size)
+                : "B:" + c.Item.Barcode, StringComparer.Ordinal)
+            .Select(g => g.OrderBy(m => m.Item.Row).ToList())
+            .OrderBy(g => g[0].Item.Row);
+
+        foreach (var members in groups)
         {
-            var item = match.Item;
-            if (usedBarcodes.Contains(item.Barcode!))
-            {
-                continue;
-            }
-
-            // Aynı model + renk + beden dosyada birden fazla satırda (ör. Trendyol "Çoklanan Ürün Satışı"): aynı fiziksel ürün
-            // olabilir; ayrı SKU açmak stoğu böler. Oluşturulmaz, karar kullanıcıda.
-            if (item.ModelCode is not null
-                && modelKeyRows.TryGetValue(ChannelCatalogMatcher.ModelColorSizeKey(item.ModelCode, item.Color, item.Size), out var sameRows)
-                && sameRows.Count > 1)
-            {
-                ambiguous.Add((match, match with
-                {
-                    Reason = UnmatchedReasons.Ambiguous,
-                    Detail = $"Dosyada aynı model + renk + beden {sameRows.Count} satırda var (satırlar: {string.Join(", ", sameRows.Take(10))}); " +
-                             "aynı ürünün kopyası olabilir, SKU oluşturulmadı. Doğru SKU'yu elle bağlayın."
-                }));
-                continue;
-            }
-
-            var skuCode = ChooseSkuCode(item, stockCodeCounts, variantCodeCounts, usedCodes);
+            var first = members[0].Item;
+            var skuCode = ChooseSkuCode(first, stockCodeCounts, variantCodeCounts, usedCodes);
             if (skuCode is null)
             {
                 continue; // eşleşmeyenlerde kalır
             }
 
-            var key = ProductKey(item.ModelCode, item.Name, item.Brand);
+            var key = ProductKey(first.ModelCode, first.Name, first.Brand);
             products.TryGetValue(key, out var product);
             if (product is null)
             {
                 product = new ProductEntity
                 {
-                    Name = item.Name ?? item.ModelCode ?? item.Barcode!,
-                    Brand = item.Brand,
-                    Category = item.Category,
-                    ModelCode = item.ModelCode
+                    Name = first.Name ?? first.ModelCode ?? first.Barcode!,
+                    Brand = first.Brand,
+                    Category = first.Category,
+                    ModelCode = first.ModelCode
                 };
                 db.Products.Add(product);
                 products[key] = product;
             }
 
-            var sku = new SkuEntity { SkuCode = skuCode, Barcode = item.Barcode, Color = item.Color, Size = item.Size, Product = product };
+            var sku = new SkuEntity { SkuCode = skuCode, Barcode = first.Barcode, Color = first.Color, Size = first.Size, Product = product };
             db.Skus.Add(sku);
             usedCodes.Add(skuCode);
-            usedBarcodes.Add(item.Barcode!);
 
-            var listing = new ChannelListingEntity
+            foreach (var match in members)
             {
-                Sku = sku, ChannelId = channel.Id, ChannelBarcode = item.Barcode, ChannelProductCode = item.ChannelProductCode,
-                Status = item.Passive ? ListingStatus.Passive : ListingStatus.Active, ChannelDataJson = ChannelData(item, source)
-            };
-            db.Listings.Add(listing);
-            changed.Add(listing);
-            state.IndexCodes(listing);
+                var item = match.Item;
+                var listing = new ChannelListingEntity
+                {
+                    Sku = sku, ChannelId = channel.Id, ChannelBarcode = item.Barcode, ChannelProductCode = item.ChannelProductCode,
+                    Status = item.Passive ? ListingStatus.Passive : ListingStatus.Active, ChannelDataJson = ChannelData(item, source)
+                };
+                db.Listings.Add(listing);
+                changed.Add(listing);
+                state.IndexCodes(listing);
+                usedBarcodes.Add(item.Barcode!);
 
-            // Id == 0: bu yüklemede oluşturulan ürün
-            result.Add((match, skuCode, product.Id == 0 ? $"Yeni ürün: {product.Name}" : $"Mevcut ürüne eklendi: {product.Name}"));
+                // Id == 0: bu yüklemede oluşturulan ürün
+                var detail = ReferenceEquals(match, members[0])
+                    ? (product.Id == 0 ? $"Yeni ürün: {product.Name}" : $"Mevcut ürüne eklendi: {product.Name}")
+                    : $"Aynı varyantın ek ilanı (ortak stok; ilk satır {first.Row}).";
+                result.Add((match, skuCode, detail));
+            }
         }
-        return (result, ambiguous);
+        return result;
     }
 
     /// <summary>
@@ -478,7 +476,7 @@ public sealed class ChannelCatalogService(
         }
 
         var changed = new List<ChannelListingEntity>();
-        Upsert(state, sku.SkuId, item.ChannelId, catalogItem, item.Source, changed);
+        var (_, linked) = Upsert(state, sku.SkuId, item.ChannelId, catalogItem, item.Source, changed);
         var now = clock.GetUtcNow().UtcDateTime;
         item.Status = UnmatchedStatuses.Linked;
         item.ResolvedBy = Truncate(user, 100);
@@ -503,7 +501,7 @@ public sealed class ChannelCatalogService(
             throw DbErrors.UniqueConflict(ex);
         }
 
-        var listingId = state.BySku[sku.SkuId].Id;
+        var listingId = linked.Id;
         db.ChangeTracker.Clear();
         return await db.Listings.AsNoTracking().Where(l => l.Id == listingId)
             .Select(l => new ListingDto(l.Id, l.SkuId, l.Sku.SkuCode, l.ChannelId, l.Channel.Code,
@@ -572,7 +570,7 @@ public sealed class ChannelCatalogService(
 
     private sealed class Counters
     {
-        public int Existing, Barcode, StockCode, ModelColorSize, Created, Updated, Unchanged, SkusCreated, ProductsCreated;
+        public int Existing, Barcode, StockCode, ModelColorSize, Created, Updated, Unchanged, SkusCreated, ProductsCreated, NewSkuListings;
 
         public void Count(CatalogMatchStep step, string change)
         {
@@ -592,10 +590,9 @@ public sealed class ChannelCatalogService(
         }
     }
 
-    /// <summary>Bir kanalın eşleştirmeleri: SKU, barkod ve kanal ürün koduna göre.</summary>
+    /// <summary>Bir kanalın ilanları: barkod ve kanal ürün koduna göre (ADR-023; bir SKU'nun birden fazla ilanı olabilir).</summary>
     private sealed class ListingIndex
     {
-        public Dictionary<int, ChannelListingEntity> BySku { get; } = [];
         private readonly Dictionary<string, ChannelListingEntity> byBarcode = new(StringComparer.Ordinal);
         private readonly Dictionary<string, ChannelListingEntity> byCode = new(StringComparer.Ordinal);
 
@@ -603,55 +600,47 @@ public sealed class ChannelCatalogService(
         {
             foreach (var l in listings)
             {
-                BySku[l.SkuId] = l;
                 IndexCodes(l);
             }
         }
-
-        public void Add(ChannelListingEntity listing)
-        {
-            BySku[listing.SkuId] = listing;
-            IndexCodes(listing);
-        }
-
-        public void Index(ChannelListingEntity listing) => IndexCodes(listing);
 
         public void IndexCodes(ChannelListingEntity listing)
         {
             if (listing.ChannelBarcode is not null)
             {
-                byBarcode.TryAdd(listing.ChannelBarcode, listing);
+                byBarcode[listing.ChannelBarcode] = listing;
             }
             if (listing.ChannelProductCode is not null)
             {
-                byCode.TryAdd(listing.ChannelProductCode, listing);
+                byCode[listing.ChannelProductCode] = listing;
             }
         }
 
-        /// <summary>Bağlamak mevcut bir eşleştirmenin üzerine yazacaksa açıklama döner; yazılmaz.</summary>
+        public ChannelListingEntity? Find(ChannelCatalogItem item) =>
+            (item.Barcode is not null ? byBarcode.GetValueOrDefault(item.Barcode) : null)
+            ?? (item.ChannelProductCode is not null ? byCode.GetValueOrDefault(item.ChannelProductCode) : null);
+
+        /// <summary>
+        /// Bağlamak başka bir SKU'nun ilanının üzerine yazacaksa açıklama döner; yazılmaz. Aynı SKU'nun farklı barkodlu
+        /// ilanı çakışma DEĞİLDİR (ikinci ilan olarak eklenir).
+        /// </summary>
         public string? FindConflict(CatalogSkuRef sku, ChannelCatalogItem item, IReadOnlyDictionary<int, CatalogSkuRef> skuById)
         {
             string Name(ChannelListingEntity l) => l.Sku?.SkuCode ?? (skuById.TryGetValue(l.SkuId, out var s) ? s.SkuCode : $"Id {l.SkuId}");
 
-            if (item.Barcode is not null && byBarcode.TryGetValue(item.Barcode, out var lb) && lb.SkuId != sku.SkuId)
+            var lb = item.Barcode is not null ? byBarcode.GetValueOrDefault(item.Barcode) : null;
+            var lc = item.ChannelProductCode is not null ? byCode.GetValueOrDefault(item.ChannelProductCode) : null;
+            if (lb is not null && lb.SkuId != sku.SkuId)
             {
-                return $"Bu kanal barkodu bu kanalda başka bir SKU'ya bağlı ({Name(lb)}).";
+                return $"Bu kanal barkodu bu kanalda başka bir SKU'ya bağlı ({Name(lb)}); üzerine yazılmadı.";
             }
-            if (item.ChannelProductCode is not null && byCode.TryGetValue(item.ChannelProductCode, out var lc) && lc.SkuId != sku.SkuId)
+            if (lc is not null && lc.SkuId != sku.SkuId)
             {
-                return $"Bu kanal ürün kodu bu kanalda başka bir SKU'ya bağlı ({Name(lc)}).";
+                return $"Bu kanal ürün kodu bu kanalda başka bir SKU'ya bağlı ({Name(lc)}); üzerine yazılmadı.";
             }
-            if (BySku.TryGetValue(sku.SkuId, out var existing))
+            if (lb is not null && lc is not null && !ReferenceEquals(lb, lc))
             {
-                if (existing.ChannelBarcode is not null && item.Barcode is not null && !string.Equals(existing.ChannelBarcode, item.Barcode, StringComparison.Ordinal))
-                {
-                    return $"{sku.SkuCode} bu kanalda başka bir barkoda bağlı ({existing.ChannelBarcode}); üzerine yazılmadı.";
-                }
-                if (existing.ChannelProductCode is not null && item.ChannelProductCode is not null
-                    && !string.Equals(existing.ChannelProductCode, item.ChannelProductCode, StringComparison.Ordinal))
-                {
-                    return $"{sku.SkuCode} bu kanalda başka bir kanal ürün koduna bağlı ({existing.ChannelProductCode}); üzerine yazılmadı.";
-                }
+                return "Kanal barkodu ve kanal ürün kodu bu kanalda farklı ilanlara bağlı.";
             }
             return null;
         }

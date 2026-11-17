@@ -7,6 +7,27 @@
 
 ---
 
+## Çoklu ilan + genel düşük stok eşiği (2026-11-17): TAMAM
+
+- **Migration 0008:** `UNIQUE(SkuId, ChannelId)` kaldırıldı; kanal + barkod ve kanal + kanal ürün kodu tekil oldu. Ön kontrol çakışmada migration'ı durduruyor. Migration öncesi kontrol sorgusunda çakışma çıkmadı (test veritabanı 993 ilan, ana veritabanı 0 ilan).
+- **Davranış:**
+  - Bir SKU bir kanalda birden fazla ilana bağlanabilir; her ilana tam (ortak havuz) stok gönderilir.
+  - Trendyol "Çoklanan" satırları katalog içe almada tek SKU'nun ilanları olur.
+  - İkinci ilanın barkoduyla gelen sipariş artık rezerve ediyor; önceki düzende yok sayılan ilanın siparişi rezerve edilmiyordu.
+- **Genel düşük stok eşiği:** `DusukStokEsigi` (varsayılan 0). Ayarlar ekranından değiştirilir; değişince tüm ilanlar yeniden hesaplanır ve yalnızca değişen değerler gönderilir.
+- **Panel:** Stok Listesi'nde çoklu ilan hücresi, Ayarlar'da eşik alanı.
+- **Testler:**
+  - Unit 194/194: eşik, eşleştirici ve Excel eşleştirme kuralları.
+  - Integration 106/106:
+    - çoklu ilan senkronu ve ilan bazlı tekillik;
+    - kısmi hata, sipariş çözümleme, mutabakat;
+    - eşik ve outbox olayı; tekil index'ler;
+    - 0008 ön kontrolünün geçici veritabanında çakışmada durması.
+  - Playwright 5/5: stok listesinde "(2 ilan)" kontrolü eklendi.
+- Ayrıntılar ve oversell penceresi ADR-023'te. Set ürün çarpanı ayrı adım.
+
+---
+
 ## Kanal kataloğu içe alma B: kanal API'si (2026-11-17): TAMAM (gerçek hesapla doğrulanmadı)
 
 - `IChannelAdapter.FetchCatalogAsync`, `KatalogCek` job'ı (panelden tetiklenir; önizleme → uygula) ve migration 0007 (`ChannelJobState.SonSonuc`).

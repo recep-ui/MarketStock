@@ -11,7 +11,7 @@ namespace PazaryeriHub.Api.Dev;
 
 public sealed record DemoDataResult(
     string Tag, IReadOnlyList<string> SkuCodes, IReadOnlyList<string> OrderNos, long FailedSyncId,
-    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock);
+    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode);
 
 /// <summary>
 /// Yalnızca Development/Testing: panel ekranlarını ve Playwright senaryolarını beslemek için etiketli demo veri üretir.
@@ -71,6 +71,13 @@ public sealed class DemoDataSeeder(
             }
         }
 
+        // Çoklu ilan (ADR-023): 2. SKU'nun Trendyol'da ikinci ("çoklanan") ilanı; ortak havuzdan aynı stoğu görür
+        var extraListing = await connection.ExecuteScalarAsync<int>("""
+            INSERT dbo.ChannelListing (SkuId, ChannelId, KanalUrunKodu, KanalBarkod)
+            OUTPUT inserted.Id VALUES (@skuId, @channelId, @code, @barcode)
+            """, new { skuId = product.Skus[1].Id, channelId = channels[ChannelCodes.Trendyol], code = $"TY2-{product.Skus[1].SkuCode}",
+            barcode = product.Skus[1].Barcode + "2" });
+
         // Siparişler: farklı kanal ve durumlarda
         var orders = new (string Channel, int SkuIndex, int Qty, OrderStatus Status)[]
         {
@@ -95,9 +102,10 @@ public sealed class DemoDataSeeder(
 
         // Siparişlerden SONRA: son gönderilen ve mutabakat görüntüsü = hesaplanan değer (uyumlu);
         // yalnızca 3. SKU Hepsiburada'da beklenenden 1 fazla görünür → sapma.
-        var targets = (await syncStore.ComputeTargetsAsync(connection, null, listingIds.Values.ToList(), ct)).ToDictionary(t => t.ListingId, t => t.Target);
+        var allListings = listingIds.Values.Append(extraListing).ToList();
+        var targets = (await syncStore.ComputeTargetsAsync(connection, null, allListings, ct)).ToDictionary(t => t.ListingId, t => t.Target);
         var deviationListing = listingIds[(product.Skus[2].Id, ChannelCodes.Hepsiburada)];
-        foreach (var listingId in listingIds.Values)
+        foreach (var listingId in allListings)
         {
             var channelStock = listingId == deviationListing ? targets[listingId] + 1 : targets[listingId];
             await connection.ExecuteAsync("""
@@ -113,6 +121,6 @@ public sealed class DemoDataSeeder(
             """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Trendyol)] });
 
         return new DemoDataResult(tag, product.Skus.Select(s => s.SkuCode).ToList(), orderNos, failedSyncId,
-            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1);
+            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode);
     }
 }

@@ -20,7 +20,12 @@ public sealed record ListingDto(
     string? ChannelProductCode, string? ChannelBarcode, string Status,
     int? LastSentStock, DateTime? LastSyncUtc);
 
-public sealed record ListingInput(int SkuId, int ChannelId, string? ChannelProductCode, string? ChannelBarcode, string? Status);
+/// <summary>
+/// Eşleştirme ekle/güncelle. Bir SKU bir kanalda birden fazla ilana sahip olabilir (ADR-023); ilan kanal içinde barkod veya
+/// kanal ürün koduyla tanınır. <paramref name="Id"/> verilirse o ilan güncellenir; verilmezse aynı barkod/kodlu ilan aranır,
+/// yoksa yeni ilan açılır.
+/// </summary>
+public sealed record ListingInput(int SkuId, int ChannelId, string? ChannelProductCode, string? ChannelBarcode, string? Status, int? Id = null);
 
 public interface IChannelService
 {

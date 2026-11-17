@@ -13,11 +13,12 @@ public readonly record struct StockLevel(int Physical, int Reserved, int SafetyS
 /// Satılabilir     = Σ (Fiziksel - Rezerve - GuvenlikStogu)          (tüm depolar)
 /// Kanala gidecek  = MIN( FLOOR(Satılabilir * PayYuzde / 100), kanal üst limiti )
 /// Negatif sonuç 0'a sabitlenir.
+/// Satılabilir &lt;= genel düşük stok eşiği ise 0 (ADR-023; eşik 0 → yalnızca negatif/0 sıfırlanır, mevcut davranış).
 /// </code>
 /// </summary>
 public static class StockAllocator
 {
-    /// <summary>Tüm depoların toplam satılabilir stoğu (negatif olabilir; sabitleme <see cref="Allocate(long, decimal, int?)"/>'te yapılır).</summary>
+    /// <summary>Tüm depoların toplam satılabilir stoğu (negatif olabilir; sabitleme <see cref="Allocate(long, decimal, int?, int)"/>'te yapılır).</summary>
     public static long TotalAvailable(IEnumerable<StockLevel> levels)
     {
         ArgumentNullException.ThrowIfNull(levels);
@@ -25,13 +26,17 @@ public static class StockAllocator
     }
 
     /// <summary>Depo seviyelerinden kanala gidecek stoğu hesaplar.</summary>
-    public static int Allocate(IEnumerable<StockLevel> levels, decimal sharePercent, int? channelCap = null) =>
-        Allocate(TotalAvailable(levels), sharePercent, channelCap);
+    public static int Allocate(IEnumerable<StockLevel> levels, decimal sharePercent, int? channelCap = null, int lowStockThreshold = 0) =>
+        Allocate(TotalAvailable(levels), sharePercent, channelCap, lowStockThreshold);
 
     /// <param name="totalAvailable">Tüm depoların toplam satılabilir stoğu.</param>
     /// <param name="sharePercent">Kanal payı (Channel.PayYuzde), 0–100 arası.</param>
     /// <param name="channelCap">Kanal üst limiti; null ise limit yok.</param>
-    public static int Allocate(long totalAvailable, decimal sharePercent, int? channelCap = null)
+    /// <param name="lowStockThreshold">
+    /// Genel düşük stok eşiği (tüm ürün ve kanallar için tek değer). Toplam satılabilir bu değere eşit veya altındaysa 0 döner.
+    /// Pay uygulanmadan ÖNCE, ortak havuz değeri üzerinde kontrol edilir.
+    /// </param>
+    public static int Allocate(long totalAvailable, decimal sharePercent, int? channelCap = null, int lowStockThreshold = 0)
     {
         if (sharePercent is < 0m or > 100m)
         {
@@ -43,7 +48,12 @@ public static class StockAllocator
             throw new ArgumentOutOfRangeException(nameof(channelCap), channelCap, "Kanal üst limiti negatif olamaz.");
         }
 
-        if (totalAvailable <= 0)
+        if (lowStockThreshold < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(lowStockThreshold), lowStockThreshold, "Düşük stok eşiği negatif olamaz.");
+        }
+
+        if (totalAvailable <= 0 || totalAvailable <= lowStockThreshold)
         {
             return 0;
         }

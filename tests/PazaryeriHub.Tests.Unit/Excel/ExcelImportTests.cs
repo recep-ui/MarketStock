@@ -151,12 +151,13 @@ public sealed class ExcelImportTests
             ["A", "trendyol", "TY-1", null, null],   // 2: geçerli, durum varsayılan AKTIF
             ["B", "TRENDYOL", null, null, null],     // 3: kod/barkod yok
             ["C", "TRENDYOL", "TY-3", null, "SİLİNDİ"], // 4: geçersiz durum
-            ["A", "TRENDYOL", "TY-9", null, "pasif"]);  // 5: A+TRENDYOL tekrar (2 ile)
+            ["A", "TRENDYOL", "TY-9", null, "pasif"],   // 5: A'nın ikinci Trendyol ilanı (ADR-023: geçerli)
+            ["D", "TRENDYOL", "TY-9", null, null]);     // 6: aynı kanal + kanal kodu tekrar (5 ile)
 
         var outcome = ImportValidators.ValidateListings(ExcelWorkbook.Read(file, ExcelLayouts.Listings).Rows);
 
-        outcome.Valid.Should().BeEmpty();
-        outcome.Errors.Select(e => e.Row).Distinct().Should().Equal(2, 3, 4, 5);
+        outcome.Valid.Select(r => r.Row).Should().Equal(2);
+        outcome.Errors.Select(e => e.Row).Distinct().Should().Equal(3, 4, 5, 6);
     }
 
     [Fact]

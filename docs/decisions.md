@@ -1,4 +1,4 @@
-# Mimari Karar Kayıtları (ADR)
+﻿# Mimari Karar Kayıtları (ADR)
 
 Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar silinmez, gerekirse "yerine geçti" diye işaretlenir.
 
@@ -163,6 +163,7 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 **Karar:**
 - Kanal dosyası başlık imzasıyla tanınır (Trendyol: Partner ID, Barkod, Tedarikçi Stok Kodu, Model Kodu, Ürün Rengi, Beden; Beymen: Id, Satış Kanalı, Barkod, Model Kodu, Satıcı Renk, Beden). Seçilen kanalla uyuşmayan dosya reddedilir. Yalnızca tanımlı ürün sütunları okunur; Beymen dosyasındaki firma/e-posta/adres sütunları okunmaz.
 - Barkod ve kodlar metin olarak okunur ve kırpılır. Bilimsel gösterim veya ondalıklı kod **hatalı satır**dır. Sayı olarak kaydedilmiş tam sayı kodlar kabul edilir ama uyarı verilir. Dosya içinde tekrar eden barkod veya kanal kodu hatalı satırdır.
+- *(Aynı SKU'ya birden fazla satır ve "belirsiz/çakışma" anlamları ADR-023 ile güncellendi.)*
 - Eşleştirme sırası (saf fonksiyon `ChannelCatalogMatcher`):
   0. Bu kanaldaki mevcut eşleştirme (barkod veya kanal kodu).
   1. Kanal barkodu = `Sku.Barkod`.
@@ -202,3 +203,58 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
   - Trendyol renk/beden öznitelik adlarının "Renk"/"Beden" olduğu (kategoriye göre değişebilir).
   - Beymen'in model/renk/beden veren bir listeleme ucu.
 - Deneme modunda Hangfire varsayılan kuyruğu dinler; zamanlanmış job'lar cron boş olduğu için kapalıdır. Böylece elle tetiklenen işler çalışır.
+
+## ADR-023: Aynı SKU'nun aynı kanalda birden fazla ilanı ve genel düşük stok eşiği
+**Tarih:** 2026-11-17
+**Bağlam:** Trendyol'da aynı varyant birden fazla ilanla satılabiliyor ("Çoklanan Ürün Satışı"). `UNIQUE(SkuId, ChannelId)` yüzünden ilanlardan yalnızca biri bağlanabiliyordu. Yok sayılan ilanın stoğu güncellenmiyordu ve siparişi SKU'ya çözülmediği için **rezerve edilmiyordu**; bu bir oversell açığıydı.
+**Karar (seçenek a; SkuAlias seçeneği reddedildi):**
+- **Stok politikası "tam ortak havuz":** tek StockBalance havuzu. Her kanal ve her ilan aynı satılabilir stoğu görür (PayYuzde = 100). Aynı SKU'nun aynı kanaldaki her ilanına tam stok gönderilir; stok bölünmez. Stok 0 olunca tüm ilanlara 0 gider.
+- **Migration 0008:**
+  - `UQ_ChannelListing_Sku_Channel` kaldırıldı.
+  - İlanın kimliği kanal içinde barkod veya kanal ürün kodu oldu: `UX_ChannelListing_Channel_KanalBarkod` ve `UX_ChannelListing_Channel_KanalUrunKodu` (NULL hariç filtreli UNIQUE).
+  - `IX_ChannelListing_Sku_Channel` eklendi.
+  - **Ön kontrol:** mevcut veride bu anahtarlarda çakışma varsa script THROW 50080/50081 ile durur. DbUp script başına transaction kullandığı için hiçbir şey değişmez; veri silinmez veya birleştirilmez.
+  - "En az biri dolu" CHECK kısıtı **eklenmedi**: test veritabanında eski kodsuz ilanlar var. Bu kural uygulama katmanında doğrulanıyor.
+- **Değişmeyen davranış** (zaten ilan bazlıydı): stok hedef hesabı, kuyruk tekilliği (debounce), gönderim, kısmi batch hatası eşlemesi (barkod/kod artık kanal içinde tekil, eşleme belirsiz değil), mutabakat ve sipariş satırı çözümleme.
+- **Eşleştirme API'si (`PUT /api/listings`):** isteğe bağlı `id` alır. Verilmezse aynı kanal + barkod/kodlu ilan güncellenir; yoksa **yeni ilan** açılır. Aynı SKU'nun mevcut ilanının üzerine yazılmaz. Barkod/kod başka bir SKU'ya bağlıysa 409 döner.
+- **Excel eşleştirme içe aktarma:** satır anahtarı kanal + barkod/kod oldu. Aynı SKU + kanal için birden fazla satır serbest. Barkod başka bir SKU'ya bağlıysa satır hatası verilir; ilan sessizce başka SKU'ya taşınmaz.
+- **Katalog içe alma (ADR-020'yi günceller):**
+  - "Aynı SKU'ya birden fazla satır düşerse hiçbiri bağlanmaz" kuralı kaldırıldı.
+  - Model + renk + beden adımında bizde tek aday SKU varsa, dosyadaki tüm satırlar o SKU'nun ayrı ilanları olur.
+  - **BELIRSIZ:** satır için birden fazla aday SKU var.
+  - **CAKISMA:** barkod veya kod bu kanalda başka bir SKU'ya bağlı, ya da barkod ile kod farklı ilanlara bağlı. Aynı SKU'nun yeni barkodu çakışma değil, ikinci ilandır.
+  - "Eşleşmeyenlerden SKU oluştur": aynı model + renk + bedendeki satırlar için **tek SKU** açılır ve her satıra bir ilan bağlanır. SKU barkodu grubun ilk satırınınkidir.
+- **Genel düşük stok eşiği:**
+  - `AppSetting.DusukStokEsigi` (varsayılan 0 = davranış değişmez). Satılabilir ≤ N ise kanallara 0 gönderilir.
+  - `StockAllocator.Allocate(..., lowStockThreshold)` saf fonksiyon olarak kaldı. Eşik, ortak havuz değeri üzerinde, **paydan önce** uygulanır.
+  - `SyncStore` eşiği aynı sorguda okur; panel, mutabakat ve gönderim aynı hesabı kullanır.
+  - Eşik değişince `PUT /api/settings` (Yönetici) aynı transaction'da `StokEsigiDegisti` outbox olayı yazar. OutboxIsle bu olayda tüm aktif ilanları yeniden hesaplar ve **yalnızca değişen hedefleri** kuyruğa alır. Trendyol'un "aynı istek 15 dk içinde tekrar edilemez" kuralı nedeniyle `KanalStokYenile` kullanılmadı.
+  - Ürün bazlı eşik kapsam dışı.
+- **Panel:**
+  - Stok Listesi'nde bir kanalın birden fazla ilanı tek hücrede "(n ilan)" olarak gösterilir. Herhangi bir ilan saparsa hücre kırmızı olur; ipucunda ilan başına barkod, beklenen ve kanaldaki değer var.
+  - Ayarlar → "Kanala 0 gönderme eşiği" alanı eklendi.
+- **Oversell penceresi** (yapılandırmadan; bizim tarafımızda en kötü yaklaşık 140 sn):
+
+  | Adım | En fazla |
+  |---|---|
+  | SiparisCek (`*/2 * * * *`) | 120 sn |
+  | OutboxIsle | 10 sn |
+  | StokGonder | 10 sn (kanal başına çalışma başına 100 kayıt) |
+
+  Doğrulanamayanlar: Hangfire tekrarlayan job tetikleme gecikmesi, job süreleri, kanalların toplu işlem uygulama süresi ve siparişin kanal API'sinde görünme gecikmesi.
+- **Doğrulanmadı:** Trendyol'un "Çoklanan Ürün Satışı" durumundaki ilanların stok güncellemesini kabul edip etmediği. Reddederse ilgili kuyruk kaydı 5 denemede HATA'ya düşer ve Senkron Merkezi'nde görünür.
+- **Ayrı adım (kapsam dışı):** set ürün çarpanı (Carpan). İlan başına çarpan kolonu, `FLOOR(satılabilir / çarpan)` ve rezervasyonda adet × çarpan gerektirir; ayrı ADR ile planlanacak.
+
+**Migration öncesi kontrol sorgusu:**
+```sql
+SELECT 'KanalBarkod' AS Anahtar, c.Kod AS Kanal, l.KanalBarkod AS Deger, COUNT(*) AS IlanSayisi,
+       STRING_AGG(CAST(l.Id AS varchar(20)), ',') AS IlanIdleri, STRING_AGG(CAST(l.SkuId AS varchar(20)), ',') AS SkuIdleri
+  FROM dbo.ChannelListing l JOIN dbo.Channel c ON c.Id = l.ChannelId
+ WHERE l.KanalBarkod IS NOT NULL GROUP BY c.Kod, l.KanalBarkod HAVING COUNT(*) > 1
+UNION ALL
+SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
+       STRING_AGG(CAST(l.Id AS varchar(20)), ','), STRING_AGG(CAST(l.SkuId AS varchar(20)), ',')
+  FROM dbo.ChannelListing l JOIN dbo.Channel c ON c.Id = l.ChannelId
+ WHERE l.KanalUrunKodu IS NOT NULL GROUP BY c.Kod, l.KanalUrunKodu HAVING COUNT(*) > 1;
+```
+2026-11-17 sonucu: test veritabanında 993 ilan, 0 çakışma; ana veritabanında 0 ilan.

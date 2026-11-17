@@ -121,6 +121,7 @@ export type OrderDetail = OrderListItem & {
 export type ChannelCell = {
   channelCode: string; listingId: number; status: string; expected: number; lastSent: number | null;
   channelStock: number | null; fetchedAtUtc: string | null; hasDeviation: boolean;
+  channelBarcode: string | null; channelProductCode: string | null;
 };
 export type StockRow = {
   skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number;
