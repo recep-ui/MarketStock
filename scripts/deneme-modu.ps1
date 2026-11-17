@@ -94,14 +94,7 @@ $env:Kimlik__SeedUsers__0__UserName = 'demo-yonetici'
 $env:Kimlik__SeedUsers__0__FullName = 'Demo Yönetici'
 $env:Kimlik__SeedUsers__0__Role = 'Yonetici'
 $env:Kimlik__SeedUsers__0__Password = $password
-$env:Kimlik__SeedUsers__1__UserName = 'demo-depo'
-$env:Kimlik__SeedUsers__1__FullName = 'Demo Depo'
-$env:Kimlik__SeedUsers__1__Role = 'Depo'
-$env:Kimlik__SeedUsers__1__Password = $password
-$env:Kimlik__SeedUsers__2__UserName = 'demo-destek'
-$env:Kimlik__SeedUsers__2__FullName = 'Demo Destek'
-$env:Kimlik__SeedUsers__2__Role = 'Destek'
-$env:Kimlik__SeedUsers__2__Password = $password
+# Yalnızca tek yönetici; başka rolleri denemek için panelden (Ayarlar → Kullanıcılar) kullanıcı ekleyin.
 # Tüm kanallar mock; arka plan job'ları kapalı (veriler siz işlem yapana kadar sabit kalsın)
 foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') {
     $mode = if ($GercekKanal -contains $code) { 'Gercek' } else { 'Mock' }
@@ -142,7 +135,7 @@ try {
     Write-Host ''
     Write-Host '==================== DENEME MODU HAZIR ====================' -ForegroundColor Green
     Write-Host "  Adres     : $baseUrl"
-    Write-Host '  Kullanıcı : demo-yonetici (tüm yetkiler)  |  demo-depo  |  demo-destek (müşteri maskeli)'
+    Write-Host '  Kullanıcı : demo-yonetici (tüm yetkiler)'
     Write-Host "  Parola    : $password   (yalnızca bu çalıştırma için)"
     if ($GercekKanal.Count -gt 0) {
         Write-Host "  Kanallar  : GERÇEK: $($GercekKanal -join ', ') (yalnızca elle tetiklenen işler; zamanlanmış gönderim kapalı), diğerleri MOCK" -ForegroundColor Yellow
