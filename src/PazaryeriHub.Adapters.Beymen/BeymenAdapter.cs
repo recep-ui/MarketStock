@@ -233,7 +233,8 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
             Dec(o, "totalAmount") ?? lines.Sum(l => l.UnitPrice * l.Quantity),
             lines,
             new CustomerSummary(Str(o, "customerName"), address is { } ac ? Str(ac, "city") : null, address is { } ad ? Str(ad, "district") : null),
-            provider is null && tracking is null ? null : new CargoInfo(provider, tracking, Str(o, "shipmentTrackingUrl")));
+            provider is null && tracking is null ? null : new CargoInfo(provider, tracking, Str(o, "shipmentTrackingUrl")),
+            ChannelPackageId: Str(o, "id"));
     }
 
     /// <summary>
@@ -366,9 +367,54 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
     public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
         throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Beymen Partner Portal'dan girilir (ADR-015).");
 
-    /// <summary>// TODO: sonraki adım — picking (<c>PUT /orders/{id}/status/picking</c>) ve kargo bildirimi (<c>PUT /orders/{id}/shipment/status</c>).</summary>
-    public Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct) =>
-        throw new NotSupportedException("Beymen'e sipariş durumu bildirimi henüz uygulanmadı.");
+    /// <summary>
+    /// Sipariş durumu bildirimi (ADR-026). Kaynak (partner-docs.beymen.com/en, 2026-11-18 okundu):
+    /// - Hazırlanıyor: "Order Processing (Picking Status Submission)" <c>PUT /orders/{id}/status/picking</c> (gövdesiz;
+    ///   New Order → Ready to Ship). <c>{id}</c> = sipariş listesindeki <c>id</c> (GUID).
+    /// - Kargoda (kendi kargo): "Manual Progression Of Order Statuses" <c>PUT /orders/{id}/shipment/status</c>
+    ///   <c>{trackingNumber (zorunlu), trackingUrl, cargoCompanyCode (zorunlu, Cargo Companies kodu), status: 4 (Shipped)}</c> → 202.
+    /// - Kargoda (Beymen anlaşmalı kargo): bildirim yok.
+    /// // TODO: doğrulanmalı — picking yanıt kodu ve sipariş zaten Ready to Ship iken tekrar çağrının sonucu.
+    /// </summary>
+    public async Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        var id = string.IsNullOrWhiteSpace(update.ChannelPackageId)
+            ? throw new ArgumentException($"Beymen sipariş kimliği (id) bulunamadı ({update.ChannelOrderNo}).", nameof(update))
+            : Uri.EscapeDataString(update.ChannelPackageId.Trim());
+        var creds = await CredentialsAsync(ct);
+        switch (update.Status)
+        {
+            case OrderStatus.Hazirlaniyor:
+            {
+                using var _ = await SendAsync(creds, HttpMethod.Put, $"/orders/{id}/status/picking", null, ct);
+                return;
+            }
+            case OrderStatus.Kargoda when update.OwnCargo:
+            {
+                var cargo = update.Cargo;
+                if (string.IsNullOrWhiteSpace(cargo?.TrackingNumber) || string.IsNullOrWhiteSpace(cargo.Company))
+                {
+                    throw new ArgumentException("Beymen kargo bildirimi için takip numarası ve kargo firması kodu zorunludur.", nameof(update));
+                }
+                var body = new { trackingNumber = cargo.TrackingNumber.Trim(), trackingUrl = cargo.TrackingUrl, cargoCompanyCode = cargo.Company.Trim(), status = 4 };
+                using var _ = await SendAsync(creds, HttpMethod.Put, $"/orders/{id}/shipment/status", body, ct);
+                return;
+            }
+            default:
+                throw new NotSupportedException($"Beymen'e '{update.Status}' durumu bildirilmez.");
+        }
+    }
+
+    public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => target switch
+    {
+        OrderStatus.Hazirlaniyor => new(true, false, "Picking bildirilir (New Order → Ready to Ship).", RequiresPackageId: true),
+        OrderStatus.Kargoda when !ownCargo => OrderNotificationRule.NotRequiredBecause(
+            "Beymen anlaşmalı kargo: kargoya verilince Beymen durumu kendisi günceller."),
+        OrderStatus.Kargoda => new(true, false, "Kargo bilgisiyle Shipped (4) bildirilir; kargo firması Beymen kargo kodlarından seçilmeli.",
+            RequiresPackageId: true, RequiresTrackingNumber: true, RequiresCargoCompany: true),
+        _ => OrderNotificationRule.NotSupportedBecause("Bu durum Beymen'e bildirilmez.")
+    };
 
     // ------------------------------------------------------------------ HTTP ve JSON
 

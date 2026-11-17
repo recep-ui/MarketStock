@@ -129,11 +129,11 @@ public sealed class HepsiburadaAdapterContractTests
 
         var awaiting = orders.Single(o => o.ChannelOrderNo == "0999");
         awaiting.Status.Should().Be(OrderStatus.Yeni, "ödemesi beklenen sipariş için de stok rezerve edilir (doküman)");
-        awaiting.Lines.Single().Should().Be(new NormalizedOrderLine("HBV1", null, "SC-9", 1, 0m));
+        awaiting.Lines.Single().Should().Be(new NormalizedOrderLine("HBV1", null, "SC-9", 1, 0m, ChannelLineId: "x"), "kalem id paketleme bildiriminde kullanılır");
 
         var open = orders.Single(o => o.ChannelOrderNo == "041241341" && o.Status == OrderStatus.Onaylandi);
         open.Lines.Should().HaveCount(2, "aynı sipariş numarasındaki kalemler tek siparişte");
-        open.Lines[0].Should().Be(new NormalizedOrderLine("HBV0000106NM0", null, null, 1, 301.4m, 45.2m));
+        open.Lines[0].Should().Be(new NormalizedOrderLine("HBV0000106NM0", null, null, 1, 301.4m, 45.2m, ChannelLineId: "52910839-8369-4dg5-adb6-86bad457edcb"));
         open.TotalAmount.Should().Be(501.4m);
         open.Customer.Should().Be(new CustomerSummary("Test User", "İstanbul", "Sisli"), "ilçe = town (district mahalledir); telefon alınmaz");
 

@@ -25,8 +25,8 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
     public const int MaxItemsPerRequest = 1000;
     public const int MaxStockPerProduct = 20_000;
 
-    /// <summary>Kaynak: getshipmentpackages — size en fazla 200.</summary>
-    private const int OrderPageSize = 200;
+    /// <summary>Kaynak: getShipmentPackages V2 — "Recommended Endpoint" örneğinde size=50 (V2 için üst sınır yazmıyor).</summary>
+    private const int OrderPageSize = 50;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -229,7 +229,8 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         // TODO: doğrulanmalı — startDate/endDate'in hangi tarihe (oluşturma / son değişiklik) uygulandığı ve en fazla aralık dokümanda yok.
         for (var page = 0; ; page++)
         {
-            var path = $"/order/sellers/{creds.SellerId}/orders?startDate={start}&endDate={end}&page={page}&size={OrderPageSize}" +
+            // Order V2 (15.10.2026'dan itibaren zorunlu; eski /orders kullanımdan kalktı). Tarih aralığı en fazla iki hafta.
+            var path = $"/order/sellers/{creds.SellerId}/v2/orders?startDate={start}&endDate={end}&page={page}&size={OrderPageSize}" +
                        "&orderByField=PackageLastModifiedDate&orderByDirection=ASC";
             var response = await SendAsync<PagedResponse<ShipmentPackage>>(creds, HttpMethod.Get, path, null, ct);
             if (response is null)
@@ -242,7 +243,7 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
                 var normalized = MapPackage(package);
                 if (normalized is null)
                 {
-                    logger.LogWarning("Trendyol paketi {PaketId} atlandı: bilinmeyen durum {Durum}.", package.Id, package.Status);
+                    logger.LogWarning("Trendyol paketi {PaketId} atlandı: bilinmeyen durum {Durum}.", package.PackageKey, package.EffectiveStatus);
                     continue;
                 }
                 orders.Add(normalized);
@@ -258,25 +259,29 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
 
     internal static NormalizedOrder? MapPackage(ShipmentPackage p)
     {
-        if (MapStatus(p.Status) is not { } status || string.IsNullOrWhiteSpace(p.OrderNumber))
+        if (MapStatus(p.EffectiveStatus) is not { } status || string.IsNullOrWhiteSpace(p.OrderNumber))
         {
             return null;
         }
 
-        var created = p.PackageHistory.Where(h => h.CreatedDate is not null).Select(h => h.CreatedDate!.Value).DefaultIfEmpty().Min();
+        var history = p.PackageHistories.Count > 0 ? p.PackageHistories : p.PackageHistory;
+        var created = p.OrderDate ?? history.Where(h => h.CreatedDate is not null).Select(h => h.CreatedDate!.Value).DefaultIfEmpty().Min();
         var orderDate = created > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(created).UtcDateTime : DateTime.UtcNow;
         var name = string.Join(' ', new[] { p.CustomerFirstName, p.CustomerLastName }.Where(s => !string.IsNullOrWhiteSpace(s)));
+        var packageId = p.PackageKey;
 
         return new NormalizedOrder(
-            OrderNo(p.OrderNumber, p.Id),
+            OrderNo(p.OrderNumber, packageId),
             orderDate,
             status,
-            p.TotalPrice ?? p.Lines.Sum(l => l.Amount ?? (l.Price ?? 0) * l.Quantity),
-            p.Lines.Select(l => new NormalizedOrderLine(l.Barcode, l.Barcode, l.MerchantSku, l.Quantity, l.Price ?? 0)).ToList(),
+            p.PackageTotalPrice ?? p.TotalPrice ?? p.Lines.Sum(l => l.Amount ?? (l.LineUnitPrice ?? l.Price ?? 0) * l.Quantity),
+            p.Lines.Select(l => new NormalizedOrderLine(l.Barcode, l.Barcode, l.StockCode ?? l.MerchantSku, l.Quantity, l.LineUnitPrice ?? l.Price ?? 0,
+                ChannelLineId: l.LineKey > 0 ? l.LineKey.ToString(CultureInfo.InvariantCulture) : null)).ToList(),
             new CustomerSummary(name.Length == 0 ? null : name, p.ShipmentAddress?.City, p.ShipmentAddress?.District),
             p.CargoProviderName is null && p.CargoTrackingNumber is null
                 ? null
-                : new CargoInfo(p.CargoProviderName, ReadString(p.CargoTrackingNumber), p.CargoTrackingLink));
+                : new CargoInfo(p.CargoProviderName, ReadString(p.CargoTrackingNumber), p.CargoTrackingLink),
+            ChannelPackageId: packageId > 0 ? packageId.ToString(CultureInfo.InvariantCulture) : null);
     }
 
     /// <summary>
@@ -386,12 +391,84 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
     public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
         throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Trendyol satıcı panelinden girilir (ADR-015).");
 
+    // ------------------------------------------------------------------ Sipariş durumu bildirimi (ADR-026)
+
     /// <summary>
-    /// Durum bildirimi (Picking/Invoiced) paket satır kimlikleri gerektirir; henüz saklanmıyor.
-    /// // TODO: Aşama 6 sonrası — updatePackageStatus (PUT /order/sellers/{sellerId}/shipment-packages/{packageId}).
+    /// Kaynaklar (2026-11-18 okundu): Order Process Flow, Notify Packages (updatePackage), Shipping Alternative Delivery.
+    /// - Hazırlanıyor → <c>PUT /order/sellers/{sellerId}/shipment-packages/{packageId}</c> <c>{lines:[{lineId, quantity}], params:{}, status:"Picking"}</c>.
+    ///   Akışta "Invoiced" adımı <b>opsiyonel</b>; fatura kapsam dışı olduğu için gönderilmez.
+    /// - Kargoda (Trendyol anlaşmalı kargo): kargo firması teslim alınca paket kendiliğinden Shipped olur → bildirim yok.
+    /// - Kargoda (kendi kargo): <c>PUT …/shipment-packages/{packageId}/alternative-delivery</c> <c>{isPhoneNumber:false, trackingInfo:"takip linki", params:{}}</c>;
+    ///   başarıda paket Shipped olur. // TODO: doğrulanmalı — alternatif teslimatın satıcı hesabında açık olması gerekip gerekmediği;
+    ///   dokümanın veri tipi tablosunda "isPhoneNumber should be always true" yazıyor (link örneğiyle çelişkili).
+    /// // TODO: doğrulanmalı — paket zaten Picking iken tekrar Picking gönderildiğinde dönen yanıt (dokümanda yanıt örneği yok).
     /// </summary>
-    public Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct) =>
-        throw new NotSupportedException("Trendyol'a sipariş durumu bildirimi henüz uygulanmadı.");
+    public async Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        var packageId = ResolvePackageId(update);
+        var creds = await CredentialsAsync(ct);
+        var basePath = $"/order/sellers/{creds.SellerId}/shipment-packages/{packageId.ToString(CultureInfo.InvariantCulture)}";
+        switch (update.Status)
+        {
+            case OrderStatus.Hazirlaniyor:
+            {
+                if (update.Lines.Count == 0)
+                {
+                    throw new ArgumentException("Trendyol Picking bildirimi için satır kimlikleri (lineId) zorunludur.", nameof(update));
+                }
+                var lines = update.Lines.Select(l => new UpdatePackageLine(
+                    long.TryParse(l.ChannelLineId, NumberStyles.None, CultureInfo.InvariantCulture, out var id)
+                        ? id : throw new ArgumentException($"Geçersiz Trendyol lineId: '{l.ChannelLineId}'.", nameof(update)),
+                    l.Quantity)).ToList();
+                await SendAsync<JsonElement?>(creds, HttpMethod.Put, basePath, new UpdatePackageRequest(lines, [], "Picking"), ct);
+                return;
+            }
+            case OrderStatus.Kargoda when update.OwnCargo:
+            {
+                var url = update.Cargo?.TrackingUrl;
+                if (string.IsNullOrWhiteSpace(url))
+                {
+                    throw new ArgumentException("Trendyol alternatif teslimat bildirimi için kargo takip linki zorunludur.", nameof(update));
+                }
+                await SendAsync<JsonElement?>(creds, HttpMethod.Put, basePath + "/alternative-delivery",
+                    new AlternativeDeliveryRequest(false, url.Trim(), []), ct);
+                return;
+            }
+            default:
+                throw new NotSupportedException($"Trendyol'a '{update.Status}' durumu bildirilmez.");
+        }
+    }
+
+    public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => target switch
+    {
+        OrderStatus.Hazirlaniyor => new(true, false,
+            "Picking bildirilir (Trendyol panelinde 'Sipariş İşleme Alındı'). Invoiced adımı opsiyonel; fatura kapsam dışı olduğu için gönderilmez.",
+            RequiresLineIds: true),
+        OrderStatus.Kargoda when !ownCargo => OrderNotificationRule.NotRequiredBecause(
+            "Trendyol anlaşmalı kargo: kargo firması paketi teslim alınca Trendyol durumu kendisi Shipped yapar; takip numarası Trendyol'dan gelir."),
+        OrderStatus.Kargoda => new(true, false,
+            "Alternatif teslimat: kargo takip linki gönderilir, paket Shipped olur. Satıcı hesabında alternatif teslimat yetkisi gerekebilir (doğrulanmadı).",
+            RequiresTrackingUrl: true),
+        _ => OrderNotificationRule.NotSupportedBecause("Bu durum Trendyol'a bildirilmez.")
+    };
+
+    /// <summary>
+    /// Paket kimliği: istekteki değer, yoksa kanal sipariş no'sunun "/" sonrası ("{orderNumber}/{paketId}", ADR-017).
+    /// Bu yüzden kural paket kimliğini zorunlu tutmaz (eski siparişlerde de çözülür).
+    /// </summary>
+    internal static long ResolvePackageId(OrderStatusUpdate update)
+    {
+        var raw = update.ChannelPackageId;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            var slash = update.ChannelOrderNo.LastIndexOf('/');
+            raw = slash >= 0 ? update.ChannelOrderNo[(slash + 1)..] : null;
+        }
+        return long.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id > 0
+            ? id
+            : throw new ArgumentException($"Trendyol paket kimliği bulunamadı ({update.ChannelOrderNo}).", nameof(update));
+    }
 
     // ------------------------------------------------------------------ HTTP
 

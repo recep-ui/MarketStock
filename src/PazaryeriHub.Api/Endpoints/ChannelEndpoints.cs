@@ -92,6 +92,34 @@ public static class ChannelEndpoints
             return Results.Accepted(value: new { jobId });
         }).RequireAuthorization(Policies.Admin);
 
+        // Kanala yazma yetenekleri ve sipariş bildirim modu (ADR-026). Okuma tüm roller; değişiklik Yönetici.
+        channels.MapGet("/{id:int}/capabilities", (IChannelCapabilityService s, int id, CancellationToken ct) => s.GetAsync(id, ct));
+        channels.MapPut("/{id:int}/capabilities/{capability}", (IChannelCapabilityService s, ClaimsPrincipal user, int id, string capability,
+                ChannelCapabilityUpdate update, CancellationToken ct) => s.SetAsync(id, capability, update.State, user.UserName(), ct))
+            .RequireAuthorization(Policies.Admin);
+        channels.MapGet("/{id:int}/notification-rules", (PazaryeriHub.Application.Orders.IOrderNotificationService n, int id, CancellationToken ct) =>
+            n.GetRulesAsync(id, ct));
+        channels.MapGet("/{id:int}/notification-mode", async (PazaryeriHub.Application.Orders.IOrderNotificationService n, int id, CancellationToken ct) =>
+            new { mode = await n.GetModeAsync(id, ct) });
+        channels.MapPut("/{id:int}/notification-mode", async (PazaryeriHub.Application.Orders.IOrderNotificationService n, ClaimsPrincipal user, int id,
+                NotificationModeUpdate update, CancellationToken ct) =>
+            {
+                await n.SetModeAsync(id, update.Mode, user.UserName(), ct);
+                return Results.NoContent();
+            })
+            .RequireAuthorization(Policies.Admin);
+
+        // Kanal işlemleri (komut kuyruğu): liste herkese açık; onay / yeniden dene / iptal Yönetici.
+        var commands = app.MapGroup("/api/channel-commands").WithTags("Kanal işlemleri").RequireAuthorization(Policies.Read);
+        commands.MapGet("/", (IChannelCommandService s, int? channelId, string? type, string? state, string? targetKey, int? page, int? pageSize, CancellationToken ct) =>
+            s.SearchAsync(new ChannelCommandQuery(channelId, type, state, targetKey, page, pageSize), ct));
+        commands.MapPost("/{id:long}/approve", (IChannelCommandService s, ClaimsPrincipal user, long id, CancellationToken ct) => s.ApproveAsync(id, user.UserName(), ct))
+            .RequireAuthorization(Policies.Admin);
+        commands.MapPost("/{id:long}/retry", (IChannelCommandService s, ClaimsPrincipal user, long id, CancellationToken ct) => s.RetryAsync(id, user.UserName(), ct))
+            .RequireAuthorization(Policies.Admin);
+        commands.MapPost("/{id:long}/cancel", (IChannelCommandService s, ClaimsPrincipal user, long id, CancellationToken ct) => s.CancelAsync(id, user.UserName(), ct))
+            .RequireAuthorization(Policies.Admin);
+
         var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme").RequireAuthorization(Policies.Read);
         listings.MapGet("/", (IChannelService s, int? channelId, string? search, int? page, int? pageSize, CancellationToken ct) =>
             s.SearchListingsAsync(channelId, search, page, pageSize, ct));
@@ -159,3 +187,5 @@ public static class ChannelEndpoints
     private static IResult UnknownKind(string kind) =>
         Results.Problem(statusCode: 404, title: "Bilinmeyen tür.", detail: $"'{kind}' geçersiz; products, stock veya listings olmalı.");
 }
+
+public sealed record NotificationModeUpdate(string Mode);

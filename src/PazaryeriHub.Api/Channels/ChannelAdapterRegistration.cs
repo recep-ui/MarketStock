@@ -14,7 +14,7 @@ namespace PazaryeriHub.Api.Channels;
 
 /// <summary>
 /// Kanal adaptörlerinin seçimi (bileşim kökü). "Kanallar:{KOD}:Mod" = Mock (varsayılan) | Gercek.
-/// Gerçek adaptörü olmayan kanal (şimdilik Hepsiburada, Beymen, softcotton) her zaman Mock'tur.
+/// Gerçek adaptörü olmayan kanal (softcotton) her zaman Mock'tur. Gerçek adaptörler yazma kapısıyla sarılır (ADR-026).
 /// </summary>
 public static class ChannelAdapterRegistration
 {
@@ -67,7 +67,7 @@ public static class ChannelAdapterRegistration
                 builder.AddRetry(RetryOptions());
                 builder.AddTimeout(TimeSpan.FromSeconds(30));
             });
-        services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<HepsiburadaAdapter>());
+        services.AddTransient<IChannelAdapter>(sp => Guard(sp, sp.GetRequiredService<HepsiburadaAdapter>()));
     }
 
     /// <summary>
@@ -90,8 +90,15 @@ public static class ChannelAdapterRegistration
                 builder.AddRetry(RetryOptions());
                 builder.AddTimeout(TimeSpan.FromSeconds(30));
             });
-        services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<BeymenAdapter>());
+        services.AddTransient<IChannelAdapter>(sp => Guard(sp, sp.GetRequiredService<BeymenAdapter>()));
     }
+
+    /// <summary>
+    /// Gerçek adaptör yazma kapısıyla sarılır (ADR-026): kapalı yetenek, pasif kanal veya global yazma kilidinde
+    /// (deneme modu) gerçek kanala yazma isteği çıkmaz. Mock adaptörler sarılmaz (bellek içi; dışarı bir şey gitmez).
+    /// </summary>
+    private static IChannelAdapter Guard(IServiceProvider sp, IChannelAdapter inner) =>
+        new GuardedChannelAdapter(inner, sp.GetRequiredService<IChannelWriteGate>());
 
     private static HttpRetryStrategyOptions RetryOptions() => new()
     {
@@ -132,6 +139,6 @@ public static class ChannelAdapterRegistration
                 builder.AddRetry(RetryOptions());
                 builder.AddTimeout(TimeSpan.FromSeconds(30));
             });
-        services.AddTransient<IChannelAdapter>(sp => sp.GetRequiredService<TrendyolAdapter>());
+        services.AddTransient<IChannelAdapter>(sp => Guard(sp, sp.GetRequiredService<TrendyolAdapter>()));
     }
 }

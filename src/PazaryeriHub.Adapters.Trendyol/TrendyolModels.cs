@@ -44,13 +44,34 @@ internal sealed class PagedResponse<T>
     public List<T> Content { get; init; } = [];
 }
 
+/// <summary>
+/// Sipariş paketi. Kaynak: getShipmentPackages, Order V2 (<c>/order/sellers/{sellerId}/v2/orders</c>; 15.10.2026'dan itibaren
+/// zorunlu, 2026-11-18 okundu). V2 alanları (shipmentPackageId, shipmentPackageStatus, packageHistories, packageTotalPrice,
+/// orderDate, lines[].lineId/lineUnitPrice/stockCode) önceliklidir; eski alanlar (id, status, packageHistory, totalPrice,
+/// lines[].id/price/merchantSku) geriye uyumluluk için okunmaya devam eder.
+/// </summary>
 internal sealed class ShipmentPackage
 {
-    /// <summary>Paket kimliği (dokümanda ayrı shipmentPackageId alanı yok; "id").</summary>
+    /// <summary>Eski uç: paket kimliği "id".</summary>
     public long Id { get; init; }
+
+    /// <summary>V2: paket kimliği.</summary>
+    public long? ShipmentPackageId { get; init; }
     public string? OrderNumber { get; init; }
     public string? Status { get; init; }
+
+    /// <summary>V2: paket durumu (status ile aynı değer kümesi).</summary>
+    public string? ShipmentPackageStatus { get; init; }
     public decimal? TotalPrice { get; init; }
+
+    /// <summary>V2: "Amount to be invoiced".</summary>
+    public decimal? PackageTotalPrice { get; init; }
+
+    /// <summary>V2: sipariş tarihi (epoch ms).</summary>
+    public long? OrderDate { get; init; }
+
+    public long PackageKey => ShipmentPackageId ?? Id;
+    public string? EffectiveStatus => ShipmentPackageStatus ?? Status;
     public string? CustomerFirstName { get; init; }
     public string? CustomerLastName { get; init; }
     public Address? ShipmentAddress { get; init; }
@@ -60,6 +81,9 @@ internal sealed class ShipmentPackage
     public System.Text.Json.JsonElement? CargoTrackingNumber { get; init; }
     public string? CargoTrackingLink { get; init; }
     public List<PackageHistory> PackageHistory { get; init; } = [];
+
+    /// <summary>V2 adı.</summary>
+    public List<PackageHistory> PackageHistories { get; init; } = [];
     public List<OrderLine> Lines { get; init; } = [];
 }
 
@@ -78,15 +102,35 @@ internal sealed class PackageHistory
 
 internal sealed class OrderLine
 {
+    /// <summary>Eski uç: satır kimliği.</summary>
     public long Id { get; init; }
+
+    /// <summary>V2: satır kimliği; updatePackage (Picking) isteğinde <c>lines[].lineId</c> olarak gönderilir.</summary>
+    public long? LineId { get; init; }
     public string? Barcode { get; init; }
     public string? MerchantSku { get; init; }
+
+    /// <summary>V2: satıcı stok kodu.</summary>
+    public string? StockCode { get; init; }
     public int Quantity { get; init; }
 
-    /// <summary>Birim fiyat olduğu varsayılır ("amount" satır tutarı). // TODO: doğrulanmalı</summary>
+    /// <summary>Eski uç: birim fiyat olduğu varsayılır. // TODO: doğrulanmalı</summary>
     public decimal? Price { get; init; }
     public decimal? Amount { get; init; }
+
+    /// <summary>V2: birim fiyat.</summary>
+    public decimal? LineUnitPrice { get; init; }
+
+    public long LineKey => LineId ?? Id;
 }
+
+/// <summary>Kaynak: Notify Packages (updatePackage), <c>PUT /order/sellers/{sellerId}/shipment-packages/{packageId}</c>.</summary>
+internal sealed record UpdatePackageRequest(IReadOnlyList<UpdatePackageLine> Lines, Dictionary<string, string> Params, string Status);
+
+internal sealed record UpdatePackageLine(long LineId, int Quantity);
+
+/// <summary>Kaynak: Shipping Alternative Delivery, <c>PUT …/shipment-packages/{packageId}/alternative-delivery</c> (kargo takip linki ile).</summary>
+internal sealed record AlternativeDeliveryRequest(bool IsPhoneNumber, string TrackingInfo, Dictionary<string, string> Params);
 
 internal sealed class Claim
 {

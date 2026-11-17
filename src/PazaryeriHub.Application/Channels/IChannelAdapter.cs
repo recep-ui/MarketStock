@@ -19,7 +19,17 @@ public interface IChannelAdapter
     Task<BatchResult> PushStockAsync(IReadOnlyList<StockUpdate> updates, CancellationToken ct);
     Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct);
     Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct);
-    Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct);
+
+    /// <summary>
+    /// Sipariş durumu / kargo bildirimi (ADR-026). Spesifikasyon §6'daki <c>(channelOrderNo, status, cargo)</c> imzasından
+    /// SAPMA: kanallar satır ve paket kimliği istediği için istek nesnesi alır. Kanala yazar → yalnızca KanalKomutGonder
+    /// job'ından ve yazma kapısından (GuardedChannelAdapter) geçerek çağrılır.
+    /// </summary>
+    Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct);
+
+    /// <summary>Bu kanalda hedef duruma bildirim yapılabilir mi, hangi alanlar zorunlu (statik; kanal çağrısı yok).</summary>
+    /// <param name="ownCargo">Sipariş kanalın anlaşmalı kargosu yerine kendi kargomuzla mı gönderiliyor.</param>
+    OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo);
     Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct);
 
     /// <summary>
@@ -66,7 +76,8 @@ public sealed record NormalizedOrder(
     decimal TotalAmount,
     IReadOnlyList<NormalizedOrderLine> Lines,
     CustomerSummary? Customer = null,
-    CargoInfo? Cargo = null);
+    CargoInfo? Cargo = null,
+    string? ChannelPackageId = null);
 
 /// <summary>Sipariş satırı. SKU eşleştirmesi sırayla: kanal barkodu, kanal ürün kodu (ChannelListing), SKU barkodu, satıcı SKU kodu.</summary>
 public sealed record NormalizedOrderLine(
@@ -75,11 +86,38 @@ public sealed record NormalizedOrderLine(
     string? SellerSku,
     int Quantity,
     decimal UnitPrice,
-    decimal? Commission = null);
+    decimal? Commission = null,
+    string? ChannelLineId = null);
 
 public sealed record CustomerSummary(string? FullName, string? City, string? District);
 
 public sealed record CargoInfo(string? Company, string? TrackingNumber, string? TrackingUrl);
+
+/// <summary>Kanala durum bildirimi (ADR-026).</summary>
+/// <param name="ChannelPackageId">Kanalın paket/sipariş kimliği (Trendyol shipmentPackageId, Beymen sipariş id GUID).</param>
+/// <param name="Lines">Kanal satır kimlikleri ve adet (Trendyol lineId, Hepsiburada kalem id).</param>
+/// <param name="OwnCargo">Kendi kargomuzla gönderim (Kargoda bildiriminde takip bilgisi bizden gider).</param>
+public sealed record OrderStatusUpdate(
+    string ChannelOrderNo, string? ChannelPackageId, OrderStatus Status, IReadOnlyList<OrderStatusUpdateLine> Lines, CargoInfo? Cargo, bool OwnCargo);
+
+public sealed record OrderStatusUpdateLine(string ChannelLineId, int Quantity);
+
+/// <summary>Kanalın bir hedef durum için bildirim kuralı.</summary>
+/// <param name="Supported">Bildirim bu kanalda uygulanmış ve dokümanla doğrulanmış.</param>
+/// <param name="NotRequired">Kanal bu durumu kendisi günceller (ör. anlaşmalı kargo teslim alınca Kargoda); bildirim yapılmaz.</param>
+public sealed record OrderNotificationRule(
+    bool Supported,
+    bool NotRequired,
+    string? Note,
+    bool RequiresPackageId = false,
+    bool RequiresLineIds = false,
+    bool RequiresTrackingNumber = false,
+    bool RequiresTrackingUrl = false,
+    bool RequiresCargoCompany = false)
+{
+    public static OrderNotificationRule NotSupportedBecause(string note) => new(false, false, note);
+    public static OrderNotificationRule NotRequiredBecause(string note) => new(false, true, note);
+}
 
 /// <summary>Kanalda görünen stok (mutabakat için).</summary>
 public sealed record ChannelStock(string? ChannelProductCode, string? Barcode, int Quantity);

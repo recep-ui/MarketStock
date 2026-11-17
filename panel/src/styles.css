@@ -137,3 +137,6 @@ button.small { padding: 3px 8px; font-size: 12px; margin-top: 8px; }
   .split { grid-template-columns: 1fr; }
   .detail { border-left: none; padding-left: 0; }
 }
+
+/* Kanala bildirim formu (ADR-026) */
+.form-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }

@@ -215,7 +215,8 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
                     Str(x.Item, "sku"), null, Str(x.Item, "merchantSku"),
                     Int(x.Item, "quantity") ?? 1,
                     Amount(x.Item, "unitPrice") ?? 0,
-                    Amount(x.Item, "commission"))).ToList();
+                    Amount(x.Item, "commission"),
+                    ChannelLineId: Str(x.Item, "id"))).ToList();
                 var total = g.Sum(x => Amount(x.Item, "totalPrice") ?? (Amount(x.Item, "unitPrice") ?? 0) * (Int(x.Item, "quantity") ?? 1));
                 var orderDate = g.Select(x => Date(x.Item, "orderDate")).Where(d => d is not null).DefaultIfEmpty(DateTime.UtcNow).Min()!.Value;
                 var cargoName = Str(first, "cargoCompany");
@@ -290,8 +291,42 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
     public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
         throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Hepsiburada satıcı panelinden girilir (ADR-015).");
 
-    public Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct) =>
-        throw new NotSupportedException("Hepsiburada'ya sipariş durumu bildirimi (paketleme) henüz uygulanmadı.");
+    /// <summary>
+    /// Sipariş durumu bildirimi (ADR-026). Kaynak (2026-11-18 okundu): Sipariş Yönetimi → Paket Süreçleri → "Kalem veya Kalemleri Paketleme",
+    /// <c>POST https://oms-external-sit.hepsiburada.com/packages/merchantid/{merchantId}</c> (canlıda "-sit" yok),
+    /// gövde <c>{lineItemRequests:[{id, quantity}]}</c> (kalem id = sipariş listesindeki <c>items[].id</c>).
+    /// // TODO: doğrulanmalı — paketleme yanıt şeması (paket numarası) dokümanda gösterilmiyor.
+    /// Kargoda: "Mağaza hesabı teslimat statü iletimi (kargoda)" <c>POST …/packages/merchantid/{merchantId}/packagenumber/{packagenumber}/intransit</c>
+    /// paket numarası ister; paketleme yanıtı doğrulanmadığı için paket numarası bilinmiyor → desteklenmiyor.
+    /// </summary>
+    public async Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(update);
+        if (update.Status != OrderStatus.Hazirlaniyor)
+        {
+            throw new NotSupportedException($"Hepsiburada'ya '{update.Status}' bildirimi doğrulanmadı.");
+        }
+        if (update.Lines.Count == 0)
+        {
+            throw new ArgumentException("Hepsiburada paketleme bildirimi için kalem kimlikleri zorunludur.", nameof(update));
+        }
+        var creds = await CredentialsAsync(ct);
+        var body = new
+        {
+            lineItemRequests = update.Lines.Select(l => new { id = l.ChannelLineId, quantity = l.Quantity }).ToList()
+        };
+        using var _ = await SendAsync(creds, HttpMethod.Post, $"{creds.OrderBaseUrl}/packages/merchantid/{creds.MerchantId}", body, ct);
+    }
+
+    public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => target switch
+    {
+        OrderStatus.Hazirlaniyor => new(true, false, "Kalemler paketlenir (Hepsiburada paketleme servisi).", RequiresLineIds: true),
+        OrderStatus.Kargoda when !ownCargo => OrderNotificationRule.NotRequiredBecause(
+            "Hepsiburada anlaşmalı kargo: kargoya verilince Hepsiburada durumu kendisi günceller."),
+        OrderStatus.Kargoda => OrderNotificationRule.NotSupportedBecause(
+            "Kendi kargo ile 'kargoda' bildirimi paket numarası istiyor; paketleme yanıtı dokümanda doğrulanmadığı için desteklenmiyor."),
+        _ => OrderNotificationRule.NotSupportedBecause("Bu durum Hepsiburada'ya bildirilmez.")
+    };
 
     /// <summary>// TODO: doğrulanmalı — iadeler "Talep Entegrasyonu" bölümündedir; uçları henüz okunmadı.</summary>
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) =>

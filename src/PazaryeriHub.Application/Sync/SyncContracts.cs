@@ -22,6 +22,9 @@ public sealed class SyncOptions
     /// <summary>ReferansCek (kanal başına; Satıcı Bilgileri, ADR-025). Varsayılan haftalık, Pazartesi 01:00 UTC.</summary>
     public string? ReferenceCron { get; set; } = "0 1 * * 1";
 
+    /// <summary>KanalKomutGonder (kanal başına; sipariş durumu, iade kararı, soru cevabı; ADR-026).</summary>
+    public string? CommandCron { get; set; } = "*/30 * * * * *";
+
     /// <summary>Bu kadar başarısız denemeden sonra kayıt HATA olur (ilke 5).</summary>
     public int MaxAttempts { get; set; } = 5;
 

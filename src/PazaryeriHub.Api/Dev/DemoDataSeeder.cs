@@ -95,8 +95,9 @@ public sealed class DemoDataSeeder(
             var sku = product.Skus[skuIndex];
             var no = $"DEMO-{tag}-S{i + 1}";
             await ingestion.IngestAsync(channel, new NormalizedOrder(no, DateTime.UtcNow.AddMinutes(-i * 7), status, 249.90m * qty,
-                [new NormalizedOrderLine($"{channel[..2]}-{sku.SkuCode}", sku.Barcode, sku.SkuCode, qty, 249.90m, 37.49m)],
-                new CustomerSummary("Ayşe Yılmaz", "İzmir", "Karşıyaka"), status >= OrderStatus.Kargoda ? new CargoInfo("Yurtiçi", "YK" + tag + i, null) : null), ct);
+                [new NormalizedOrderLine($"{channel[..2]}-{sku.SkuCode}", sku.Barcode, sku.SkuCode, qty, 249.90m, 37.49m, ChannelLineId: $"{no}-L1")],
+                new CustomerSummary("Ayşe Yılmaz", "İzmir", "Karşıyaka"), status >= OrderStatus.Kargoda ? new CargoInfo("Yurtiçi", "YK" + tag + i, null) : null,
+                ChannelPackageId: $"{no}-P"), ct);
             orderNos.Add(no);
         }
 

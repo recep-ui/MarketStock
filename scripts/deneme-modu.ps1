@@ -104,10 +104,13 @@ foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') {
 $env:Hangfire__Queues__0 = 'default'
 # DİKKAT: Windows PowerShell'de $env:X = '' değişkeni SİLER (varsayılan cron devreye girer). Bu yüzden tek boşluk
 # verilir; uygulama boşluk/boş cron'u "job kapalı" sayar (RecurringJobRegistrar).
-foreach ($name in 'Senkron__OutboxCron', 'Senkron__PushCron', 'Senkron__BatchCheckCron', 'Senkron__ReconciliationCron', 'Senkron__ReferenceCron', 'Siparis__FetchCron') {
+foreach ($name in 'Senkron__OutboxCron', 'Senkron__PushCron', 'Senkron__BatchCheckCron', 'Senkron__ReconciliationCron', 'Senkron__ReferenceCron', 'Senkron__CommandCron', 'Siparis__FetchCron') {
     Set-Item -Path "env:$name" -Value ' '
     if (-not (Test-Path "env:$name")) { throw "Güvenlik: $name kapatılamadı; deneme modu başlatılmadı." }
 }
+# Global yazma kilidi (ADR-026): gerçek modlu kanallara HİÇBİR yazma (stok, sipariş durumu, iade kararı, fiyat, soru cevabı) gitmez.
+$env:Kanallar__YazmaKapali = 'true'
+if ($env:Kanallar__YazmaKapali -ne 'true') { throw 'Güvenlik: yazma kilidi açılamadı; deneme modu başlatılmadı.' }
 # Konsolu SQL komut loglarıyla doldurma (banner görünür kalsın)
 Set-Item -Path 'env:Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore' -Value 'Warning'
 $env:Serilog__WriteTo__1__Args__path = Join-Path $env:TEMP 'pazaryerihub-deneme\log-.json'
@@ -138,7 +141,7 @@ try {
     Write-Host '  Kullanıcı : demo-yonetici (tüm yetkiler)'
     Write-Host "  Parola    : $password   (yalnızca bu çalıştırma için)"
     if ($GercekKanal.Count -gt 0) {
-        Write-Host "  Kanallar  : GERÇEK: $($GercekKanal -join ', ') (yalnızca elle tetiklenen işler; zamanlanmış gönderim kapalı), diğerleri MOCK" -ForegroundColor Yellow
+        Write-Host "  Kanallar  : GERÇEK: $($GercekKanal -join ', ') (yalnızca elle tetiklenen OKUMA işleri; kanala yazma kilitli), diğerleri MOCK" -ForegroundColor Yellow
     } else {
         Write-Host '  Kanallar  : MOCK (gerçek pazaryerine çağrı yok)'
     }

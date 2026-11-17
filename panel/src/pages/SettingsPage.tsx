@@ -5,6 +5,7 @@ import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../compone
 import { formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ChannelReferences } from './ChannelReferences';
+import { ChannelWriteSettings } from './ChannelWrite';
 
 /** Ekran 8: Ayarlar (kanal payı, güvenlik stoğu, uyarı eşikleri, kullanıcı rolleri). */
 export function SettingsPage() {
@@ -16,6 +17,7 @@ export function SettingsPage() {
       <h1>Ayarlar</h1>
       <Notice text={notice} onClose={() => setNotice(null)} />
       <ChannelSettings editable={can('admin')} onSaved={setNotice} />
+      {channels.data && <ChannelWriteSettings channels={channels.data} editable={can('admin')} onNotice={setNotice} />}
       {channels.data && <ChannelReferences channels={channels.data} canRefresh={can('admin')} onNotice={setNotice} />}
       <div className="grid-2">
         <ThresholdSettings editable={can('admin')} onSaved={setNotice} />

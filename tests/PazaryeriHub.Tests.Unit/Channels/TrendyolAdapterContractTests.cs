@@ -172,10 +172,10 @@ public sealed class TrendyolAdapterContractTests
 
         http.Requests.Should().HaveCount(2);
         var query = http.Requests[0].Uri.Query;
-        query.Should().Contain($"startDate={new DateTimeOffset(since).ToUnixTimeMilliseconds()}").And.Contain("page=0").And.Contain("size=200")
+        query.Should().Contain($"startDate={new DateTimeOffset(since).ToUnixTimeMilliseconds()}").And.Contain("page=0").And.Contain("size=50")
              .And.Contain("orderByField=PackageLastModifiedDate");
         http.Requests[1].Uri.Query.Should().Contain("page=1");
-        http.Requests[0].Uri.AbsolutePath.Should().Be("/integration/order/sellers/12345/orders");
+        http.Requests[0].Uri.AbsolutePath.Should().Be("/integration/order/sellers/12345/v2/orders", "eski /orders 15.10.2026'da kullanımdan kalktı (Order V2)");
 
         orders.Should().HaveCount(2, "bilinmeyen durumdaki paket atlanır");
         var first = orders[0];
@@ -183,7 +183,8 @@ public sealed class TrendyolAdapterContractTests
         first.Status.Should().Be(OrderStatus.Yeni);
         first.TotalAmount.Should().Be(259.98m);
         first.OrderDateUtc.Should().Be(DateTimeOffset.FromUnixTimeMilliseconds(1700000000000).UtcDateTime);
-        first.Lines.Should().ContainSingle().Which.Should().Be(new NormalizedOrderLine("8680000000", "8680000000", "SC-1", 2, 129.99m));
+        first.Lines.Should().ContainSingle().Which.Should().Be(new NormalizedOrderLine("8680000000", "8680000000", "SC-1", 2, 129.99m, ChannelLineId: "1"),
+            "eski şemada satır kimliği 'id'");
         first.Customer.Should().Be(new CustomerSummary("Ali Veli", "İstanbul", "Kadıköy"), "KVKK: yalnızca ad, il, ilçe; e-posta/adres alınmaz");
         first.Cargo.Should().Be(new CargoInfo("Trendyol Express", "7330029148127", "https://example/track"));
         orders[1].Status.Should().Be(OrderStatus.Iptal, "UnPacked paket bölündü; eski paket iptal sayılır");

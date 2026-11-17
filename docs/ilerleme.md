@@ -7,6 +7,22 @@
 
 ---
 
+## Entegrasyon genişletme M2: Kanala yazma altyapısı + sipariş durumu bildirimi (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- **Yazma güvenliği:** global yazma kilidi (deneme modu açar), kanal/yetenek bazlı KAPALI/DENEME/ACIK (`ChannelCapability`), gerçek adaptörleri saran `GuardedChannelAdapter`.
+- **Kuyruk:** `ChannelCommand` + KanalKomutGonder job'ı (5 denemede HATA, engel hata sayılmaz).
+- **Bildirim:** Trendyol (Picking, kendi kargoda takip linki), Beymen (picking, kendi kargoda Shipped), Hepsiburada (paketleme). Bildirim modu "Onayla ve gönder" (varsayılan) veya "Otomatik".
+- **Trendyol sipariş çekme Order V2'ye taşındı:** eski uç 15.10.2026'dan beri kullanımdan kalkmış.
+- **Panel:** Ayarlar → Kanala yazma yetenekleri; Siparişler → Kanala bildirim; Senkron Merkezi → Kanal işlemleri.
+- **Testler:**
+  - Unit 217/217 (yeni 8 contract/birim: Trendyol V2 eşlemesi, Picking ve alternatif teslimat, Beymen, Hepsiburada, kapı açık/kapalı).
+  - Integration 118/118 (yeni 5: yetenek API'si ve yetki; kapının 4 koşulu; DENEME'de yalnızca onaylanan tek kayıt ve tekillik; kanaldan gelen geçişte bildirim yok; kendi kargoda takip no ve M1 kargo kodu doğrulaması; otomatik mod; 5 denemede HATA; engelin deneme sayılmaması; yeniden dene).
+  - Playwright 8/8 (yeni: yetenek DENEME → Hazırlanıyor → Kanala bildir → Yönetici onayı). Edge ile çalıştırıldı.
+  - Contract örnekleri dokümandan alınmıştır, gerçek yanıt değildir.
+- **Doğrulanmayanlar:** ADR-026.
+
+---
+
 ## Entegrasyon genişletme M1: Satıcı Bilgileri (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - Kanal referans verisi (kargo firmaları, iade red gerekçeleri) için `ChannelReference` tablosu (migration 0009), `FetchReferenceAsync` adaptör metodu, `ReferansCek` job'ı, okuma ve yenileme API'si ve Ayarlar'da "Kanal referans verisi" kartı.

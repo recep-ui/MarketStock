@@ -25,9 +25,23 @@ public static class OrderEndpoints
             s.SearchAsync(new OrderQuery(channelId, status, from, to, sku, insufficientStock, search, page, pageSize), ct));
         orders.MapGet("/{id:long}", async (IOrderService s, ClaimsPrincipal user, long id, CancellationToken ct) =>
             MaskFor(user, await s.GetAsync(id, ct)));
-        orders.MapPost("/{id:long}/status", async (IOrderService s, ClaimsPrincipal user, long id, ChangeOrderStatusRequest request, CancellationToken ct) =>
-            MaskFor(user, await s.ChangeStatusAsync(id, request.Status, "PANEL", ct)))
+        orders.MapPost("/{id:long}/status", async (IOrderService s, IOrderNotificationService notifications, ClaimsPrincipal user, long id,
+                ChangeOrderStatusRequest request, CancellationToken ct) =>
+            {
+                var detail = await s.ChangeStatusAsync(id, request.Status, "PANEL", ct);
+                // OTOMATIK bildirim modundaki kanalda bildirim kendiliğinden kuyruğa alınır (ADR-026); ONAYLA_GONDER'de hiçbir şey olmaz.
+                await notifications.OnPanelTransitionAsync(id, request.Status, user.UserName(), ct);
+                return MaskFor(user, detail);
+            })
             .RequireAuthorization(Policies.OrderWrite);
+
+        // Kanala sipariş durumu / kargo bildirimi (ADR-026). Liste ve geçmiş herkese açık; bildirim Yönetici + Depo.
+        orders.MapGet("/notifications", (IOrderNotificationService n, int? channelId, string? filter, string? search, int? page, int? pageSize, CancellationToken ct) =>
+            n.SearchAsync(channelId, filter, search, page, pageSize, ct));
+        orders.MapPost("/notifications", (IOrderNotificationService n, ClaimsPrincipal user, OrderNotifyRequest request, CancellationToken ct) =>
+            n.NotifyAsync(request, user.UserName(), ct))
+            .RequireAuthorization(Policies.OrderWrite);
+        orders.MapGet("/{id:long}/notifications", (IOrderNotificationService n, long id, CancellationToken ct) => n.GetForOrderAsync(id, ct));
         orders.MapPost("/{id:long}/lines/{lineId:long}/return-receipt", async (IOrderService s, ClaimsPrincipal user, long id, long lineId, CancellationToken ct) =>
             MaskFor(user, await s.ReceiveReturnLineAsync(id, lineId, user.UserName(), ct)))
             .RequireAuthorization(Policies.StockWrite);

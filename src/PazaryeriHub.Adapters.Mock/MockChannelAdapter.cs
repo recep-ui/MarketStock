@@ -13,7 +13,23 @@ public sealed class MockChannelStore
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, MockOrder>> _orders = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, int>> _stock = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ConcurrentQueue<NormalizedReturn>> _returns = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, List<(OrderStatus Status, CargoInfo? Cargo)>> _statusUpdates = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, List<OrderStatusUpdate>> _statusUpdates = new(StringComparer.Ordinal);
+
+    /// <summary>Kanal için ayarlanırsa her UpdateOrderStatusAsync bu hatayı fırlatır (kaldırılana kadar).</summary>
+    public ConcurrentDictionary<string, Exception> FailStatusUpdate { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Mock kanala bildirilmiş durum güncellemeleri (sırasıyla).</summary>
+    public IReadOnlyList<OrderStatusUpdate> StatusUpdatesOf(string channelOrderNo)
+    {
+        if (!_statusUpdates.TryGetValue(channelOrderNo, out var list))
+        {
+            return [];
+        }
+        lock (list)
+        {
+            return list.ToList();
+        }
+    }
     private readonly ConcurrentDictionary<string, IReadOnlyList<ChannelCatalogEntry>> _catalog = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string Channel, ChannelReferenceType Type), IReadOnlyList<ChannelReferenceItem>> _references = new();
 
@@ -83,12 +99,12 @@ public sealed class MockChannelStore
     public IReadOnlyList<NormalizedReturn> ReturnsSince(string channelCode, DateTime sinceUtc) =>
         _returns.TryGetValue(channelCode, out var q) ? q.Where(r => r.CreatedUtc >= sinceUtc).ToList() : [];
 
-    public void RecordStatusUpdate(string channelOrderNo, OrderStatus status, CargoInfo? cargo)
+    public void RecordStatusUpdate(OrderStatusUpdate update)
     {
-        var list = _statusUpdates.GetOrAdd(channelOrderNo, _ => []);
+        var list = _statusUpdates.GetOrAdd(update.ChannelOrderNo, _ => []);
         lock (list)
         {
-            list.Add((status, cargo));
+            list.Add(update);
         }
     }
 
@@ -157,11 +173,24 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
         return Task.FromResult(new BatchStatus(batchId, errors.Count == 0 ? BatchState.Completed : BatchState.PartiallyFailed, errors));
     }
 
-    public Task UpdateOrderStatusAsync(string channelOrderNo, OrderStatus status, CargoInfo? cargo, CancellationToken ct)
+    public Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct)
     {
-        store.RecordStatusUpdate(channelOrderNo, status, cargo);
+        if (store.FailStatusUpdate.TryGetValue(ChannelCode, out var error))
+        {
+            throw error;
+        }
+        store.RecordStatusUpdate(update);
         return Task.CompletedTask;
     }
+
+    /// <summary>Mock: Hazırlanıyor desteklenir; Kargoda kendi kargoda takip no zorunlu, kanal kargosunda bildirim gerekmez.</summary>
+    public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => target switch
+    {
+        OrderStatus.Hazirlaniyor => new(true, false, "Mock: hazırlanıyor bildirimi."),
+        OrderStatus.Kargoda when !ownCargo => OrderNotificationRule.NotRequiredBecause("Kanal kargosu: kanal durumu kendisi günceller."),
+        OrderStatus.Kargoda => new(true, false, "Mock: kendi kargo ile kargoda bildirimi.", RequiresTrackingNumber: true),
+        _ => OrderNotificationRule.NotSupportedBecause("Bu durum için kanala bildirim yapılmaz.")
+    };
 
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) =>
         Task.FromResult(store.ReturnsSince(ChannelCode, sinceUtc));

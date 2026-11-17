@@ -64,6 +64,24 @@
 | Hepsiburada | ⚠️ `GET https://shipping-external-sit.hepsiburada.com/cargoFirms/{merchantId}` ("teslimat profili oluşturmada kullanılır"); yanıt şeması sayfada yok. | ⚠️ `POST oms-external-sit…/claims/number/{claimNumber}/reject` gövdesi `{ClaimRejectionReason (string, zorunlu), MerchantStatement (zorunlu), Reports[], UploadedReportsUrls[]}`; değer listesi yok (örnek "PhotoNotClear"). |
 | Beymen | ✅ Dokümanda sabit "Cargo Companies" tablosu (Code / Description), servis yok. | ✅ "Problem Reporting of Return" → `PATCH /claims/{id}/dispute`, `reasonType` = `SellerReasonType` (0–11); `images` PackageIsEmpty dışında zorunlu. |
 
+## 3b. Sipariş durumu bildirimi (2026-11-18 okundu, ADR-026)
+
+- **Trendyol:**
+  - ⚠️ **Order V2:** `/order/sellers/{sellerId}/orders` 15.10.2026'dan itibaren kullanımdan kalktı → `/order/sellers/{sellerId}/v2/orders` (getShipmentPackages sayfası).
+    - Parametreler aynı (startDate/endDate ms, page, size, status, orderByField, orderByDirection, shipmentPackageIds); en fazla iki haftalık aralık.
+    - V2 durum listesine `Verified` eklenmiş (anlamı yok; bilinmeyen durum olarak atlanır).
+    - Yanıt: `shipmentPackageId`, `shipmentPackageStatus`, `packageHistories`, `packageTotalPrice`, `orderDate`, `lines[].lineId`, `lineUnitPrice`, `stockCode`, `commission` (oran; kullanılmıyor).
+  - ✅ **Order Process Flow:** Picking → Invoiced (**opsiyonel**) → paket kargoya verilince Shipped (takip no Trendyol'dan).
+  - ✅ **updatePackage:** `PUT /order/sellers/{sellerId}/shipment-packages/{packageId}` `{lines:[{lineId, quantity}], params:{}, status:"Picking"}`. Invoiced `params.invoiceNumber` ister → kullanılmıyor.
+  - ✅ **Shipping Alternative Delivery:** `PUT …/{packageId}/alternative-delivery` `{isPhoneNumber, trackingInfo, params:{}}`; başarıda Shipped. ⚠️ Veri tipi tablosu "isPhoneNumber should be always true" diyor, link örneğiyle çelişkili.
+- **Hepsiburada:**
+  - ✅ **Paketleme:** `POST oms-external-sit…/packages/merchantid/{merchantId}` `{lineItemRequests:[{id, quantity, serialNumbers?}], cargoCompany?, carrier? (satıcı gönderiminde zorunlu), deci?, parcelQuantity?, warehouse?}`. ⚠️ Yanıt şeması yok.
+  - ✅ **Kargoda (mağaza hesabı):** `POST …/packages/merchantid/{merchantId}/packagenumber/{packagenumber}/intransit` `{shippedDate (zorunlu), trackingNumber?, trackingUrl?, trackingPhoneNumber?, …}`. ⚠️ Paket numarası ve tarih biçimi doğrulanmadı.
+- **Beymen:**
+  - ✅ **Picking:** `PUT /orders/{id veya mpOrderId}/status/picking`.
+  - ✅ **Manual Progression:** `PUT /orders/{id}/shipment/status` `{trackingNumber*, trackingUrl, cargoCompanyCode*, status (4 Shipped, 8 DeliveredToCustomer, 16 Undeliverable)}` → 202.
+  - ✅ **Alternatif teslimat:** `PUT /orders/{id}/alternativeDelivery` `{shipmentTrackingUrl, deliveryType (0 farklı kargo, 1 kendi araç), shipmentTrackingNumber, cargoCompanyCode}`.
+
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 

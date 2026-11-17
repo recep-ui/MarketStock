@@ -80,13 +80,14 @@ public sealed class OrderService(
             try
             {
                 orderId = await connection.ExecuteScalarAsync<long>(new CommandDefinition("""
-                    INSERT dbo.[Order] (ChannelId, KanalSiparisNo, Durum, Toplam, SiparisTarihi, MusteriOzet, KargoBilgisi)
+                    INSERT dbo.[Order] (ChannelId, KanalSiparisNo, Durum, Toplam, SiparisTarihi, MusteriOzet, KargoBilgisi, KanalPaketNo)
                     OUTPUT inserted.Id
-                    VALUES (@channelId, @orderNo, 'Yeni', @total, @orderDate, @customer, @cargo)
+                    VALUES (@channelId, @orderNo, 'Yeni', @total, @orderDate, @customer, @cargo, @packageId)
                     """, new
                     {
                         channelId,
                         orderNo,
+                        packageId = Clip(order.ChannelPackageId),
                         total = order.TotalAmount,
                         orderDate = DateTime.SpecifyKind(order.OrderDateUtc, DateTimeKind.Utc),
                         customer = ToJson(order.Customer),
@@ -97,9 +98,10 @@ public sealed class OrderService(
                 {
                     var line = order.Lines[i];
                     await connection.ExecuteAsync(new CommandDefinition("""
-                        INSERT dbo.OrderLine (OrderId, SkuId, Adet, BirimFiyat, Komisyon)
-                        VALUES (@orderId, @skuId, @qty, @price, @commission)
-                        """, new { orderId, skuId = skuIds[i], qty = line.Quantity, price = line.UnitPrice, commission = line.Commission },
+                        INSERT dbo.OrderLine (OrderId, SkuId, Adet, BirimFiyat, Komisyon, KanalSatirNo)
+                        VALUES (@orderId, @skuId, @qty, @price, @commission, @lineId)
+                        """, new { orderId, skuId = skuIds[i], qty = line.Quantity, price = line.UnitPrice, commission = line.Commission,
+                            lineId = Clip(line.ChannelLineId) },
                         tx, cancellationToken: ct));
                 }
 
@@ -114,6 +116,11 @@ public sealed class OrderService(
                 orderId = await FindOrderIdAsync(connection, channelId, orderNo, ct)
                           ?? throw new InvalidOperationException("Benzersizlik ihlaline rağmen sipariş bulunamadı.", ex);
             }
+        }
+
+        if (!created)
+        {
+            await BackfillChannelIdsAsync(connection, orderId.Value, order, ct);
         }
 
         if (order.Cargo is not null && !created)
@@ -143,6 +150,42 @@ public sealed class OrderService(
 
         return new IngestResult(orderId.Value, created, transition.Changed, transition.Rejected, shortage, unmatched);
     }
+
+    /// <summary>
+    /// ADR-026: 0011'den önce kaydedilmiş siparişlerin kanal paket/satır kimliklerini sonraki çekimde doldurur. Yalnızca boş
+    /// alanlar yazılır. Satırlar, satır sayısı aynıysa kayıt sırasıyla (kanalın döndürdüğü sıra) eşlenir; adet farklı olan satır atlanır.
+    /// </summary>
+    private static async Task BackfillChannelIdsAsync(SqlConnection connection, long orderId, NormalizedOrder order, CancellationToken ct)
+    {
+        if (Clip(order.ChannelPackageId) is { } packageId)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE dbo.[Order] SET KanalPaketNo = @packageId WHERE Id = @orderId AND KanalPaketNo IS NULL",
+                new { orderId, packageId }, cancellationToken: ct));
+        }
+        if (order.Lines.Count == 0 || order.Lines.Any(l => string.IsNullOrWhiteSpace(l.ChannelLineId)))
+        {
+            return;
+        }
+        var lines = (await connection.QueryAsync<(long Id, int Adet, string? KanalSatirNo)>(new CommandDefinition(
+            "SELECT Id, Adet, KanalSatirNo FROM dbo.OrderLine WHERE OrderId = @orderId ORDER BY Id", new { orderId }, cancellationToken: ct))).ToList();
+        if (lines.Count != order.Lines.Count || lines.All(l => l.KanalSatirNo is not null))
+        {
+            return;
+        }
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (lines[i].KanalSatirNo is null && lines[i].Adet == order.Lines[i].Quantity)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "UPDATE dbo.OrderLine SET KanalSatirNo = @lineId WHERE Id = @id AND KanalSatirNo IS NULL",
+                    new { id = lines[i].Id, lineId = Clip(order.Lines[i].ChannelLineId) }, cancellationToken: ct));
+            }
+        }
+    }
+
+    private static string? Clip(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim() is { Length: > 100 } v ? v[..100] : value.Trim();
 
     // ------------------------------------------------------------------ Panel
 

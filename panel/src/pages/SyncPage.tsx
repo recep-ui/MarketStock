@@ -6,6 +6,7 @@ import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, Notice, SyncBadge, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, syncStatusLabels } from '../format';
+import { ChannelCommands } from './ChannelWrite';
 
 /** Ekran 7: Senkron Merkezi (son gönderimler, sadeleştirilmiş hata, "yeniden dene") + mutabakat sapmaları. */
 export function SyncPage() {
@@ -120,6 +121,7 @@ export function SyncPage() {
         ))}
       </div>
 
+      <ChannelCommands channelId={channelId} onNotice={setNotice} />
       <Card title="Gönderim kuyruğu">
         <div className="filters">
           <select aria-label="Durum" value={status} onChange={e => { setPage(1); setStatus(e.target.value); }}>

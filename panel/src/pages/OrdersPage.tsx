@@ -5,6 +5,7 @@ import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, StatusBadge, useLoad } from '../components/ui';
 import { channelNames, dayEndUtc, dayStartUtc, formatDateTime, formatMoney, nextStatuses, statusLabels } from '../format';
+import { OrderNotificationHistory, OrderNotifications } from './ChannelWrite';
 
 const columns: ColumnDef<OrderListItem>[] = [
   { header: 'Tarih', cell: ({ row }) => formatDateTime(row.original.orderDateUtc) },
@@ -79,6 +80,7 @@ export function OrdersPage() {
           {selected && <OrderDetailPanel id={selected} onChanged={orders.reload} onClose={() => setSelected(null)} />}
         </div>
       </Card>
+      {channels.data && <OrderNotifications channels={channels.data} onChanged={orders.reload} refreshKey={orders.data} />}
     </>
   );
 }
@@ -156,6 +158,8 @@ export function OrderDetailPanel({ id, onChanged, onClose, returnMode }: { id: n
               ))}
             </tbody>
           </table>
+
+          <OrderNotificationHistory orderId={d.id} />
 
           <h3>Zaman çizelgesi</h3>
           <ol className="timeline" data-testid="order-timeline">

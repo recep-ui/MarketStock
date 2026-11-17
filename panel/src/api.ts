@@ -103,6 +103,17 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 
 export type Paged<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type OrderStatus = 'Yeni' | 'Onaylandi' | 'Hazirlaniyor' | 'Kargoda' | 'TeslimEdildi' | 'Iptal' | 'Iade';
+export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME' | 'ACIK'; changedBy: string | null; changedAtUtc: string };
+export type ChannelCommand = {
+  id: number; channelId: number; channelCode: string; type: string; targetKey: string; payloadJson: string; state: string; attempts: number;
+  nextAttemptUtc: string | null; error: string | null; channelOperationNo: string | null; createdBy: string | null; createdAtUtc: string;
+  approvedBy: string | null; approvedAtUtc: string | null; sentAtUtc: string | null;
+};
+export type OrderNotificationRow = {
+  orderId: number; channelId: number; channelCode: string; channelOrderNo: string; status: OrderStatus; orderDateUtc: string; statusSource: string;
+  commandId: number | null; notificationState: string | null; error: string | null; hasChannelIds: boolean;
+};
+export type OrderNotifyResult = { items: { orderId: number; channelOrderNo: string | null; outcome: string; commandId: number | null; message: string | null }[] };
 export type ChannelReferenceDto = {
   id: number; type: string; code: string; name: string; dataJson: string | null; source: 'API' | 'DOKUMAN'; fetchedAtUtc: string; active: boolean;
 };

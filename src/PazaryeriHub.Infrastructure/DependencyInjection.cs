@@ -50,6 +50,13 @@ public static class DependencyInjection
         services.AddScoped<IChannelService, ChannelService>();
         services.AddSingleton<IChannelCredentialStore, ChannelCredentialStore>();
         services.AddScoped<IChannelReferenceService, ChannelReferenceService>();
+
+        // Kanala yazma altyapısı (ADR-026): global kilit, yetenekler, komut kuyruğu.
+        services.AddOptions<ChannelWriteOptions>().BindConfiguration(ChannelWriteOptions.SectionName);
+        services.AddSingleton<IChannelWriteGate, ChannelWriteGate>();
+        services.AddScoped<IChannelCapabilityService, ChannelCapabilityService>();
+        services.AddSingleton<ChannelCommandStore>();
+        services.AddScoped<IChannelCommandService, ChannelCommandService>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
         services.AddScoped<PazaryeriHub.Application.ChannelCatalog.IChannelCatalogService, ChannelCatalog.ChannelCatalogService>();
 
@@ -59,6 +66,8 @@ public static class DependencyInjection
         services.AddScoped<OrderService>();
         services.AddScoped<IOrderIngestionService>(sp => sp.GetRequiredService<OrderService>());
         services.AddScoped<IOrderService>(sp => sp.GetRequiredService<OrderService>());
+        services.AddScoped<IOrderNotificationService, OrderNotificationService>();
+        services.AddSingleton<IChannelCommandHandler, OrderStatusCommandHandler>();
 
         // Senkron hattı (Outbox → SyncQueue → kanal).
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
@@ -127,6 +136,7 @@ public static class DependencyInjection
         services.AddTransient<BatchCheckJob>();
         services.AddTransient<ReconciliationJob>();
         services.AddTransient<ReferenceFetchJob>();
+        services.AddTransient<ChannelCommandJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

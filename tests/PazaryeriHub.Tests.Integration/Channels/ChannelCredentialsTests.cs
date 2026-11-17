@@ -71,16 +71,20 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
         await using var real = new ApiFactory(db.ConnectionString!, new Dictionary<string, string?> { ["Kanallar:TRENDYOL:Mod"] = "Gercek" });
         var adapters = real.Services.GetServices<IChannelAdapter>().ToList();
 
-        adapters.Single(a => a.ChannelCode == "TRENDYOL").Should().BeOfType<TrendyolAdapter>();
+        // Gerçek adaptör yazma kapısıyla sarılıdır (ADR-026)
+        adapters.Single(a => a.ChannelCode == "TRENDYOL").Should().BeOfType<PazaryeriHub.Infrastructure.Channels.GuardedChannelAdapter>()
+            .Which.Inner.Should().BeOfType<TrendyolAdapter>();
         adapters.Where(a => a.ChannelCode != "TRENDYOL").Should().AllBeOfType<MockChannelAdapter>();
 
         await using var hb = new ApiFactory(db.ConnectionString!, new Dictionary<string, string?> { ["Kanallar:HEPSIBURADA:Mod"] = "Gercek" });
         hb.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "HEPSIBURADA")
-            .Should().BeOfType<PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter>();
+            .Should().BeOfType<PazaryeriHub.Infrastructure.Channels.GuardedChannelAdapter>()
+            .Which.Inner.Should().BeOfType<PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter>();
 
         await using var by = new ApiFactory(db.ConnectionString!, new Dictionary<string, string?> { ["Kanallar:BEYMEN:Mod"] = "Gercek" });
         by.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "BEYMEN")
-            .Should().BeOfType<PazaryeriHub.Adapters.Beymen.BeymenAdapter>();
+            .Should().BeOfType<PazaryeriHub.Infrastructure.Channels.GuardedChannelAdapter>()
+            .Which.Inner.Should().BeOfType<PazaryeriHub.Adapters.Beymen.BeymenAdapter>();
         by.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "SOFTCOTTON").Should().BeOfType<MockChannelAdapter>();
 
         // Kimlik bilgisi yokken gerçek adaptör dış çağrı yapmadan sade hata verir

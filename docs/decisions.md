@@ -344,3 +344,76 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Trendyol: lookup kodlarının (ör. `YKMP`) sipariş tarafında (alternatif teslimat / kargo değişikliği) aynen kullanıldığı (dokümana göre bu kodlar ürün oluşturma/güncelleme içindir) → M2'de okunacak.
 - Hepsiburada: `cargoFirms` yanıt şeması ve `ClaimRejectionReason` geçerli değerleri.
 - Beymen: dokümandaki sabit tabloların güncelliği (servis yok).
+
+## ADR-026: Kanala yazma altyapısı ve sipariş durumu bildirimi (M2)
+**Tarih:** 2026-11-18
+**Bağlam:**
+- Gerçek kanallara yeni yazma işlemleri ekleniyor (sipariş durumu ve kargo; ileride iade kararı, fiyat, soru cevabı).
+- Bunların canlı kanala kazara gitmemesi gerekiyor.
+- `UpdateOrderStatusAsync` üç gerçek adaptörde de `NotSupportedException` fırlatıyordu ve hiçbir yerden çağrılmıyordu.
+- Kanal paket ve satır kimlikleri saklanmıyordu (ADR-017).
+
+**Karar 1 — Yazma kapısı (dört koşul):**
+- **Global kilit:** `Kanallar:YazmaKapali` (yapılandırma; veritabanında değil). Deneme modu `true` yapar ve ayarlanamazsa başlamaz.
+- **Mod:** yalnızca `Gercek` adaptörler `GuardedChannelAdapter` ile sarılır. Mock bellek içidir, dışarı bir şey gitmez.
+- **Kanal** aktif olmalı.
+- **Yetenek:** `ChannelCapability` (migration 0010) KAPALI/DENEME/ACIK.
+  - Varsayılan KAPALI. STOK, mevcut davranış bozulmasın diye ACIK tohumlandı.
+  - Yetenekler: STOK, SIPARIS_DURUM, IADE_KARAR, FIYAT, SORU_CEVAP.
+- `GuardedChannelAdapter` yazma metotlarını (stok, fiyat, sipariş durumu) kapıdan geçirir; okumalar doğrudan geçer. Kapı bileşim kökünde uygulandığı için yeni bir kod yolu kapıyı atlayamaz (birim testli).
+- Yetenek değişikliği kullanıcı adı ve zamanla yazılır ve UYARI düzeyinde loglanır.
+
+**Karar 2 — Kanal komut kuyruğu (`ChannelCommand`, migration 0010):**
+- Stok ve fiyat dışındaki yazmalar içindir (stok/fiyat SyncQueue'da kalır).
+- Oluşturma anında yetenek kontrol edilir: KAPALI → oluşturulmaz; DENEME → `ONAY_BEKLIYOR`; ACIK → `BEKLIYOR`. Gönderilecek içerik (Payload) oluşturma anında yazılır, onaydan önce görülebilir.
+- **İdempotentlik ve debounce:**
+  - `UNIQUE(IdempotencyKey) WHERE Durum <> 'IPTAL'`: aynı bildirim ikinci kez oluşmaz; iptal edilen yeniden oluşturulabilir.
+  - Hedef başına tek bekleyen kayıt.
+- **KanalKomutGonder** (Hangfire, kanal başına, `Senkron:CommandCron` = 30 sn): READPAST ile talep eder; deneme sayacı talep anında artar.
+  - Başarı → GONDERILDI.
+  - Yazma engeli → hata sayılmaz; deneme geri alınır, kayıt bekler.
+  - `ArgumentException` / `NotSupportedException` → hemen HATA.
+  - Diğer hatalar → üstel bekleme (30 sn × 2^(n−1), en fazla 30 dk); **5. başarısızlıkta HATA** + UYARI logu.
+- **Panel ve API:** Senkron Merkezi → "Kanal işlemleri"; Onayla / Yeniden dene / İptal (Yönetici).
+
+**Karar 3 — Sipariş durumu bildirimi:**
+- **Sözleşme sapması (spesifikasyon §6):** `UpdateOrderStatusAsync(OrderStatusUpdate)`. İstek sipariş no, paket kimliği, satır kimlikleri ve adet, hedef durum, kargo ve "kendi kargo" bilgisini taşır.
+  - Ek: `DescribeOrderNotification(target, ownCargo)`, statik kural (desteklenir / gerekmez / zorunlu alanlar).
+  - `NormalizedOrder.ChannelPackageId` ve `NormalizedOrderLine.ChannelLineId` eklendi.
+- **Migration 0011:** `[Order].KanalPaketNo`, `OrderLine.KanalSatirNo`. Eski siparişlerde boş kalır; sonraki çekim boş alanları doldurur. Dolmazsa kayıt "kanal kimliği eksik" diye reddedilir.
+- **Yankı yok:** yalnızca son geçişi PANEL kaynaklı olan sipariş bildirilir. Kanaldan gelen durum "gerekmiyor" olur.
+- **Bildirim modu** (`Channel.Ayarlar.bildirimModu`):
+  - `ONAYLA_GONDER` (varsayılan): Depo durumu değiştirir, ardından seçilen siparişler için "Kanala bildir" der (onay kutusu ile).
+  - `OTOMATIK`: panel geçişi Hazırlanıyor bildirimini kendiliğinden kuyruğa alır. Kargoda kargo bilgisi istediği için otomatik değildir.
+  - Otomatik oluşturma durum geçişinden **ayrı transaction**'dadır: oluşturulamazsa sipariş "bildirilmedi" listesinde kalır.
+- **Kargo:** firma, takip no ve takip linki opsiyoneldir; kanal kuralı gerektiriyorsa zorunludur. Firma kodu, kanalın M1 kargo referans listesi doluysa o listede olmalıdır. "Kargoda" bildirimi kanal kargosunda gerekmez.
+- **Kanal bazında** (resmi doküman, 2026-11-18):
+
+  | Kanal | Hazırlanıyor | Kargoda (kendi kargo) | Kargoda (kanal kargosu) |
+  |---|---|---|---|
+  | Trendyol | `PUT /order/sellers/{sellerId}/shipment-packages/{packageId}` `{lines:[{lineId,quantity}],params:{},status:"Picking"}`. **Invoiced opsiyonel** (Order Process Flow), gönderilmez; fatura üretilmez. | `PUT …/{packageId}/alternative-delivery` `{isPhoneNumber:false, trackingInfo:<takip linki>, params:{}}` (link zorunlu) | bildirim yok (kargo teslim alınca Shipped) |
+  | Hepsiburada | `POST oms-external/packages/merchantid/{merchantId}` `{lineItemRequests:[{id,quantity}]}` (kalem id = `items[].id`) | **desteklenmiyor**: intransit uç paket numarası istiyor, paketleme yanıtı doğrulanmadı | bildirim yok |
+  | Beymen | `PUT /orders/{id}/status/picking` (id = sipariş GUID) | `PUT /orders/{id}/shipment/status` `{trackingNumber, trackingUrl, cargoCompanyCode, status:4}` (no + kod zorunlu) | bildirim yok |
+
+- **Trendyol Order V2:** dokümana göre `/order/sellers/{sellerId}/orders` **15.10.2026'dan itibaren kullanımdan kalktı**, `/v2/orders` zorunlu.
+  - Sipariş çekme V2'ye taşındı (size 50, en fazla iki haftalık aralık).
+  - V2 alanları: `shipmentPackageId`, `shipmentPackageStatus`, `packageHistories`, `packageTotalPrice`, `orderDate`, `lines[].lineId/lineUnitPrice/stockCode`. Eski alanlar geriye uyumluluk için okunur.
+  - Gerçek hesapta görülen sipariş 401'lerinin olası nedeni budur (doğrulanmadı).
+- **Yetki:** bildirim Yönetici + Depo (`OrderWrite`); yetenek, bildirim modu ve komut eylemleri yalnızca Yönetici.
+- **Panel:**
+  - Ayarlar → "Kanala yazma yetenekleri" (bildirim modu dahil).
+  - Siparişler → "Kanala bildirim" kartı (filtre, sipariş no araması, toplu seçim, kendi kargo formu, sonuç tablosu); sipariş detayında bildirim geçmişi.
+  - Senkron Merkezi → "Kanal işlemleri".
+
+**Plandan sapmalar:**
+- "Kanalda doğrulandı" işareti uygulanmadı. Panelden Hazırlanıyor yapılan sipariş, kanal Picking bildirdiğinde bizde durum değişmediği için iz bırakmıyor. Doğrulama, bir sonraki çekimde kanal durumu ilerlediğinde zaman çizelgesinde görülür.
+- M2 tek commit (altyapı + bildirim birbirine bağlı).
+
+**Doğrulanmadı:**
+- Trendyol: Picking tekrarında dönen yanıt.
+- Trendyol: alternatif teslimatın hesapta açık olma şartı ve `isPhoneNumber` çelişkisi.
+- Trendyol: V2'de size üst sınırı.
+- Hepsiburada: paketleme yanıtı (paket numarası).
+- Hepsiburada: intransit `shippedDate` biçimi.
+- Beymen: picking yanıt kodu ve tekrar çağrı sonucu.
+- Yazma isteklerinde Polly yeniden denemesi (5xx'te) Hepsiburada paketleme POST'unu tekrarlayabilir; ikinci paketleme kanal tarafından reddedilmeli (doğrulanmadı).

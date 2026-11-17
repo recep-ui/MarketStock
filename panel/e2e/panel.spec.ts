@@ -28,15 +28,15 @@ test('1) Sipariş listesi kanal, durum ve sipariş no ile filtrelenir; detayda z
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(6);
 
-  await page.getByLabel('Kanal').selectOption({ label: 'Hepsiburada' });
-  await page.getByLabel('Durum').selectOption({ label: 'Yeni' });
+  await page.getByLabel('Kanal', { exact: true }).selectOption({ label: 'Hepsiburada' });
+  await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Yeni' });
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(`DEMO-${d.tag}-S6`);
   await expect(rows.first()).toContainText('Stok yetersiz');
 
-  await page.getByLabel('Kanal').selectOption({ label: 'Trendyol' });
-  await page.getByLabel('Durum').selectOption({ label: 'Kargoda' });
+  await page.getByLabel('Kanal', { exact: true }).selectOption({ label: 'Trendyol' });
+  await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Kargoda' });
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(1);
   await rows.first().click();
@@ -77,7 +77,7 @@ test('3) Hatalı senkron sadeleştirilmiş hatayla görünür ve "Yeniden dene" 
   const d = demo();
   await login(page);
   await page.getByRole('link', { name: 'Senkron Merkezi' }).click();
-  await page.getByLabel('Durum').selectOption({ label: 'Hata' });
+  await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Hata' });
 
   const row = page.getByTestId('sync-row').filter({ hasText: d.skuCodes[0] });
   await expect(row).toHaveCount(1);
@@ -88,7 +88,7 @@ test('3) Hatalı senkron sadeleştirilmiş hatayla görünür ve "Yeniden dene" 
   await expect(page.getByRole('status')).toContainText('yeniden kuyruğa alındı');
   await expect(row).toHaveCount(0); // artık HATA listesinde değil
 
-  await page.getByLabel('Durum').selectOption({ label: 'Bekliyor' });
+  await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Bekliyor' });
   const pending = page.getByTestId('sync-row').filter({ hasText: d.skuCodes[0] });
   await expect(pending).toHaveCount(1);
   await expect(pending).toContainText('Bekliyor');
@@ -168,4 +168,48 @@ test('Kanal stoğu deftere alınır: önizle, hedefi düzenle, onayla; hareket K
   await page.getByLabel('SKU', { exact: true }).fill(d.deviationSkuCode);
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(page.locator('table').getByText(/KANAL_ALIM/).first()).toBeVisible();
+});
+
+test('Sipariş durumu kanala bildirilir: deneme yeteneğinde Yönetici onayıyla tek kayıt kuyruğa girer (ADR-026)', async ({ page }) => {
+  const d = demo();
+  const orderNo = d.orderNos[2]; // Hepsiburada, Onaylandı
+  await login(page);
+  const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
+  const hb = channels.find(c => c.code === 'HEPSIBURADA')!;
+  try {
+    // Ayarlar: sipariş durumu yeteneği → Deneme
+    await page.getByRole('navigation').getByRole('link', { name: 'Ayarlar' }).click();
+    await page.getByLabel('Yetenek kanalı').selectOption(String(hb.id));
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByLabel('Yetenek SIPARIS_DURUM').selectOption('DENEME');
+    await expect(page.getByLabel('Yetenek SIPARIS_DURUM')).toHaveValue('DENEME');
+
+    // Siparişler: panelde Hazırlanıyor yap
+    await page.getByRole('navigation').getByRole('link', { name: 'Siparişler' }).click();
+    await page.getByLabel('Sipariş no').fill(orderNo);
+    await page.getByRole('button', { name: 'Filtrele' }).click();
+    await page.getByTestId('order-row').filter({ hasText: orderNo }).click();
+    await page.getByTestId('order-detail').getByRole('button', { name: 'Hazırlanıyor' }).click();
+    await expect(page.getByTestId('order-detail').getByText('Hazırlanıyor').first()).toBeVisible();
+
+    // Kanala bildir (bildirilmeyenler listesinde)
+    await page.getByLabel('Bildirim sipariş no').fill(orderNo);
+    const row = page.getByTestId('notification-row').filter({ hasText: orderNo });
+    await expect(row).toHaveCount(1);
+    await row.getByLabel(`Bildir ${orderNo}`).check();
+    await page.getByTestId('notify-form').getByText('kanala bildirilecek').click();
+    await page.getByTestId('notify-submit').click();
+    await expect(page.getByTestId('notify-result')).toContainText('Yönetici onayı bekliyor');
+
+    // Senkron Merkezi: onay bekliyor → onayla → kuyrukta
+    await page.getByRole('navigation').getByRole('link', { name: 'Senkron Merkezi' }).click();
+    await page.getByLabel('İşlem durumu').selectOption('ONAY_BEKLIYOR');
+    const cmd = page.getByTestId('command-row').filter({ hasText: 'ORDER:' }).first();
+    await expect(cmd).toContainText('Onay bekliyor');
+    page.once('dialog', dialog => dialog.accept());
+    await cmd.getByRole('button', { name: 'Onayla' }).click();
+    await expect(page.getByText(/kanala gönderimi onayla yapıldı/)).toBeVisible();
+  } finally {
+    await page.request.put(`/api/channels/${hb.id}/capabilities/SIPARIS_DURUM`, { data: { state: 'KAPALI' } });
+  }
 });
