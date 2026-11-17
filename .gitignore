@@ -486,3 +486,6 @@ $RECYCLE.BIN/
 *.xlsx
 # Uygulama logları
 **/logs/
+
+# TypeScript artımlı derleme çıktısı
+*.tsbuildinfo

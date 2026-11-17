@@ -117,6 +117,8 @@ export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel
           if (prev?.state === 'CALISIYOR' && s.state === 'TAMAMLANDI' && s.report && !s.report.validateOnly) onApplied();
           return s;
         });
+        // Kutu, ekrandaki önizlemenin seçeneğini göstersin (ekran yeniden açıldığında varsayılana dönmesin)
+        if (s.state === 'TAMAMLANDI' && s.report?.validateOnly) setCreateMissing(s.report.createMissing);
       })
       .catch(setError);
     return () => { cancelled = true; };
@@ -128,10 +130,14 @@ export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel
     return () => clearTimeout(t);
   }, [running, tick]);
 
+  /** Uygulama, önizlenen seçenekle yapılır (ekran yenilense veya kutu değişse bile önizlemede görülenden farklı sonuç çıkmasın). */
+  const previewCreateMissing = status?.state === 'TAMAMLANDI' && status.report?.validateOnly ? status.report.createMissing : null;
+
   async function start(validateOnly: boolean) {
     setError(null);
+    const create = validateOnly ? createMissing : (previewCreateMissing ?? createMissing);
     try {
-      await post(`/api/channels/${selected}/catalog/fetch${qs({ validateOnly: String(validateOnly), createMissing: String(createMissing) })}`);
+      await post(`/api/channels/${selected}/catalog/fetch${qs({ validateOnly: String(validateOnly), createMissing: String(create) })}`);
       setTick(x => x + 1);
     } catch (err) {
       setError(err);
@@ -154,7 +160,10 @@ export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel
         </label>
         <button disabled={running || !selected} onClick={() => start(true)}>Kanaldan çek ve önizle</button>
         {status?.state === 'TAMAMLANDI' && status.report?.validateOnly && (
-          <button className="primary" disabled={running} onClick={() => start(false)} data-testid="catalog-fetch-apply">Çek ve uygula</button>
+          <button className="primary" disabled={running} onClick={() => start(false)} data-testid="catalog-fetch-apply"
+            title="Önizlemedeki seçenekle uygulanır">
+            Çek ve uygula{previewCreateMissing ? ' (eşleşmeyenlerden ürün oluştur)' : ' (yalnızca eşleştir)'}
+          </button>
         )}
       </div>
       <ErrorBox error={error} />

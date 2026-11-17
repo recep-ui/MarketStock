@@ -120,6 +120,11 @@ export function ChannelIntakePage() {
             </button>
           )}
         </div>
+        {channels.data?.find(c => String(c.id) === selectedChannel)?.active === false && (
+          <div className="alert alert-warn" data-testid="intake-channel-passive">
+            Seçilen kanal pasif: kanaldan stok çekilemez (mutabakat çalışmaz). Ayarlar → Kanallar'dan kanalı aktif edin.
+          </div>
+        )}
         <ErrorBox error={error ?? channels.error} />
         {preview && !preview.enabled && <div className="alert alert-error">{preview.disabledReason}</div>}
         {preview?.enabled && (

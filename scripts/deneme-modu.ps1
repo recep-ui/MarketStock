@@ -14,11 +14,17 @@
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -Port 5095 -DemoVeriYok
+    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -DemoVeriYok -GercekKanal TRENDYOL
 #>
 param(
     [int]$Port = 5090,
-    [switch]$DemoVeriYok
+    [switch]$DemoVeriYok,
+    # Gerçek API ile çalışacak kanallar (ör. -GercekKanal TRENDYOL). Zamanlanmış job'lar yine kapalıdır:
+    # yalnızca panelden elle tetiklenen okuma işleri (Kanaldan ürün çek, mutabakat) kanala gider.
+    [ValidateSet('TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON')]
+    [string[]]$GercekKanal = @()
 )
+$GercekKanal = @($GercekKanal | ForEach-Object { $_.ToUpperInvariant() })
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -97,7 +103,10 @@ $env:Kimlik__SeedUsers__2__FullName = 'Demo Destek'
 $env:Kimlik__SeedUsers__2__Role = 'Destek'
 $env:Kimlik__SeedUsers__2__Password = $password
 # Tüm kanallar mock; arka plan job'ları kapalı (veriler siz işlem yapana kadar sabit kalsın)
-foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') { Set-Item -Path "env:Kanallar__$($code)__Mod" -Value 'Mock' }
+foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') {
+    $mode = if ($GercekKanal -contains $code) { 'Gercek' } else { 'Mock' }
+    Set-Item -Path "env:Kanallar__$($code)__Mod" -Value $mode
+}
 # Zamanlanmış job'lar kapalı (cron boş); elle tetiklenen işler (Kanaldan Ürün Çek, mutabakat) varsayılan kuyrukta çalışır.
 $env:Hangfire__Queues__0 = 'default'
 $env:Senkron__OutboxCron = ''
@@ -134,7 +143,12 @@ try {
     Write-Host "  Adres     : $baseUrl"
     Write-Host '  Kullanıcı : demo-yonetici (tüm yetkiler)  |  demo-depo  |  demo-destek (müşteri maskeli)'
     Write-Host "  Parola    : $password   (yalnızca bu çalıştırma için)"
-    Write-Host '  Kanallar  : MOCK (gerçek pazaryerine çağrı yok)  |  Veritabanı: PazaryeriHub_Test'
+    if ($GercekKanal.Count -gt 0) {
+        Write-Host "  Kanallar  : GERÇEK: $($GercekKanal -join ', ') (yalnızca elle tetiklenen işler; zamanlanmış gönderim kapalı), diğerleri MOCK" -ForegroundColor Yellow
+    } else {
+        Write-Host '  Kanallar  : MOCK (gerçek pazaryerine çağrı yok)'
+    }
+    Write-Host '  Veritabanı: PazaryeriHub_Test'
     Write-Host '  Durdurmak : Ctrl+C'
     Write-Host '===========================================================' -ForegroundColor Green
     Write-Host ''

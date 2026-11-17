@@ -472,6 +472,18 @@ public sealed class SyncPipelineTests(TestDatabase db)
         }
     }
 
+    [Fact]
+    public async Task Pasif_kanalda_mutabakat_istegi_acik_hatayla_reddedilir()
+    {
+        db.SkipIfUnavailable();
+        await RestoreChannelAsync(); // kanal pasif
+
+        var response = await db.Api.PostAsync($"/api/sync/reconciliation/{Channel.ToLowerInvariant()}/run", null, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict, "pasif kanalda job hiçbir şey yapmaz; kullanıcı 'çekiliyor' sanmamalı");
+        (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("pasif");
+    }
+
     // ------------------------------------------------------------------ Kabul: ≤30 sn (gerçek Hangfire zamanlaması)
 
     [Fact]

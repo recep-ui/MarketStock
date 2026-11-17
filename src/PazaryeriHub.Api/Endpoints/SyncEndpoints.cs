@@ -1,5 +1,6 @@
 using Hangfire;
 using PazaryeriHub.Application.Auth;
+using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Orders;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Sync;
@@ -32,12 +33,19 @@ public static class SyncEndpoints
 
         sync.MapGet("/reconciliation", (ISyncService s, int? channelId, bool? onlyDeviations, CancellationToken ct) =>
             s.GetReconciliationAsync(channelId, onlyDeviations ?? false, ct));
-        sync.MapPost("/reconciliation/{channelCode}/run", (IBackgroundJobClient jobs, string channelCode) =>
+        sync.MapPost("/reconciliation/{channelCode}/run", async (IBackgroundJobClient jobs, IChannelService channels, string channelCode, CancellationToken ct) =>
         {
             var code = channelCode.ToUpperInvariant();
             if (!ChannelCodes.All.Contains(code))
             {
                 return Results.Problem(statusCode: 404, title: "Bilinmeyen kanal.", detail: $"'{channelCode}' geçersiz.");
+            }
+            // Pasif kanalda job hiçbir şey yapmadan çıkar; kullanıcı "çekiliyor" sanmasın diye istek baştan reddedilir.
+            var channel = (await channels.GetChannelsAsync(ct)).FirstOrDefault(c => c.Code == code);
+            if (channel is { Active: false })
+            {
+                return Results.Problem(statusCode: 409, title: "Kanal pasif.",
+                    detail: $"{channel.Name} kanalı pasif; mutabakat çalıştırılamaz. Ayarlar → Kanallar'dan kanalı aktif edin.");
             }
             var jobId = jobs.Enqueue<ReconciliationJob>(job => job.RunAsync(code, CancellationToken.None));
             return Results.Accepted(value: new { jobId });
