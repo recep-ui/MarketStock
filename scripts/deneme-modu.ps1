@@ -109,11 +109,12 @@ foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') {
 }
 # Zamanlanmış job'lar kapalı (cron boş); elle tetiklenen işler (Kanaldan Ürün Çek, mutabakat) varsayılan kuyrukta çalışır.
 $env:Hangfire__Queues__0 = 'default'
-$env:Senkron__OutboxCron = ''
-$env:Senkron__PushCron = ''
-$env:Senkron__BatchCheckCron = ''
-$env:Senkron__ReconciliationCron = ''
-$env:Siparis__FetchCron = ''
+# DİKKAT: Windows PowerShell'de $env:X = '' değişkeni SİLER (varsayılan cron devreye girer). Bu yüzden tek boşluk
+# verilir; uygulama boşluk/boş cron'u "job kapalı" sayar (RecurringJobRegistrar).
+foreach ($name in 'Senkron__OutboxCron', 'Senkron__PushCron', 'Senkron__BatchCheckCron', 'Senkron__ReconciliationCron', 'Siparis__FetchCron') {
+    Set-Item -Path "env:$name" -Value ' '
+    if (-not (Test-Path "env:$name")) { throw "Güvenlik: $name kapatılamadı; deneme modu başlatılmadı." }
+}
 # Konsolu SQL komut loglarıyla doldurma (banner görünür kalsın)
 Set-Item -Path 'env:Serilog__MinimumLevel__Override__Microsoft.EntityFrameworkCore' -Value 'Warning'
 $env:Serilog__WriteTo__1__Args__path = Join-Path $env:TEMP 'pazaryerihub-deneme\log-.json'
