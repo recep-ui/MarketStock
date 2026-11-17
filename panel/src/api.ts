@@ -150,6 +150,26 @@ export type ImportReport = {
   kind: string; validateOnly: boolean; totalRows: number; validRows: number; created: number; updated: number; unchanged: number;
   errors: { row: number; column: string | null; message: string }[]; fileErrors: string[];
 };
+export type CatalogImportRow = {
+  row: number; barcode: string | null; channelProductCode: string | null; stockCode: string | null; name: string | null;
+  color: string | null; size: string | null; outcome: string; skuCode: string | null; step: string | null; listingChange: string | null;
+  detail: string | null; suggestedSkuCode: string | null; suggestionScore: number | null; passive: boolean;
+};
+export type CatalogImportReport = {
+  channelCode: string; format: string | null; source: string; validateOnly: boolean; createMissing: boolean; totalRows: number; validRows: number;
+  matchedExisting: number; matchedByBarcode: number; matchedByStockCode: number; matchedByModelColorSize: number;
+  listingsCreated: number; listingsUpdated: number; listingsUnchanged: number; productsCreated: number; skusCreated: number;
+  unmatched: number; ambiguous: number; conflicts: number; withSuggestion: number; passive: number; pushDeferred: number;
+  rows: CatalogImportRow[]; rowsTruncated: boolean;
+  errors: { row: number; column: string | null; message: string }[]; fileErrors: string[]; warnings: string[];
+};
+export type UnmatchedItem = {
+  id: number; channelId: number; channelCode: string; source: string; channelProductCode: string | null; channelBarcode: string | null;
+  channelStockCode: string | null; modelCode: string | null; color: string | null; size: string | null; productName: string | null;
+  brand: string | null; channelStatus: string | null; reason: string; reasonDetail: string | null; suggestedSkuId: number | null;
+  suggestedSkuCode: string | null; suggestedProductName: string | null; suggestionScore: number | null; status: string;
+  firstSeenUtc: string; lastSeenUtc: string; resolvedBy: string | null; resolvedAtUtc: string | null;
+};
 export type Dashboard = {
   day: string; todayOrders: number; todayRevenue: number;
   byChannel: { channelCode: string; orders: number; revenue: number }[];

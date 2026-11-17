@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -67,6 +67,12 @@ public sealed class SyncPipelineTests(TestDatabase db)
         if (physical > 0)
         {
             await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, physical), Ct);
+        }
+        else if (physical == 0)
+        {
+            // Sayımla 0: stok "bilinen 0" (bakiye satırı var) → kanala 0 gönderilir.
+            // Hiç stok girilmemiş SKU (physical < 0 ile) gönderilmez (ADR-020).
+            await db.Ledger.AdjustToCountAsync(new(skuId, db.DefaultWarehouseId, 0), Ct);
         }
         var code = "SC-" + Guid.NewGuid().ToString("N")[..12];
         if (viaApi)
@@ -185,6 +191,29 @@ public sealed class SyncPipelineTests(TestDatabase db)
             (await LastSentAsync(listingA)).Should().Be(4);
             (await LastSentAsync(listingB)).Should().Be(2);
             (await LastSentAsync(listingC)).Should().Be(0);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Stogu_hic_girilmemis_sku_kanala_gonderilmez_stok_girilince_gonderilir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, listingId, code) = await SkuWithListingAsync(channelId, physical: -1);
+
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().BeNull("stoğu hiç girilmemiş SKU pazaryerindeki stoğu 0'a çekmemeli");
+            (await QueueAsync(listingId)).Should().BeEmpty();
+
+            await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 3), Ct);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(3);
         }
         finally
         {

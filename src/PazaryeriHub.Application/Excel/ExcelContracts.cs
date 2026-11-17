@@ -74,7 +74,8 @@ public static class ExcelLayouts
         new("Kategori", false, CatalogLimits.Category, "Kategori.", "Tişört"),
         new("Barkod", false, CatalogLimits.Barcode, "Benzersiz barkod (boş bırakılabilir). Hücre metin biçiminde olmalı.", "8690000000017"),
         new("Renk", false, CatalogLimits.Color, "Renk.", "Beyaz"),
-        new("Beden", false, CatalogLimits.Size, "Beden.", "M")
+        new("Beden", false, CatalogLimits.Size, "Beden.", "M"),
+        new("Model Kodu", false, CatalogLimits.ModelCode, "Kanallardaki model kodu (ürün grubu). Boş bırakılırsa mevcut değer silinmez.", "SC-TSHIRT")
     ];
 
     public static readonly ExcelColumn[] Stock =

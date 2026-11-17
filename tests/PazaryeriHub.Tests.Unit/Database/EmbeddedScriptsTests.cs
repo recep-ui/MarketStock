@@ -20,7 +20,8 @@ public sealed class EmbeddedScriptsTests
             "PazaryeriHub.Infrastructure.Database.Migrations.0002_baslangic_verisi.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0003_siparis_cekirdegi.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0004_senkron_hatti.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0005_kullanici_ve_ayarlar.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0005_kullanici_ve_ayarlar.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0006_kanal_katalog.sql");
     }
 
     [Fact]

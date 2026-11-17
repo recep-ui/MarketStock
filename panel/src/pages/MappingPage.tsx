@@ -6,6 +6,7 @@ import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
+import { ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
 
 const columns: ColumnDef<Listing>[] = [
   { header: 'SKU', accessorKey: 'skuCode' },
@@ -30,12 +31,17 @@ export function MappingPage() {
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState({ channelId: '', search: '' });
   const [page, setPage] = useState(1);
+  const [refreshKey, setRefreshKey] = useState(0);
   const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
   const listings = useLoad(() => get<Paged<Listing>>(`/api/listings${qs({ ...applied, page, pageSize: 50 })}`), [applied, page]);
 
   return (
     <>
       <h1>Eşleştirme</h1>
+      {can('admin') && (
+        <ChannelCatalogImport channels={channels.data ?? []} onApplied={() => { listings.reload(); setRefreshKey(k => k + 1); }} />
+      )}
+      <UnmatchedChannelItems channels={channels.data ?? []} canWrite={can('catalogWrite')} refreshKey={refreshKey} onLinked={listings.reload} />
       {can('catalogWrite') && <ListingForm channels={channels.data ?? []} onDone={listings.reload} />}
       <Card title="Eşleştirmeler">
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied({ channelId, search }); }}>

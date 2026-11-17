@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddScoped<IChannelService, ChannelService>();
         services.AddSingleton<IChannelCredentialStore, ChannelCredentialStore>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
+        services.AddScoped<PazaryeriHub.Application.ChannelCatalog.IChannelCatalogService, ChannelCatalog.ChannelCatalogService>();
 
         // Siparişler (Dapper). Kanal adaptörleri (IChannelAdapter) bileşim kökünde (Api) kaydedilir.
         services.AddOptions<OrderOptions>().BindConfiguration(OrderOptions.SectionName);

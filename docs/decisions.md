@@ -156,3 +156,30 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 - Siparişlerde son güncellenme alanı yok; tarih filtresi sipariş tarihine göre → her çalışmada en az **7 gün** geriye bakılır (durum değişiklikleri için) + iptaller ayrıca iptal tarihine göre çekilir.
 - İadeler `GET /claims`; kanal stoğu `GET /products/price-stock/search` (productId ile filtre yok → sayfalanıp süzülür).
 - **Doğrulanmamış (TODO):** tarih parametre biçimi (ISO 8601 UTC gönderiliyor); hız limiti (dokümanda yok; 5 istek/sn uygulanıyor); 7 günlük geriye bakışın hacme uygunluğu; sipariş durumu bildirimi (picking/kargo) henüz yok.
+
+## ADR-020: Kanal kataloğu içe alma ve eşleştirme sırası
+**Tarih:** 2026-11-17
+**Bağlam:** Ana veritabanında katalog boş; ürünler kanallarda zaten listeli. Satıcı panellerinden indirilen ürün dosyaları (Trendyol "Ürünler", Beymen "Ürün Listesi") eşleştirmenin ve ilk kataloğun kaynağı olacak.
+**Karar:**
+- Kanal dosyası başlık imzasıyla tanınır (Trendyol: Partner ID, Barkod, Tedarikçi Stok Kodu, Model Kodu, Ürün Rengi, Beden; Beymen: Id, Satış Kanalı, Barkod, Model Kodu, Satıcı Renk, Beden). Seçilen kanalla uyuşmayan dosya reddedilir. Yalnızca tanımlı ürün sütunları okunur; Beymen dosyasındaki firma/e-posta/adres sütunları okunmaz.
+- Barkod ve kodlar metin olarak okunur ve kırpılır. Bilimsel gösterim veya ondalıklı kod **hatalı satır**dır. Sayı olarak kaydedilmiş tam sayı kodlar kabul edilir ama uyarı verilir. Dosya içinde tekrar eden barkod veya kanal kodu hatalı satırdır.
+- Eşleştirme sırası (saf fonksiyon `ChannelCatalogMatcher`):
+  0. Bu kanaldaki mevcut eşleştirme (barkod veya kanal kodu).
+  1. Kanal barkodu = `Sku.Barkod`.
+  2. Satıcı stok kodu = `SkuKodu`; yalnızca stok kodu dosyada tekilse. Trendyol'da stok kodu çoğu zaman model/renk düzeyindedir.
+  3. Model kodu + renk + beden; yalnızca tek aday varsa. Karşılaştırma Türkçe büyük harfle yapılır ve bulanık değildir.
+
+  Aynı SKU'ya birden fazla satır düşerse hiçbiri bağlanmaz.
+- Ürün adı benzerliği (trigram Dice ≥ 0,60; marka, renk ve beden uyumlu olmalı) **yalnızca öneri** üretir. Otomatik bağlama yapılmaz; öneri panelde yalnızca SKU kutusunu ön doldurur.
+- Mevcut eşleştirme farklı bir barkod veya kod gösteriyorsa **üzerine yazılmaz** ("çakışma"). Kanal durumu yalnızca "kapalı" olduğunda (Trendyol "Ürün arşivlendi", Beymen "Beymen'e Seçilmedi") eşleştirmeyi PASIF yapar; aksi halde elle verilmiş durum korunur.
+- Eşleşmeyen, belirsiz ve çakışan satırlar `UnmatchedChannelItem` tablosuna yazılır (`UNIQUE(ChannelId, KanalAnahtar)`, tekrar yüklemede yeni kayıt açılmaz). Panelden "Bağla" veya "Yok say" ile kapatılır; sonraki yüklemede eşleşen kayıt otomatik BAGLANDI olur.
+- **Eşleşmeyenlerden ürün/SKU oluşturma** yalnızca açıkça seçilirse yapılır. Ürün, Model Kodu + Marka ile gruplanır. SKU kodu sırasıyla: tekil stok kodu → MODEL-RENK-BEDEN → barkod. Şu satırlardan SKU **açılmaz**:
+  - belirsiz, çakışan veya öneri almış satırlar;
+  - dosyada aynı model + renk + beden ile birden fazla kez geçen satırlar (Trendyol "Çoklanan Ürün Satışı"; ayrı SKU açmak stoğu böler).
+- Varsayılan önizlemedir (`validateOnly=true`); yazmak için açıkça `validateOnly=false` gönderilir.
+- **Stoğu hiç girilmemiş SKU kanala gönderilmez** (`SyncStore` Syncable koşulu: SKU'nun bakiye satırı olmalı). Böylece katalogdan oluşturulan SKU'lar pazaryerindeki stoğu 0'a çekmez. Stok veya sayım girildiğinde (sayım ile 0 dahil) normal akışla gönderilir.
+**Doğrulanmamış:** Beymen dosyasındaki `Id` ile API `productId`'nin aynı değer olduğu (ilk gerçek stok gönderiminde kontrol edilmeli).
+
+## ADR-021: Product.ModelKodu
+**Tarih:** 2026-11-17
+**Karar:** `Product` tablosuna `ModelKodu NVARCHAR(100) BIN2 NULL` eklendi (migration 0006). Bu, spesifikasyonun tablo listesine bir **ektir**. Kanalların "Model Kodu" alanı ürün grubunu tanımlar ve eşleştirmenin 3. adımı için gereklidir. Kolon ürün Excel'ine isteğe bağlı "Model Kodu" sütunu olarak eklendi; boş hücre mevcut değeri silmez.

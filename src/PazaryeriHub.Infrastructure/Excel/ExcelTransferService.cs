@@ -66,7 +66,7 @@ public sealed class ExcelTransferService(
                 var rows = await db.Skus.AsNoTracking().OrderBy(s => s.SkuCode)
                     .Select(s => new object?[]
                     {
-                        s.SkuCode, s.Product.Name, s.Product.Brand, s.Product.Category, s.Barcode, s.Color, s.Size,
+                        s.SkuCode, s.Product.Name, s.Product.Brand, s.Product.Category, s.Barcode, s.Color, s.Size, s.Product.ModelCode,
                         db.StockBalances.Where(b => b.SkuId == s.Id).Sum(b => (int?)b.Physical) ?? 0,
                         db.StockBalances.Where(b => b.SkuId == s.Id).Sum(b => (int?)b.Reserved) ?? 0,
                         db.StockBalances.Where(b => b.SkuId == s.Id).Sum(b => (int?)b.SafetyStock) ?? 0,
@@ -152,7 +152,8 @@ public sealed class ExcelTransferService(
             {
                 var changed =
                     !Same(sku.Barcode, r.Barcode) || !Same(sku.Color, r.Color) || !Same(sku.Size, r.Size) ||
-                    !Same(sku.Product.Name, r.Name) || !Same(sku.Product.Brand, r.Brand) || !Same(sku.Product.Category, r.Category);
+                    !Same(sku.Product.Name, r.Name) || !Same(sku.Product.Brand, r.Brand) || !Same(sku.Product.Category, r.Category) ||
+                    (r.ModelCode is not null && !Same(sku.Product.ModelCode, r.ModelCode));
                 if (!changed)
                 {
                     unchanged++;
@@ -164,6 +165,8 @@ public sealed class ExcelTransferService(
                 sku.Product.Name = r.Name;
                 sku.Product.Brand = r.Brand;
                 sku.Product.Category = r.Category;
+                // Boş Model Kodu mevcut değeri silmez (eski şablonla yükleme güvenli)
+                sku.Product.ModelCode = r.ModelCode ?? sku.Product.ModelCode;
                 updated++;
             }
             else
@@ -171,7 +174,7 @@ public sealed class ExcelTransferService(
                 var key = ProductKey(r.Name, r.Brand);
                 if (!productsByKey.TryGetValue(key, out var product))
                 {
-                    product = new ProductEntity { Name = r.Name, Brand = r.Brand, Category = r.Category };
+                    product = new ProductEntity { Name = r.Name, Brand = r.Brand, Category = r.Category, ModelCode = r.ModelCode };
                     db.Products.Add(product);
                     productsByKey[key] = product;
                 }

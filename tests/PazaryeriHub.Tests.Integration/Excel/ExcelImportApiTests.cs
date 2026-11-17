@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -167,7 +167,7 @@ public sealed class ExcelImportApiTests(TestDatabase db)
     }
 
     [Theory]
-    [InlineData("products", "SKU Kodu", "Ürün Adı", "Marka", "Kategori", "Barkod", "Renk", "Beden")]
+    [InlineData("products", "SKU Kodu", "Ürün Adı", "Marka", "Kategori", "Barkod", "Renk", "Beden", "Model Kodu")]
     [InlineData("stock", "SKU Kodu", "Depo", "İşlem", "Adet")]
     [InlineData("listings", "SKU Kodu", "Kanal", "Kanal Ürün Kodu", "Kanal Barkod", "Durum")]
     public async Task Sablon_indirilir_ve_basliklari_dogru(string kind, params string[] expectedHeaders)

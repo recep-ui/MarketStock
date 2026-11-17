@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
@@ -20,7 +20,9 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
 
     /// <summary>
     /// Eşleştirmelerin hedef stoklarını hesaplar: Σ Satilabilir (tüm depolar) → <see cref="StockAllocator"/>
-    /// (Channel.PayYuzde, Channel.Ayarlar.stokUstLimit). Syncable = eşleştirme AKTIF ve kanal aktif.
+    /// (Channel.PayYuzde, Channel.Ayarlar.stokUstLimit). Syncable = eşleştirme AKTIF, kanal aktif ve SKU'ya en az bir kez
+    /// stok girilmiş (bakiye satırı var). Stoğu hiç girilmemiş SKU kanala gönderilmez: kanal kataloğu içe alınırken
+    /// oluşturulan SKU'lar pazaryerindeki stoğu 0'a çekmesin (ADR-020). Sayım ile 0 girilmişse gönderilir.
     /// </summary>
     public async Task<IReadOnlyList<ListingTarget>> ComputeTargetsAsync(SqlConnection connection, SqlTransaction? tx, IReadOnlyCollection<int> listingIds, CancellationToken ct)
     {
@@ -31,7 +33,8 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
 
         var rows = await connection.QueryAsync<TargetRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.SkuId, l.ChannelId, c.Kod AS ChannelCode, l.KanalUrunKodu, l.KanalBarkod,
-                   l.SonGonderilenStok, c.PayYuzde, c.Ayarlar, CAST(CASE WHEN l.Durum = 'AKTIF' AND c.Aktif = 1 THEN 1 ELSE 0 END AS bit) AS Syncable,
+                   l.SonGonderilenStok, c.PayYuzde, c.Ayarlar, CAST(CASE WHEN l.Durum = 'AKTIF' AND c.Aktif = 1
+                                AND EXISTS (SELECT 1 FROM dbo.StockBalance AS sb WHERE sb.SkuId = l.SkuId) THEN 1 ELSE 0 END AS bit) AS Syncable,
                    ISNULL((SELECT SUM(CAST(b.Satilabilir AS BIGINT)) FROM dbo.StockBalance b WHERE b.SkuId = l.SkuId), 0) AS TotalAvailable
               FROM dbo.ChannelListing AS l
               JOIN dbo.Channel AS c ON c.Id = l.ChannelId

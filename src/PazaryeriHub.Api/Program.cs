@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 using Hangfire;
 using Microsoft.Extensions.Options;
 using PazaryeriHub.Api.Endpoints;
@@ -103,6 +103,7 @@ try
     app.MapPanelEndpoints();
     app.MapCatalogEndpoints();
     app.MapChannelEndpoints();
+    app.MapChannelCatalogEndpoints();
     app.MapOrderEndpoints(app.Environment);
     app.MapSyncEndpoints();
 

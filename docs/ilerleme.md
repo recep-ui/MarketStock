@@ -1,9 +1,33 @@
-# İlerleme Denetimi: Devir Raporu
+﻿# İlerleme Denetimi: Devir Raporu
 
 **Tarih:** 2026-11-16
 **Denetleyen:** Claude Code (Antigravity'den devralma)
 **Yöntem:** Tüm kaynak dosyalar okundu, derleme ve testler bu makinede çalıştırıldı. Önceki raporlar dikkate alınmadı.
 **Not:** En güncel durum en üstteki bölümdedir; §1 ve sonrası ilk devralma denetiminin (değiştirilmemiş) kaydıdır.
+
+---
+
+## Kanal kataloğu içe alma A: Excel (2026-11-17): TAMAM
+
+- **Migration 0006:** `Product.ModelKodu` ve `UnmatchedChannelItem` tablosu.
+- **Kanal ürün Excel'i (Trendyol, Beymen):** biçim tanıma, kodların metin okunması, bilimsel gösterim reddi, 4 adımlı eşleştirme, ad benzerliği önerisi, çakışma koruması, isteğe bağlı ürün/SKU oluşturma, önizleme → onay. Ayrıntılar ADR-020 ve ADR-021'de.
+- **Senkron güvenliği:** stoğu hiç girilmemiş SKU kanala gönderilmez.
+- **Panel:** Eşleştirme ekranına "Kanal ürün dosyasından içe al" ve "Eşleşmeyen kanal ürünleri" (Bağla / Yok say) bölümleri eklendi.
+- **Testler:**
+  - Unit 179/179: yeni eşleştirici ve dosya okuyucu testleri.
+  - Integration 97/97: yeni katalog içe alma uçtan uca testi, yetki testi, stoğu olmayan SKU testi.
+  - Playwright 5/5.
+- **Gerçek dosyalarla kuru çalıştırma** (test veritabanı, yalnızca önizleme, boş katalog):
+
+  | Kanal | Satır | Hatalı satır | Yeni SKU | Yeni ürün | Belirsiz | Pasif |
+  |---|---|---|---|---|---|---|
+  | Trendyol | 584 | 0 | 440 | 97 | 144 | 24 |
+  | Beymen | 288 | 0 | 284 | 120 | 4 | 27 |
+
+  Belirsiz satırlar aynı model + renk + beden'in tekrarı; Trendyol tarafında bunlar "Çoklanan Ürün Satışı".
+- **Bilinen eksikler:**
+  - Bir SKU bir kanalda tek eşleştirmeye sahip olabilir (`UNIQUE(SkuId, ChannelId)`). Bu yüzden Trendyol'daki çoklanan ilanlardan yalnızca biri bağlanabilir; diğeri "Yok say" ile kapatılmalı.
+  - Hepsiburada ve softcotton dosya biçimi için örnek dosya yok.
 
 ---
 

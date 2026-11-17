@@ -16,17 +16,19 @@ public static class CatalogLimits
     public const int ChannelName = 100;
     public const int ChannelProductCode = 100;
     public const int ChannelBarcode = 50;
+    public const int ModelCode = 100;
 }
 
-public sealed record ProductInput(string Name, string? Brand, string? Category);
+/// <param name="ModelCode">Kanalların "Model Kodu" (ürün grubu); kanal kataloğu eşleştirmesinde kullanılır.</param>
+public sealed record ProductInput(string Name, string? Brand, string? Category, string? ModelCode = null);
 
 public sealed record SkuInput(string SkuCode, string? Barcode, string? Color, string? Size);
 
-public sealed record CreateProductRequest(string Name, string? Brand, string? Category, IReadOnlyList<SkuInput>? Skus);
+public sealed record CreateProductRequest(string Name, string? Brand, string? Category, IReadOnlyList<SkuInput>? Skus, string? ModelCode = null);
 
 public sealed record SkuDto(int Id, int ProductId, string SkuCode, string? Barcode, string? Color, string? Size);
 
-public sealed record ProductDto(int Id, string Name, string? Brand, string? Category, DateTime CreatedAtUtc, IReadOnlyList<SkuDto> Skus);
+public sealed record ProductDto(int Id, string Name, string? Brand, string? Category, DateTime CreatedAtUtc, IReadOnlyList<SkuDto> Skus, string? ModelCode = null);
 
 /// <summary>SKU listesi satırı: ürün bilgisi + tüm depoların stok toplamı.</summary>
 public sealed record SkuListItem(

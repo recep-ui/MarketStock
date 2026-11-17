@@ -3,7 +3,7 @@ using PazaryeriHub.Application.Channels;
 
 namespace PazaryeriHub.Application.Excel;
 
-public sealed record ProductRow(int Row, string SkuCode, string Name, string? Brand, string? Category, string? Barcode, string? Color, string? Size);
+public sealed record ProductRow(int Row, string SkuCode, string Name, string? Brand, string? Category, string? Barcode, string? Color, string? Size, string? ModelCode = null);
 
 public sealed record StockRow(int Row, string SkuCode, string? WarehouseName, StockImportOperation Operation, int Quantity);
 
@@ -41,7 +41,7 @@ public static class ImportValidators
             {
                 continue;
             }
-            candidates.Add(new ProductRow(raw.Row, raw[cols[0]]!, raw[cols[1]]!, raw[cols[2]], raw[cols[3]], raw[cols[4]], raw[cols[5]], raw[cols[6]]));
+            candidates.Add(new ProductRow(raw.Row, raw[cols[0]]!, raw[cols[1]]!, raw[cols[2]], raw[cols[3]], raw[cols[4]], raw[cols[5]], raw[cols[6]], raw[cols[7]]));
         }
 
         var invalid = new HashSet<int>(errors.Select(e => e.Row));

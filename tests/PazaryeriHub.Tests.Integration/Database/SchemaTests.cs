@@ -51,7 +51,7 @@ public sealed class SchemaTests(TestDatabase db)
 
         var tables = (await connection.QueryAsync<string>("SELECT name FROM sys.tables WHERE schema_id = SCHEMA_ID('dbo')")).ToList();
         tables.Should().Contain(["Product", "Sku", "Warehouse", "StockBalance", "StockMovement", "Channel", "ChannelListing",
-            "ChannelStockSnapshot", "Order", "OrderLine", "OrderEvent", "Outbox", "SyncQueue"]);
+            "ChannelStockSnapshot", "Order", "OrderLine", "OrderEvent", "Outbox", "SyncQueue", "UnmatchedChannelItem"]);
 
         var procs = (await connection.QueryAsync<string>("SELECT name FROM sys.procedures WHERE schema_id = SCHEMA_ID('dbo')")).ToList();
         procs.Should().Contain(["usp_StokRezerve", "usp_StokSevk", "usp_RezerveIptal", "usp_IadeGiris", "usp_StokGiris", "usp_SayimDuzelt"]);

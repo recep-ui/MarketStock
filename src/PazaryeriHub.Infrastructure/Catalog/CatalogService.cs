@@ -41,7 +41,7 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
     {
         ArgumentNullException.ThrowIfNull(request);
         var v = new Validator();
-        ValidateProduct(v, new ProductInput(request.Name, request.Brand, request.Category));
+        ValidateProduct(v, new ProductInput(request.Name, request.Brand, request.Category, request.ModelCode));
         var skus = request.Skus ?? [];
         for (var i = 0; i < skus.Count; i++)
         {
@@ -55,6 +55,7 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
             Name = request.Name.Trim(),
             Brand = Text.Clean(request.Brand),
             Category = Text.Clean(request.Category),
+            ModelCode = Text.Clean(request.ModelCode),
             Skus = skus.Select(ToEntity).ToList()
         };
         db.Products.Add(product);
@@ -74,6 +75,7 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
         product.Name = input.Name.Trim();
         product.Brand = Text.Clean(input.Brand);
         product.Category = Text.Clean(input.Category);
+        product.ModelCode = Text.Clean(input.ModelCode);
         await SaveAsync(ct);
         return await GetProductAsync(id, ct);
     }
@@ -180,7 +182,8 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
     {
         v.Required("name", input.Name, CatalogLimits.ProductName)
          .MaxLength("brand", input.Brand, CatalogLimits.Brand)
-         .MaxLength("category", input.Category, CatalogLimits.Category);
+         .MaxLength("category", input.Category, CatalogLimits.Category)
+         .MaxLength("modelCode", input.ModelCode, CatalogLimits.ModelCode);
     }
 
     internal static void ValidateSku(Validator v, SkuInput input, string prefix)
@@ -203,5 +206,5 @@ public sealed class CatalogService(PazaryeriHubDbContext db) : ICatalogService
 
     private static ProductDto ToDto(ProductEntity p) =>
         new(p.Id, p.Name, p.Brand, p.Category, DateTime.SpecifyKind(p.CreatedAtUtc, DateTimeKind.Utc),
-            p.Skus.OrderBy(s => s.Id).Select(ToDto).ToList());
+            p.Skus.OrderBy(s => s.Id).Select(ToDto).ToList(), p.ModelCode);
 }

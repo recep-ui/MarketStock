@@ -12,6 +12,8 @@ public sealed class ProductEntity
     public string Name { get; set; } = "";
     public string? Brand { get; set; }
     public string? Category { get; set; }
+    /// <summary>Kanalların "Model Kodu" (ürün grubu). Eşleştirmenin model + renk + beden adımında kullanılır.</summary>
+    public string? ModelCode { get; set; }
     public DateTime CreatedAtUtc { get; set; }
     public List<SkuEntity> Skus { get; set; } = [];
 }
@@ -59,6 +61,34 @@ public sealed class ChannelListingEntity
     public string? ChannelDataJson { get; set; }
 }
 
+/// <summary>Kanalda olup hiçbir SKU'ya bağlanamayan ürün (kanal kataloğu içe alma).</summary>
+public sealed class UnmatchedChannelItemEntity
+{
+    public int Id { get; set; }
+    public int ChannelId { get; set; }
+    public string Source { get; set; } = "";
+    public string ChannelKey { get; set; } = "";
+    public string? ChannelProductCode { get; set; }
+    public string? ChannelBarcode { get; set; }
+    public string? ChannelStockCode { get; set; }
+    public string? ModelCode { get; set; }
+    public string? Color { get; set; }
+    public string? Size { get; set; }
+    public string? ProductName { get; set; }
+    public string? Brand { get; set; }
+    public string? Category { get; set; }
+    public string? ChannelStatus { get; set; }
+    public string Reason { get; set; } = "";
+    public string? ReasonDetail { get; set; }
+    public int? SuggestedSkuId { get; set; }
+    public decimal? SuggestionScore { get; set; }
+    public string Status { get; set; } = "BEKLIYOR";
+    public DateTime FirstSeenUtc { get; set; }
+    public DateTime LastSeenUtc { get; set; }
+    public string? ResolvedBy { get; set; }
+    public DateTime? ResolvedAtUtc { get; set; }
+}
+
 /// <summary>Salt okunur: stok bakiyesi (yazımlar saklı yordamlarla).</summary>
 public sealed class StockBalanceView
 {
@@ -77,6 +107,7 @@ public sealed class PazaryeriHubDbContext(DbContextOptions<PazaryeriHubDbContext
     public DbSet<WarehouseEntity> Warehouses => Set<WarehouseEntity>();
     public DbSet<ChannelEntity> Channels => Set<ChannelEntity>();
     public DbSet<ChannelListingEntity> Listings => Set<ChannelListingEntity>();
+    public DbSet<UnmatchedChannelItemEntity> UnmatchedChannelItems => Set<UnmatchedChannelItemEntity>();
     public IQueryable<StockBalanceView> StockBalances => Set<StockBalanceView>().AsNoTracking();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -89,6 +120,7 @@ public sealed class PazaryeriHubDbContext(DbContextOptions<PazaryeriHubDbContext
             e.Property(x => x.Name).HasColumnName("Ad").HasMaxLength(300);
             e.Property(x => x.Brand).HasColumnName("Marka").HasMaxLength(100);
             e.Property(x => x.Category).HasColumnName("Kategori").HasMaxLength(200);
+            e.Property(x => x.ModelCode).HasColumnName("ModelKodu").HasMaxLength(100);
             e.Property(x => x.CreatedAtUtc).HasColumnName("OlusturmaTarihi").HasColumnType("datetime2(3)")
                 .HasDefaultValueSql("SYSUTCDATETIME()").ValueGeneratedOnAdd();
             e.HasMany(x => x.Skus).WithOne(s => s.Product).HasForeignKey(s => s.ProductId);
@@ -131,6 +163,32 @@ public sealed class PazaryeriHubDbContext(DbContextOptions<PazaryeriHubDbContext
             e.Property(x => x.ChannelDataJson).HasColumnName("KanalVerisi");
             e.HasOne(x => x.Sku).WithMany().HasForeignKey(x => x.SkuId);
             e.HasOne(x => x.Channel).WithMany().HasForeignKey(x => x.ChannelId);
+        });
+
+        modelBuilder.Entity<UnmatchedChannelItemEntity>(e =>
+        {
+            e.ToTable("UnmatchedChannelItem");
+            e.Property(x => x.Source).HasColumnName("Kaynak").HasMaxLength(10).IsUnicode(false);
+            e.Property(x => x.ChannelKey).HasColumnName("KanalAnahtar").HasMaxLength(100);
+            e.Property(x => x.ChannelProductCode).HasColumnName("KanalUrunKodu").HasMaxLength(100);
+            e.Property(x => x.ChannelBarcode).HasColumnName("KanalBarkod").HasMaxLength(50);
+            e.Property(x => x.ChannelStockCode).HasColumnName("KanalStokKodu").HasMaxLength(100);
+            e.Property(x => x.ModelCode).HasColumnName("ModelKodu").HasMaxLength(100);
+            e.Property(x => x.Color).HasColumnName("Renk").HasMaxLength(50);
+            e.Property(x => x.Size).HasColumnName("Beden").HasMaxLength(30);
+            e.Property(x => x.ProductName).HasColumnName("UrunAdi").HasMaxLength(300);
+            e.Property(x => x.Brand).HasColumnName("Marka").HasMaxLength(100);
+            e.Property(x => x.Category).HasColumnName("Kategori").HasMaxLength(200);
+            e.Property(x => x.ChannelStatus).HasColumnName("KanalDurumu").HasMaxLength(100);
+            e.Property(x => x.Reason).HasColumnName("Neden").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.ReasonDetail).HasColumnName("NedenAciklama").HasMaxLength(400);
+            e.Property(x => x.SuggestedSkuId).HasColumnName("OnerilenSkuId");
+            e.Property(x => x.SuggestionScore).HasColumnName("OneriSkoru").HasPrecision(5, 2);
+            e.Property(x => x.Status).HasColumnName("Durum").HasMaxLength(20).IsUnicode(false);
+            e.Property(x => x.FirstSeenUtc).HasColumnName("IlkGorulme").HasColumnType("datetime2(3)");
+            e.Property(x => x.LastSeenUtc).HasColumnName("SonGorulme").HasColumnType("datetime2(3)");
+            e.Property(x => x.ResolvedBy).HasColumnName("Cozen").HasMaxLength(100);
+            e.Property(x => x.ResolvedAtUtc).HasColumnName("CozulmeTarihi").HasColumnType("datetime2(3)");
         });
 
         modelBuilder.Entity<StockBalanceView>(e =>
