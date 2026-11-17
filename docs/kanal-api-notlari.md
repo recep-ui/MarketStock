@@ -56,6 +56,14 @@
 | İptal / iade | ✅ İptaller `GET /orders?shipmentStatus=Cancelled` (CanceledDateTime'a göre). İadeler `GET /claims` (New 0, ActionNeeded 1, Approved 2, Reject 3, Dispute 4). |
 | ⚠️ Belirsiz | Tarih parametre biçimi (yalnızca "DateTime"); siparişte "son güncellenme" alanı yok → örtüşmeli pencere sipariş tarihine göre olur, durum değişiklikleri için ayrıca durum bazlı sorgu gerekir; hız limiti yazılmamış. |
 
+## 3a. Satıcı Bilgileri (2026-11-18 okundu, ADR-025)
+
+| Kanal | Kargo firmaları | İade red gerekçeleri |
+|---|---|---|
+| Trendyol | ✅ `GET /product/lookup/cargo-providers` → `[{code, name}]` (docs/cargo-providers-service). Dokümana göre ürün oluşturma/güncellemedeki `cargoProviders` alanı için. ⚠️ Sipariş tarafında aynı kodların kullanıldığı doğrulanmalı. | ✅ `GET /order/claim-issue-reasons` → `[{id, name}]` (docs/claim-issue-reasons-getclaimsissuereasons). `id` → createClaimIssue `claimIssueReasonId`. 1651 ilk 24 saatte seçilemez. |
+| Hepsiburada | ⚠️ `GET https://shipping-external-sit.hepsiburada.com/cargoFirms/{merchantId}` ("teslimat profili oluşturmada kullanılır"); yanıt şeması sayfada yok. | ⚠️ `POST oms-external-sit…/claims/number/{claimNumber}/reject` gövdesi `{ClaimRejectionReason (string, zorunlu), MerchantStatement (zorunlu), Reports[], UploadedReportsUrls[]}`; değer listesi yok (örnek "PhotoNotClear"). |
+| Beymen | ✅ Dokümanda sabit "Cargo Companies" tablosu (Code / Description), servis yok. | ✅ "Problem Reporting of Return" → `PATCH /claims/{id}/dispute`, `reasonType` = `SellerReasonType` (0–11); `images` PackageIsEmpty dışında zorunlu. |
+
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 

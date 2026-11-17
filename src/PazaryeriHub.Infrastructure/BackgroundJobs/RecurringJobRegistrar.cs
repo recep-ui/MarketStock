@@ -60,12 +60,14 @@ public sealed class RecurringJobRegistrar(
         var codes = adapters.Select(a => a.ChannelCode).Distinct(StringComparer.Ordinal).ToList();
         var sync = syncOptions.Value;
 
-        // Kanal başına: SiparisCek, StokGonder, Mutabakat. Pasif kanallarda job'lar hemen çıkar.
+        // Kanal başına: SiparisCek, StokGonder, Mutabakat, ReferansCek. Pasif kanallarda job'lar hemen çıkar.
         foreach (var code in codes)
         {
             Set<OrderFetchJob>(OrderFetchJob.RecurringJobId(code), orderOptions.Value.FetchCron, job => job.RunAsync(code, CancellationToken.None), utc);
             Set<StockPushJob>(StockPushJob.RecurringJobId(code), sync.PushCron, job => job.RunAsync(code, CancellationToken.None), utc);
             Set<ReconciliationJob>(ReconciliationJob.RecurringJobId(code), sync.ReconciliationCron, job => job.RunAsync(code, CancellationToken.None), utc);
+            Set<PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob>(PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob.RecurringJobId(code),
+                sync.ReferenceCron, job => job.RunAsync(code, true, CancellationToken.None), utc);
         }
 
         Set<OutboxProcessorJob>(OutboxProcessorJob.RecurringJobId, sync.OutboxCron, job => job.RunAsync(CancellationToken.None), utc);

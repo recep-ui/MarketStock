@@ -267,6 +267,24 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         }
     }
 
+    // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
+
+    /// <summary>
+    /// Kargo firmaları: dokümanda <c>GET https://shipping-external-sit.hepsiburada.com/cargoFirms/{merchantId}</c> (Kargo ve
+    /// Shipping → Profil Servisleri; "teslimat profili oluşturma aşamasında kullanılır") var, ancak YANIT ŞEMASI dokümanda
+    /// gösterilmiyor (2026-11-18). // TODO: doğrulanmalı — örnek yanıt docs/ altına konunca uygulanacak.
+    /// İade red gerekçesi: reddetme servisi (<c>POST /claims/number/{claimNumber}/reject</c>) <c>ClaimRejectionReason</c>'ı serbest
+    /// metin (string) alıyor; değer listesi veren bir servis veya doküman listesi yok (örnekte yalnızca "PhotoNotClear").
+    /// // TODO: doğrulanmalı — geçerli değer listesi.
+    /// </summary>
+    public Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct) => type switch
+    {
+        ChannelReferenceType.CargoProvider => throw new NotSupportedException(
+            "Hepsiburada kargo firmaları servisinin yanıt şeması dokümanda yok; doğrulanınca eklenecek."),
+        _ => throw new NotSupportedException(
+            "Hepsiburada iade red gerekçeleri için değer listesi dokümanda yok (serbest metin); doğrulanınca eklenecek.")
+    };
+
     // ------------------------------------------------------------------ Kapsam dışı / henüz doğrulanmamış
 
     public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>

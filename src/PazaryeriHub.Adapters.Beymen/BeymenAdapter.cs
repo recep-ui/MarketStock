@@ -287,6 +287,80 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
             ParseDate(Str(c, "claimDate")) ?? DateTime.UtcNow, lines, reason);
     }
 
+    // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
+
+    /// <summary>Kaynak notu: Beymen bu listeleri servis olarak değil, dokümanda sabit tablo olarak veriyor.</summary>
+    internal const string ReferenceNote = "Kaynak: partner-docs.beymen.com/en (Cargo Companies; Problem Reporting of Return → SellerReasonType), 2026-11-18 okundu.";
+
+    /// <summary>Kaynak: "Cargo Companies" tablosu (Code / Description), dokümandaki sırayla.</summary>
+    internal static readonly IReadOnlyList<ChannelReferenceItem> CargoCompanies =
+    [
+        new("BexVizyon", "VİZYON KURYE HİZMETLERİ ULUSLARARASI TAŞIMACILIK BİLGİ SİSTEMLERİ TURİZM SAN.TİC.LTD.ŞTİ."),
+        new("Mng", "MNG KARGO YURTİÇİ VE YURTDIŞI TAŞ. A.Ş"),
+        new("AKN", "AKIN NAKLİYAT TURZ İNŞ.SAN.TİC.LTD.ŞTİ"),
+        new("UD", "EKOL LOJİSTİK A.Ş"),
+        new("YRTICI", "YURTICI KARGO SERVISI A.S"),
+        new("BYMExprANK", "BİR GÜNDE KARGO LOJİSTİK DAĞITIM NAKLİYAT ORMAN ÜRÜNLERİ GIDA SANAYİ VE TİCARET LİMİTED ŞİRKET"),
+        new("BYMExprIZM", "BİR GÜNDE KARGO LOJİSTİK DAĞITIM NAKLİYAT ORMAN ÜRÜNLERİ GIDA SANAYİ VE TİCARET LİMİTED ŞİRKET"),
+        new("YRTICIPartner", "YURTICI KARGO SERVISI A.S"),
+        new("BexTaskin", "TAŞKIN LOJİSTİK HİZMETLERİ TİCARET LİMİTED ŞİRKETİ"),
+        new("BexBirgun", "BİR GÜNDE KARGO LOJİSTİK DAĞITIM NAKLİYAT ORMAN ÜRÜNLERİ GIDA SANAYİ VE TİCARET LİMİTED ŞİRKET"),
+        new("HepsiJet", "D FAST DAGITIM HIZMETLERI VE LOJISTIK ANONIM SIRKETI"),
+        new("BYMExpress", "TAŞKIN LOJİSTİK HİZMETLERİ TİCARET LİMİTED ŞİRKETİ"),
+        new("KolGel", "Ekol Ekspres Kargo A.Ş."),
+        new("ups", "UPS KARGO"),
+        new("Aras", "Aras Kargo"),
+        new("ptt", "PTT Kargo"),
+        new("kolaygelsin", "Kolay Gelsin"),
+        new("Sürat", "Sürat Kargo"),
+        new("Borusan", "Borusan Lojistik"),
+        new("ty", "Trendyol Express"),
+        new("Ceva", "Ceva Lojistik"),
+        new("Kargoist", "Kargo İst"),
+        new("Horoz", "Horoz Lojistik"),
+        new("Ekol", "Ekol Lojistik"),
+        new("DHL", "DHL"),
+        new("tnt", "TNT"),
+        new("Nettrack", "Nettrack"),
+        new("Scotty", "Scotty"),
+        new("Kargom Sende", "Kargom Sende"),
+        new("Jetizz", "Jetizz"),
+        new("BoltKargo", "Bolt Kargo"),
+        new("AGT", "AGT Kurye")
+    ];
+
+    /// <summary>
+    /// Kaynak: "Problem Reporting of Return (Disputed Return)" → <c>PATCH /claims/{id}/dispute</c>, <c>reasonType</c>
+    /// (<c>SellerReasonType</c> enum). Dokümana göre <c>images</c> PackageIsEmpty dışındaki tüm tiplerde zorunlu.
+    /// Kod = enum adı; Veri = sayısal değer ve görsel zorunluluğu. Adlar dokümandaki İngilizce açıklamaların Türkçe çevirisidir.
+    /// </summary>
+    internal static readonly IReadOnlyList<ChannelReferenceItem> ClaimRejectReasons =
+    [
+        Reason("ReceivedProductNotMine", 0, "Gelen ürün bana ait değil"),
+        Reason("ProductIsDefectiveOrDamaged", 1, "Gelen ürün kusurlu/hasarlı"),
+        Reason("ProductQuantityIsMissing", 2, "Gelen ürün adedi eksik"),
+        Reason("ProductIsWrong", 3, "Gelen ürün yanlış"),
+        Reason("ProductUsedOrOpenedPacking", 4, "Gelen ürün kullanılmış/ambalajı açılmış"),
+        Reason("ProductIsFake", 5, "Gelen ürün sahte"),
+        Reason("ProductPartIsMissing", 6, "Gelen ürünün parçası/aksesuarı eksik"),
+        Reason("ProductIsNotDefective", 7, "Gönderdiğim ürün kusurlu değil"),
+        Reason("ProductIsNotWrong", 8, "Gönderdiğim ürün yanlış değil"),
+        Reason("PackageIsEmpty", 9, "İade paketi boş geldi"),
+        Reason("PackageNotFound", 10, "İade paketi bana ulaşmadı"),
+        Reason("ExcessProductReceived", 11, "Müşteri fazla gönderdiğim ürünü iade etti")
+    ];
+
+    private static ChannelReferenceItem Reason(string code, int value, string name) =>
+        new(code, name, $$"""{"deger":{{value}},"gorselZorunlu":{{(code == "PackageIsEmpty" ? "false" : "true")}}}""");
+
+    /// <summary>Beymen referansları dokümandaki sabit listelerdir; kanala çağrı yapılmaz.</summary>
+    public Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct) => Task.FromResult(type switch
+    {
+        ChannelReferenceType.CargoProvider => new ChannelReferenceList(CargoCompanies, ReferenceSource.Documentation, ReferenceNote),
+        ChannelReferenceType.ClaimRejectReason => new ChannelReferenceList(ClaimRejectReasons, ReferenceSource.Documentation, ReferenceNote),
+        _ => throw new NotSupportedException($"Beymen için '{type}' referans tipi desteklenmiyor.")
+    });
+
     // ------------------------------------------------------------------ Kapsam dışı
 
     public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>

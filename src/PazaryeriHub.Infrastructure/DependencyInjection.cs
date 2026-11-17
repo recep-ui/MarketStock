@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<ICatalogService, CatalogService>();
         services.AddScoped<IChannelService, ChannelService>();
         services.AddSingleton<IChannelCredentialStore, ChannelCredentialStore>();
+        services.AddScoped<IChannelReferenceService, ChannelReferenceService>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
         services.AddScoped<PazaryeriHub.Application.ChannelCatalog.IChannelCatalogService, ChannelCatalog.ChannelCatalogService>();
 
@@ -125,6 +126,7 @@ public static class DependencyInjection
         services.AddTransient<StockPushJob>();
         services.AddTransient<BatchCheckJob>();
         services.AddTransient<ReconciliationJob>();
+        services.AddTransient<ReferenceFetchJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

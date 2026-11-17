@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Hangfire;
 using PazaryeriHub.Api.Auth;
 using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.Channels;
@@ -53,6 +54,42 @@ public static class ChannelEndpoints
             }
             await store.ClearAsync(channel.Code, ct);
             return Results.NoContent();
+        }).RequireAuthorization(Policies.Admin);
+
+        // Satıcı Bilgileri (ADR-025): kanal referans verisi. Okuma tüm roller; yenileme Yönetici (Hangfire job'ı, ilke 5).
+        channels.MapGet("/{id:int}/references", async (IChannelService s, IChannelReferenceService refs, int id, string? type, bool? includeInactive, CancellationToken ct) =>
+        {
+            if ((await s.GetChannelsAsync(ct)).All(c => c.Id != id))
+            {
+                return Results.Problem(statusCode: 404, title: "Kayıt bulunamadı.", detail: $"Kanal bulunamadı (Id={id}).");
+            }
+            ChannelReferenceType? parsed = null;
+            if (!string.IsNullOrWhiteSpace(type))
+            {
+                if (!ChannelReferenceTypes.TryParse(type, out var t))
+                {
+                    return Results.Problem(statusCode: 400, title: "Bilinmeyen tip.",
+                        detail: $"'{type}' geçersiz; {ChannelReferenceTypes.CargoProvider} veya {ChannelReferenceTypes.ClaimRejectReason} olmalı.");
+                }
+                parsed = t;
+            }
+            return Results.Ok(await refs.GetAsync(id, parsed, includeInactive ?? false, ct));
+        });
+        channels.MapPost("/{id:int}/references/refresh", async (IChannelService s, IBackgroundJobClient jobs,
+            PazaryeriHub.Infrastructure.Persistence.SqlConnectionFactory connections, TimeProvider clock, int id, CancellationToken ct) =>
+        {
+            var channel = (await s.GetChannelsAsync(ct)).FirstOrDefault(c => c.Id == id);
+            if (channel is null)
+            {
+                return Results.Problem(statusCode: 404, title: "Kayıt bulunamadı.", detail: $"Kanal bulunamadı (Id={id}).");
+            }
+            if (!await PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob.TryMarkQueuedAsync(connections, clock, id, ct))
+            {
+                return Results.Problem(statusCode: 409, title: "Zaten çalışıyor.", detail: "Bu kanal için referans çekme işi zaten çalışıyor.");
+            }
+            var code = channel.Code;
+            var jobId = jobs.Enqueue<PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob>(job => job.RunAsync(code, false, CancellationToken.None));
+            return Results.Accepted(value: new { jobId });
         }).RequireAuthorization(Policies.Admin);
 
         var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme").RequireAuthorization(Policies.Read);

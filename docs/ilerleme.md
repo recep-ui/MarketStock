@@ -7,6 +7,21 @@
 
 ---
 
+## Entegrasyon genişletme M1: Satıcı Bilgileri (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- Kanal referans verisi (kargo firmaları, iade red gerekçeleri) için `ChannelReference` tablosu (migration 0009), `FetchReferenceAsync` adaptör metodu, `ReferansCek` job'ı, okuma ve yenileme API'si ve Ayarlar'da "Kanal referans verisi" kartı.
+- **Kaynaklar:**
+  - Trendyol: iki liste de API'den.
+  - Beymen: dokümandaki sabit tablolar.
+  - Hepsiburada: doğrulanamadı, desteklenmiyor (ADR-025).
+- **Testler:**
+  - Unit 209/209 (yeni 6 contract: Trendyol 3, Beymen 1, Hepsiburada 2). Örnek yanıtlar dokümandan alınmıştır, gerçek yanıt değildir.
+  - Integration 112/113 (yeni 2: tekillik, pasifleştirme, boş liste, desteklenmeyen tip, hata kaydı, yetki ve 409). Başarısız tek test `Genel_bakis_bugunun_siparislerini_ve_hatali_senkronu_sayar`: Türkiye saatiyle 00:11'de çalıştı ve demo siparişlerinin bir kısmı dünün tarihine düştü (gece yarısı sınırı; M1 ile ilgisiz).
+  - Playwright 7/7 (Edge ile; Chrome makineden kaldırılmış).
+- **Doğrulanmayanlar:** ADR-025.
+
+---
+
 ## Mutabakat uzlaştırma: sapmayı kanala yaz + kanal stoğunu deftere al (2026-11-17): TAMAM
 
 - **Sapmayı kanala yaz:** Senkron Merkezi'nde satır ve toplu gönderim mevcut hattan yapılıyor (`EslestirmeDegisti` ile zorla kuyruğa alma); Trendyol/Beymen için 15 dk koruması var. "Kanalı tamamen yenile" artık panelde.

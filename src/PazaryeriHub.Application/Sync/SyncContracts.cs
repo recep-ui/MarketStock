@@ -19,6 +19,9 @@ public sealed class SyncOptions
     /// <summary>Mutabakat (kanal başına). Varsayılan 00:00 UTC = 03:00 Türkiye.</summary>
     public string? ReconciliationCron { get; set; } = "0 0 * * *";
 
+    /// <summary>ReferansCek (kanal başına; Satıcı Bilgileri, ADR-025). Varsayılan haftalık, Pazartesi 01:00 UTC.</summary>
+    public string? ReferenceCron { get; set; } = "0 1 * * 1";
+
     /// <summary>Bu kadar başarısız denemeden sonra kayıt HATA olur (ilke 5).</summary>
     public int MaxAttempts { get; set; } = 5;
 

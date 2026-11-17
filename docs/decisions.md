@@ -307,3 +307,40 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Kanalların sipariş iptalinde kendi stoğunu artırıp artırmadığı.
 - Siparişin kanal API'sinde görünme gecikmesi.
 - Mutabakat anı (`CekilmeZamani`) uygulama sunucusunun saatiyle, hareket zamanı (`Tarih`) veritabanı saatiyle yazılıyor; iki saat arasındaki fark çekimden sonraki rezervasyon hesabını birkaç saniye kaydırabilir.
+
+## ADR-025: Satıcı Bilgileri: kanal referans verisi (M1)
+**Tarih:** 2026-11-18
+**Bağlam:** Entegrasyon genişletme planının ilk modülü (onaylı sıra: Satıcı Bilgileri → Sipariş/Teslimat → İade → Fiyat → Soru-Cevap). Yalnızca diğer modüllerin gerçekten kullanacağı referans verisi çekilir. Ürün oluşturma ve içerik güncelleme kapsamdan çıktığı için adres, marka ve kategori listeleri çekilmez.
+**Karar:**
+- **Tipler:**
+  - `KARGO_FIRMASI`: M2'de "kendi kargomuzla gönderim" için firma seçimi.
+  - `IADE_RED_GEREKCE`: M3'te Yönetici'nin iade reddi.
+- **Migration 0009:**
+  - `ChannelReference(Id, ChannelId, Tip, KanalKimlik BIN2, Ad, Veri JSON, Kaynak [API|DOKUMAN], CekilmeZamani, Aktif)` + `UNIQUE(ChannelId, Tip, KanalKimlik)`. Spesifikasyon listesine **ek**.
+  - `ChannelJobState.IsTipi`'ne `REFERANS_CEK` eklendi.
+- **Sözleşme:** `IChannelAdapter.FetchReferenceAsync(ChannelReferenceType, ct)` → `ChannelReferenceList(Items, Source, Note)`. Spesifikasyon §6'ya **ek**; salt okuma. Kanal bir tipi doğrulanmış kaynakla vermiyorsa `NotSupportedException`.
+- **Kanal bazında:**
+
+  | Kanal | Kargo firmaları | İade red gerekçeleri |
+  |---|---|---|
+  | Trendyol | API: `GET /product/lookup/cargo-providers` → `[{code,name}]` (Cargo Providers Service) | API: `GET /order/claim-issue-reasons` → `[{id,name}]` (getClaimsIssueReasons); `id` createClaimIssue'ya gider |
+  | Hepsiburada | **Desteklenmiyor:** `GET shipping-external/cargoFirms/{merchantId}` var, yanıt şeması dokümanda yok | **Desteklenmiyor:** red servisi `ClaimRejectionReason`'ı serbest metin alıyor, değer listesi yok |
+  | Beymen | Doküman: "Cargo Companies" sabit tablosu (32 kayıt) | Doküman: `SellerReasonType` enum'u (0–11); Veri'de sayısal değer + `gorselZorunlu` (PackageIsEmpty dışında görsel zorunlu) |
+  | Mock | Bellek içi örnek | Bellek içi örnek |
+
+- **ReferansCek job'ı** (`ReferenceFetchJob`, Hangfire):
+  - Kanal başına haftalık (`Senkron:ReferenceCron`, varsayılan Pazartesi 01:00 UTC); zamanlanmış çalışmada pasif kanal atlanır.
+  - Panelden elle tetiklenebilir (`POST /api/channels/{id}/references/refresh`, Yönetici; çalışırken 409).
+  - Upsert MERGE ile yapılır; ikinci çekim yeni kayıt açmaz.
+  - Kanalda kaybolan kayıt **silinmez**, `Aktif=0` olur.
+  - Kanal **boş liste** dönerse mevcut kayıtlar korunur (geçici hata listeyi silmesin).
+  - Desteklenmeyen tip mevcut kayıtlara dokunmaz ve hata sayılmaz.
+  - Sonuç tip başına `ChannelJobState.SonSonuc`'ta tutulur.
+- **Okuma:** `GET /api/channels/{id}/references?type=&includeInactive=` (tüm roller).
+- **Panel:** Ayarlar → "Kanal referans verisi" kartı: kanal ve tip seçimi, pasifleri göster, son çekme durumu, "Kanaldan yenile" (Yönetici).
+- **Deneme modu:** `Senkron__ReferenceCron` kapatılan cron'lar listesine eklendi. Elle yenileme salt okuma olduğu için deneme modunda çalışır.
+- **Playwright:** kurulu tarayıcı kanalı `E2E_BROWSER_CHANNEL` ile seçilebilir (varsayılan chrome). Makinede Chrome kaldırıldığı için testler `msedge` ile çalıştırıldı.
+**Doğrulanmadı:**
+- Trendyol: lookup kodlarının (ör. `YKMP`) sipariş tarafında (alternatif teslimat / kargo değişikliği) aynen kullanıldığı (dokümana göre bu kodlar ürün oluşturma/güncelleme içindir) → M2'de okunacak.
+- Hepsiburada: `cargoFirms` yanıt şeması ve `ClaimRejectionReason` geçerli değerleri.
+- Beymen: dokümandaki sabit tabloların güncelliği (servis yok).

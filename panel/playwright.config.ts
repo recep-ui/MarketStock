@@ -36,7 +36,8 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   use: {
     baseURL: `http://localhost:${port}`,
-    channel: 'chrome',
+    // Kurulu tarayıcı kullanılır (indirme yok). Chrome yoksa: E2E_BROWSER_CHANNEL=msedge
+    channel: process.env.E2E_BROWSER_CHANNEL ?? 'chrome',
     headless: true,
     locale: 'tr-TR',
     timezoneId: 'Europe/Istanbul',

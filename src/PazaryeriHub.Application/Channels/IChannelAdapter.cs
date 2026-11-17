@@ -28,6 +28,12 @@ public interface IChannelAdapter
     /// Yalnızca resmi dokümanla doğrulanmış alanlar doldurulur; kanal vermiyorsa alan null kalır.
     /// </summary>
     Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct);
+
+    /// <summary>
+    /// Satıcı Bilgileri: kanal referans listesi (ADR-025; spesifikasyon §6'ya EK). Salt okumadır.
+    /// Kanal bu listeyi doğrulanmış bir servis veya doküman listesiyle vermiyorsa <see cref="NotSupportedException"/> fırlatır.
+    /// </summary>
+    Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct);
 }
 
 /// <summary>Kanal kataloğundaki tek ürün (varyant). Alanlar kanalın verdiği kadar doludur.</summary>

@@ -103,6 +103,14 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 
 export type Paged<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type OrderStatus = 'Yeni' | 'Onaylandi' | 'Hazirlaniyor' | 'Kargoda' | 'TeslimEdildi' | 'Iptal' | 'Iade';
+export type ChannelReferenceDto = {
+  id: number; type: string; code: string; name: string; dataJson: string | null; source: 'API' | 'DOKUMAN'; fetchedAtUtc: string; active: boolean;
+};
+export type ChannelReferenceTypeResult = { type: string; outcome: 'GUNCELLENDI' | 'DESTEKLENMIYOR' | 'HATA'; count: number; deactivated: number; source: string | null; message: string | null };
+export type ChannelReferenceView = {
+  items: ChannelReferenceDto[];
+  status: { channelId: number; lastAttemptUtc: string | null; lastSuccessUtc: string | null; lastError: string | null; results: ChannelReferenceTypeResult[] };
+};
 export type Channel = { id: number; code: string; name: string; sharePercent: number; active: boolean; settingsJson: string | null; hasCredentials: boolean };
 export type OrderListItem = {
   id: number; channelId: number; channelCode: string; channelOrderNo: string; status: OrderStatus; total: number;

@@ -104,7 +104,7 @@ foreach ($code in 'TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') {
 $env:Hangfire__Queues__0 = 'default'
 # DİKKAT: Windows PowerShell'de $env:X = '' değişkeni SİLER (varsayılan cron devreye girer). Bu yüzden tek boşluk
 # verilir; uygulama boşluk/boş cron'u "job kapalı" sayar (RecurringJobRegistrar).
-foreach ($name in 'Senkron__OutboxCron', 'Senkron__PushCron', 'Senkron__BatchCheckCron', 'Senkron__ReconciliationCron', 'Siparis__FetchCron') {
+foreach ($name in 'Senkron__OutboxCron', 'Senkron__PushCron', 'Senkron__BatchCheckCron', 'Senkron__ReconciliationCron', 'Senkron__ReferenceCron', 'Siparis__FetchCron') {
     Set-Item -Path "env:$name" -Value ' '
     if (-not (Test-Path "env:$name")) { throw "Güvenlik: $name kapatılamadı; deneme modu başlatılmadı." }
 }

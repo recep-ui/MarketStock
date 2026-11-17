@@ -340,6 +340,46 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         return new NormalizedReturn(orderNo, c.ClaimId ?? c.Id, created, lines, reason);
     }
 
+    // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
+
+    /// <summary>
+    /// Kargo firmaları: Cargo Providers Service, <c>GET /product/lookup/cargo-providers</c> → <c>[{code, name}]</c>
+    /// (2026-11-18 okundu). Dokümana göre bu kodlar ürün oluşturma/güncellemedeki <c>cargoProviders</c> alanı içindir.
+    /// // TODO: doğrulanmalı — sipariş tarafında (kendi kargo / alternatif teslimat) aynı kodların kullanıldığı (M2'de okunacak).
+    /// İade red gerekçeleri: getClaimsIssueReasons, <c>GET /order/claim-issue-reasons</c> → <c>[{id, name}]</c>;
+    /// <c>id</c> createClaimIssue servisine <c>claimIssueReasonId</c> olarak gönderilir.
+    /// Not (doküman): 1651 "İade paketi tarafıma teslim edilmedi" gerekçesi, iade "Waiting Action" durumuna geçtikten sonraki
+    /// ilk 24 saat içinde seçilemez.
+    /// </summary>
+    public async Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct)
+    {
+        var creds = await CredentialsAsync(ct);
+        switch (type)
+        {
+            case ChannelReferenceType.CargoProvider:
+            {
+                var list = await SendAsync<List<CargoProvider>>(creds, HttpMethod.Get, "/product/lookup/cargo-providers", null, ct) ?? [];
+                return new ChannelReferenceList(
+                    list.Where(c => !string.IsNullOrWhiteSpace(c.Code))
+                        .Select(c => new ChannelReferenceItem(c.Code!.Trim(), string.IsNullOrWhiteSpace(c.Name) ? c.Code!.Trim() : c.Name!.Trim()))
+                        .ToList(),
+                    ReferenceSource.Api);
+            }
+            case ChannelReferenceType.ClaimRejectReason:
+            {
+                var list = await SendAsync<List<ClaimIssueReason>>(creds, HttpMethod.Get, "/order/claim-issue-reasons", null, ct) ?? [];
+                return new ChannelReferenceList(
+                    list.Where(r => r.Id is not null && !string.IsNullOrWhiteSpace(r.Name))
+                        .Select(r => new ChannelReferenceItem(r.Id!.Value.ToString(CultureInfo.InvariantCulture), r.Name!.Trim(),
+                            r.Id == 1651 ? """{"not":"İade 'Waiting Action' durumuna geçtikten sonraki ilk 24 saatte seçilemez."}""" : null))
+                        .ToList(),
+                    ReferenceSource.Api);
+            }
+            default:
+                throw new NotSupportedException($"Trendyol için '{type}' referans tipi desteklenmiyor.");
+        }
+    }
+
     // ------------------------------------------------------------------ Kapsam dışı
 
     /// <summary>Fiyatlar satıcı panelinden girilir (ADR-015).</summary>

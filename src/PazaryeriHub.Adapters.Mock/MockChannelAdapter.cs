@@ -15,6 +15,23 @@ public sealed class MockChannelStore
     private readonly ConcurrentDictionary<string, ConcurrentQueue<NormalizedReturn>> _returns = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<(OrderStatus Status, CargoInfo? Cargo)>> _statusUpdates = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, IReadOnlyList<ChannelCatalogEntry>> _catalog = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string Channel, ChannelReferenceType Type), IReadOnlyList<ChannelReferenceItem>> _references = new();
+
+    /// <summary>Mock kanalın referans listesini ayarlar (öncekinin yerine geçer). Ayarlanmamışsa örnek liste döner.</summary>
+    public void SetReferences(string channelCode, ChannelReferenceType type, IEnumerable<ChannelReferenceItem> items) =>
+        _references[(channelCode, type)] = items.ToList();
+
+    /// <summary>Bu kanal + tip için FetchReferenceAsync NotSupportedException fırlatır (desteklemeyen kanal senaryosu).</summary>
+    public ConcurrentDictionary<(string Channel, ChannelReferenceType Type), bool> UnsupportedReferences { get; } = new();
+
+    /// <summary>Sonraki FetchReferenceAsync çağrısında fırlatılacak hata.</summary>
+    public ConcurrentDictionary<string, Exception> FailNextReference { get; } = new(StringComparer.Ordinal);
+
+    public IReadOnlyList<ChannelReferenceItem> ReferencesOf(string channelCode, ChannelReferenceType type) =>
+        _references.TryGetValue((channelCode, type), out var list) ? list
+        : type == ChannelReferenceType.CargoProvider
+            ? [new("MOCK-KARGO-1", "Mock Kargo 1"), new("MOCK-KARGO-2", "Mock Kargo 2")]
+            : [new("MOCK-RED-1", "Mock red gerekçesi 1")];
 
     /// <summary>Mock kanal kataloğunun sayfa boyutu (sayfalama testleri için değiştirilebilir).</summary>
     public int CatalogPageSize { get; set; } = 100;
@@ -148,6 +165,19 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
 
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) =>
         Task.FromResult(store.ReturnsSince(ChannelCode, sinceUtc));
+
+    public Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct)
+    {
+        if (store.FailNextReference.TryRemove(ChannelCode, out var error))
+        {
+            throw error;
+        }
+        if (store.UnsupportedReferences.ContainsKey((ChannelCode, type)))
+        {
+            throw new NotSupportedException($"Mock: {ChannelCode} için {type} desteklenmiyor.");
+        }
+        return Task.FromResult(new ChannelReferenceList(store.ReferencesOf(ChannelCode, type), ReferenceSource.Api));
+    }
 
     /// <summary>Mock katalog: imleç = sıradaki öğenin konumu.</summary>
     public Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)

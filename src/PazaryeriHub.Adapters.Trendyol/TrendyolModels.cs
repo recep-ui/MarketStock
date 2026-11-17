@@ -184,3 +184,11 @@ internal sealed class ProductVariant
     public string? Barcode { get; init; }
     public int? Quantity { get; init; }
 }
+
+// ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
+
+/// <summary>Kaynak: Cargo Providers Service (GET /product/lookup/cargo-providers) → [{code, name}].</summary>
+internal sealed record CargoProvider(string? Code, string? Name);
+
+/// <summary>Kaynak: getClaimsIssueReasons (GET /order/claim-issue-reasons) → [{id, name}].</summary>
+internal sealed record ClaimIssueReason(long? Id, string? Name);

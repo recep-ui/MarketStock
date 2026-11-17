@@ -4,16 +4,19 @@ import { roleLabels, useAuth, type Role } from '../auth';
 import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
+import { ChannelReferences } from './ChannelReferences';
 
 /** Ekran 8: Ayarlar (kanal payı, güvenlik stoğu, uyarı eşikleri, kullanıcı rolleri). */
 export function SettingsPage() {
   const { can } = useAuth();
   const [notice, setNotice] = useState<string | null>(null);
+  const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
   return (
     <>
       <h1>Ayarlar</h1>
       <Notice text={notice} onClose={() => setNotice(null)} />
       <ChannelSettings editable={can('admin')} onSaved={setNotice} />
+      {channels.data && <ChannelReferences channels={channels.data} canRefresh={can('admin')} onNotice={setNotice} />}
       <div className="grid-2">
         <ThresholdSettings editable={can('admin')} onSaved={setNotice} />
         {can('stockWrite') && <SafetyStockForm onSaved={setNotice} />}

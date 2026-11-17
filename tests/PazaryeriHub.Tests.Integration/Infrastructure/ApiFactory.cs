@@ -63,6 +63,7 @@ public sealed class ApiFactory(string connectionString, IReadOnlyDictionary<stri
                 ["Senkron:PushCron"] = "",
                 ["Senkron:BatchCheckCron"] = "",
                 ["Senkron:ReconciliationCron"] = "",
+                ["Senkron:ReferenceCron"] = "",
                 // Testlerde SiparisCek arka planda çalışmaz; testler job'ı doğrudan çağırır.
                 ["Siparis:FetchCron"] = "",
                 ["Hangfire:SchedulePollingIntervalSeconds"] = "1",
