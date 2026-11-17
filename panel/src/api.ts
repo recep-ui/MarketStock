@@ -141,6 +141,27 @@ export type Reconciliation = {
   listingId: number; skuCode: string; channelCode: string; channelProductCode: string | null; channelBarcode: string | null;
   expected: number; lastSent: number | null; channelStock: number | null; fetchedAtUtc: string | null; deviation: number | null;
 };
+export type PushListingsResult = { queued: number; skipped: { listingId: number; reason: string }[] };
+export type IntakeChannelValue = {
+  listingId: number; channelCode: string; channelBarcode: string | null; channelProductCode: string | null;
+  channelStock: number | null; fetchedAtUtc: string | null; expected: number; syncPending: boolean;
+};
+export type IntakePreviewRow = {
+  skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number; available: number;
+  channels: IntakeChannelValue[]; sourceValue: number | null; minValue: number | null; reservedSinceSnapshot: number;
+  proposedTarget: number | null; proposedPhysical: number | null; flags: string[]; defaultSelected: boolean;
+};
+export type IntakePreview = {
+  sourceChannelId: number; sourceChannelCode: string; enabled: boolean; disabledReason: string | null; lowStockThreshold: number;
+  previewedAtUtc: string; rows: IntakePreviewRow[];
+};
+export type IntakeRowResult = {
+  skuId: number; skuCode: string | null; outcome: 'UYGULANDI' | 'FARK_YOK' | 'REDDEDILDI'; message: string | null;
+  physical: number | null; available: number | null; movementId: number | null;
+};
+export type IntakeApplyResult = {
+  batchId: string; applied: number; unchanged: number; rejected: number; pushQueued: number; pushSkipped: number; rows: IntakeRowResult[];
+};
 export type Listing = {
   id: number; skuId: number; skuCode: string; channelId: number; channelCode: string; channelProductCode: string | null;
   channelBarcode: string | null; status: string; lastSentStock: number | null; lastSyncUtc: string | null;

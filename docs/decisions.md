@@ -258,3 +258,52 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
  WHERE l.KanalUrunKodu IS NOT NULL GROUP BY c.Kod, l.KanalUrunKodu HAVING COUNT(*) > 1;
 ```
 2026-11-17 sonucu: test veritabanında 993 ilan, 0 çakışma; ana veritabanında 0 ilan.
+
+## ADR-024: Kanal stoğu ile defter stoğunun uzlaştırılması
+**Tarih:** 2026-11-17
+**Bağlam:**
+- Mutabakat kanal değerini yalnızca `ChannelStockSnapshot`'a yazıyordu.
+- OutboxIsle yalnızca hedefi son gönderilenden farklı ilanları gönderdiği için kanalda elle değişen stok kendiliğinden düzelmiyordu.
+- Refresh uç noktasının (`KanalStokYenile`, kanalın tüm aktif ilanlarını zorla gönderir) panelde karşılığı yoktu.
+
+**Karar 1 — Sapmayı kanala yaz:**
+- `POST /api/sync/reconciliation/push {listingIds}` (Yönetici) seçilen ilanlar için `EslestirmeDegisti` outbox olayı yazar. OutboxIsle bu olayda hedef aynı olsa bile kuyruğa alır.
+- **Yeni hat açılmadı:** bekleyen kayıt tekilliği, Polly hız limiti ve yeniden deneme aynen geçerli.
+- Gönderilemeyen ilanlar gerekçesiyle atlanır: bulunamadı, ilan pasif, kanal pasif, SKU'ya stok girilmemiş.
+- **15 dk koruması:** Trendyol ve Beymen'de aynı değer son 15 dk içinde gönderildiyse satır atlanır (doküman: "aynı istek 15 dk tekrar gönderilemez"; reddetme yanıtı doğrulanmadı).
+- **Panel (Senkron Merkezi):** satır başına "Kanala gönder", seçilen veya listelenen sapmaları gönderme, SKU araması, "Kanalı tamamen yenile" (mevcut refresh, onaylı).
+
+**Karar 2 — Kanal stoğunu deftere al:**
+- **Önizleme:** `GET /api/stock/channel-intake/preview` (Yönetici + Depo). Kaynak kanalda AKTIF ilanı olan SKU'lar için son mutabakat değerleri ve önizleme anı (veritabanı saati) döner.
+- **Uygulama:** `POST /api/stock/channel-intake/apply` (yalnızca Yönetici; fiziksel bir sayım değil, dış kaynak).
+- **Formül** (yeni yordam `usp_KanalStokAl`, bakiye satırı kilitli):
+  - Hedef satılabilir = MAX(0, kanal değeri − çekimden sonraki net rezervasyon). Önizlemede önerilir, kullanıcı düzenleyebilir.
+  - Yeni Fiziksel = Rezerve + Güvenlik stoğu + MAX(0, hedef − önizlemeden sonraki net rezervasyon). Rezerve ve güvenlik stoğu uygulama anındaki değerlerdir.
+  - Net rezervasyon = REZERVE − REZERVE_IPTAL hareketleri.
+  - Gerekçe: kanal değeri bizim gönderdiğimiz satılabilir stoktur. Çekimden veya önizlemeden sonra gelen siparişler bu değerde yer almaz, bu yüzden düşülür; aksi halde satılabilir stok fazla görünür. Sipariş çekimden önce verilip sonra kaydedildiyse iki kez düşülür; sonuç daha düşük stok olur, yani oversell açısından güvenli taraf.
+  - Rezerve ≤ Fiziksel her zaman sağlanır.
+- **Çakışan hareket:** önizlemedeki Fiziksel değişmişse (giriş, sayım, sevk) satır 50030 ile reddedilir.
+- **Yarım hata:** her satır kendi transaction'ında; sonuç satır başına döner (UYGULANDI / FARK_YOK / REDDEDILDI). Fark yoksa hareket yazılmaz; tekrar uygulamak güvenlidir.
+- **Denetim izi:** StockMovement'ta Tip = SAYIM, KaynakTip = `KANAL_ALIM`, KaynakId = `KANAL_ALIM:{parti}:{kanal}`, Kullanici = oturumdaki kullanıcı.
+- **Yayılım:** uygulanan SKU'ların tüm aktif ilanları Karar 1 ile zorla gönderilir; böylece tüm kanallar aynı değeri görür.
+- **Kanallar farklı değer gösterirse:** kullanıcı bir kaynak kanal seçer; satırlar kaynak değeriyle doldurulur ve her satır elle düzenlenebilir. Tüm kanalların değerleri ve en düşük değer gösterilir. Aynı kanalda birden fazla ilan farklı değer gösteriyorsa en düşüğü alınır ("ilanlar farklı" işareti).
+- **Varsayılan olarak seçilmeyen satırlar** (`ChannelIntakeRules`, saf fonksiyon):
+  - kanalda değer yok;
+  - ilanlar farklı;
+  - kanal payı %100 değil;
+  - kanal 0 gösteriyor ve düşük stok eşiği > 0;
+  - değer kanal üst limitinde;
+  - çekim 24 saatten eski;
+  - çekimden sonra defterde giriş, iade girişi veya sayım var;
+  - ilan için bekleyen gönderim var;
+  - fark yok.
+
+  "Çekimden sonra sipariş" yalnızca bilgi işaretidir, seçimi engellemez.
+- **Tek depo (ADR-015):** birden fazla depo varsa özellik kapalıdır.
+- **Migration:** tablo değişikliği yok (KaynakTip serbest metin). Yalnızca yeni yordam `Procedures/08_usp_KanalStokAl.sql`; yordamlar her açılışta yeniden çalışır.
+
+**Doğrulanmadı / risk:**
+- Trendyol ve Beymen'in 15 dk içinde tekrarlanan aynı isteğe nasıl yanıt verdiği.
+- Kanalların sipariş iptalinde kendi stoğunu artırıp artırmadığı.
+- Siparişin kanal API'sinde görünme gecikmesi.
+- Mutabakat anı (`CekilmeZamani`) uygulama sunucusunun saatiyle, hareket zamanı (`Tarih`) veritabanı saatiyle yazılıyor; iki saat arasındaki fark çekimden sonraki rezervasyon hesabını birkaç saniye kaydırabilir.

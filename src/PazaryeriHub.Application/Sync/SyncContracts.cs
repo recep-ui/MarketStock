@@ -105,6 +105,19 @@ public sealed record ReconciliationRow(
 
 public sealed record ReconciliationResult(string ChannelCode, bool Skipped, string? SkipReason, int Listings, int Matched, int Missing, int Deviations);
 
+public sealed record PushSkipped(int ListingId, string Reason);
+
+public sealed record PushListingsResult(int Queued, IReadOnlyList<PushSkipped> Skipped);
+
+public sealed record PushListingsRequest(IReadOnlyList<int> ListingIds);
+
+/// <summary>Aynı istek bu süre içinde tekrar gönderilemez (Trendyol ve Beymen dokümanı; reddedilme yanıtı doğrulanmadı).</summary>
+public static class ChannelResendRules
+{
+    public static readonly TimeSpan SameRequestWindow = TimeSpan.FromMinutes(15);
+    public static readonly IReadOnlySet<string> ChannelsWithWindow = new HashSet<string>(StringComparer.Ordinal) { "TRENDYOL", "BEYMEN" };
+}
+
 public interface ISyncService
 {
     Task<PagedResult<SyncQueueItem>> SearchQueueAsync(int? channelId, string? status, int? page, int? pageSize, CancellationToken ct);
@@ -118,4 +131,10 @@ public interface ISyncService
 
     /// <summary>Son mutabakat görüntüsü ve sapmalar.</summary>
     Task<IReadOnlyList<ReconciliationRow>> GetReconciliationAsync(int? channelId, bool onlyDeviations, CancellationToken ct);
+
+    /// <summary>
+    /// "Sapmayı kanala yaz" (ADR-024): seçilen ilanlar için defterdeki değer, hedef son gönderilenle aynı olsa bile mevcut
+    /// senkron hattından (outbox EslestirmeDegisti → SyncQueue) yeniden gönderilir. Gönderilemeyen ilanlar gerekçesiyle atlanır.
+    /// </summary>
+    Task<PushListingsResult> PushListingsAsync(IReadOnlyCollection<int> listingIds, CancellationToken ct);
 }

@@ -26,6 +26,10 @@ public static class SyncEndpoints
             return Results.Accepted();
         }).RequireAuthorization(Policies.Admin);
 
+        // Sapmayı kanala yaz (ADR-024): defterdeki değer seçilen ilanlara zorla yeniden gönderilir (mevcut hat).
+        sync.MapPost("/reconciliation/push", (ISyncService s, PushListingsRequest request, CancellationToken ct) =>
+            s.PushListingsAsync(request.ListingIds ?? [], ct)).RequireAuthorization(Policies.Admin);
+
         sync.MapGet("/reconciliation", (ISyncService s, int? channelId, bool? onlyDeviations, CancellationToken ct) =>
             s.GetReconciliationAsync(channelId, onlyDeviations ?? false, ct));
         sync.MapPost("/reconciliation/{channelCode}/run", (IBackgroundJobClient jobs, string channelCode) =>

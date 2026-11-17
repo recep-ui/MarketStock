@@ -26,6 +26,15 @@ public interface IStockLedger
     Task<StockChangeResult> AdjustToCountAsync(StockChangeRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Kanal stoğunu deftere alır (ADR-024): Fiziksel = Rezerve + GüvenlikStoğu + MAX(0, hedef − referanstan sonraki net rezervasyon)
+    /// (kilit altında, uygulama anı).
+    /// SAYIM hareketi (kaynak KANAL_ALIM). Fark yoksa hareket yazılmaz (<see cref="StockChangeResult.MovementId"/> = 0).
+    /// <paramref name="expectedPhysical"/> verilir ve mevcut Fiziksel farklıysa <see cref="StockErrorCode.PhysicalChangedSincePreview"/>.
+    /// </summary>
+    /// <param name="referenceUtc">Hedefin geçerli olduğu an (önizleme, veritabanı saati); sonrasındaki net rezervasyon hedeften düşülür.</param>
+    Task<StockChangeResult> TakeChannelStockAsync(StockChangeRequest request, int? expectedPhysical, DateTime? referenceUtc, CancellationToken ct = default);
+
+    /// <summary>
     /// Güvenlik stoğunu ayarlar (GuvenlikStogu = Quantity). Fiziksel stok değişmediği için hareket yazılmaz;
     /// ancak satılabilir stok değiştiği için outbox'a <c>StokDegisti</c> olayı yazılır (kanallar güncellensin).
     /// Bakiye satırı yoksa 0 fiziksel stokla oluşturulur.

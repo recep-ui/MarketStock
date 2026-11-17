@@ -8,8 +8,78 @@ using PazaryeriHub.Infrastructure.Persistence;
 namespace PazaryeriHub.Infrastructure.Sync;
 
 /// <summary>Senkron Merkezi sorguları, yeniden deneme ve mutabakat raporu.</summary>
-public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStore store) : ISyncService
+public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStore store, TimeProvider clock) : ISyncService
 {
+    public const int MaxPushListings = 5_000;
+
+    public async Task<PushListingsResult> PushListingsAsync(IReadOnlyCollection<int> listingIds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(listingIds);
+        var ids = listingIds.Distinct().ToList();
+        new Validator()
+            .Must(ids.Count > 0, "listingIds", "En az bir ilan seçilmeli.")
+            .Must(ids.Count <= MaxPushListings, "listingIds", $"Tek seferde en fazla {MaxPushListings:N0} ilan gönderilebilir.")
+            .ThrowIfInvalid();
+
+        await using var connection = await OpenAsync(ct);
+        var rows = (await connection.QueryAsync<PushCandidate>(new CommandDefinition("""
+            SELECT l.Id AS ListingId, c.Kod AS ChannelCode, l.Durum, c.Aktif AS ChannelActive, l.SonSenkron, l.SonGonderilenStok,
+                   CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.StockBalance b WHERE b.SkuId = l.SkuId) THEN 1 ELSE 0 END AS bit) AS HasBalance
+              FROM dbo.ChannelListing l JOIN dbo.Channel c ON c.Id = l.ChannelId
+             WHERE l.Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
+            """, new { ids = JsonSerializer.Serialize(ids) }, cancellationToken: ct))).ToDictionary(r => r.ListingId);
+        var targets = (await store.ComputeTargetsAsync(connection, null, rows.Keys.ToList(), ct)).ToDictionary(t => t.ListingId);
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var skipped = new List<PushSkipped>();
+        var toQueue = new List<int>();
+        foreach (var id in ids)
+        {
+            if (!rows.TryGetValue(id, out var r))
+            {
+                skipped.Add(new(id, "İlan bulunamadı."));
+                continue;
+            }
+            var reason = r.Durum != "AKTIF" ? "İlan pasif."
+                : !r.ChannelActive ? "Kanal pasif."
+                : !r.HasBalance ? "SKU'ya henüz stok girilmemiş; kanala gönderilmez."
+                : ChannelResendRules.ChannelsWithWindow.Contains(r.ChannelCode)
+                  && r.SonSenkron is { } last && last > now - ChannelResendRules.SameRequestWindow
+                  && r.SonGonderilenStok == targets[id].Target
+                    ? $"Aynı değer {(int)Math.Ceiling((last + ChannelResendRules.SameRequestWindow - now).TotalMinutes)} dk içinde tekrar gönderilemez (kanal kuralı); sonra tekrar deneyin."
+                : null;
+            if (reason is null)
+            {
+                toQueue.Add(id);
+            }
+            else
+            {
+                skipped.Add(new(id, reason));
+            }
+        }
+
+        if (toQueue.Count > 0)
+        {
+            // EslestirmeDegisti: OutboxIsle bu ilanları hedef aynı olsa bile kuyruğa alır (mevcut hat, debounce ve hız limiti korunur)
+            await connection.ExecuteAsync(new CommandDefinition("""
+                INSERT dbo.Outbox (OlayTipi, Payload)
+                SELECT @type, CONCAT(N'{"ListingId":', CAST([value] AS INT), N'}') FROM OPENJSON(@ids)
+                """, new { type = OutboxEvents.ListingChanged, ids = JsonSerializer.Serialize(toQueue) }, cancellationToken: ct));
+        }
+        return new PushListingsResult(toQueue.Count, skipped);
+    }
+
+    private sealed class PushCandidate
+    {
+        public int ListingId { get; init; }
+        public string ChannelCode { get; init; } = "";
+        public string Durum { get; init; } = "";
+        public bool ChannelActive { get; init; }
+        public DateTime? SonSenkron { get; init; }
+        public int? SonGonderilenStok { get; init; }
+        public bool HasBalance { get; init; }
+    }
+
     public async Task<PagedResult<SyncQueueItem>> SearchQueueAsync(int? channelId, string? status, int? page, int? pageSize, CancellationToken ct)
     {
         var (p, size) = Paging.Normalize(page, pageSize);

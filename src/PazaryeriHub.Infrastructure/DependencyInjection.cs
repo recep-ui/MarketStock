@@ -63,6 +63,7 @@ public static class DependencyInjection
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
         services.AddSingleton<SyncStore>();
         services.AddScoped<ISyncService, SyncService>();
+        services.AddScoped<PazaryeriHub.Application.Stock.IChannelIntakeService, Stock.ChannelIntakeService>();
 
         // Panel: kullanıcılar ve ekran sorguları
         services.AddOptions<PazaryeriHub.Application.Auth.IdentityOptions>().BindConfiguration(PazaryeriHub.Application.Auth.IdentityOptions.SectionName);

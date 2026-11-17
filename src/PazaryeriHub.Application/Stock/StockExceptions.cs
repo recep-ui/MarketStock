@@ -15,6 +15,9 @@ public enum StockErrorCode
     /// <summary>50004: Sayılan miktar mevcut rezervden az.</summary>
     CountBelowReserved = 50004,
 
+    /// <summary>50030: Kanal stoğunu deftere alma — önizlemeden sonra fiziksel stok değişti (ADR-024).</summary>
+    PhysicalChangedSincePreview = 50030,
+
     /// <summary>50010: Geçersiz miktar.</summary>
     InvalidQuantity = 50010
 }

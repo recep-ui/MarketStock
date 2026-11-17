@@ -9,6 +9,7 @@ using PazaryeriHub.Adapters.Mock;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Common;
 using PazaryeriHub.Application.Orders;
+using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.BackgroundJobs;
 using PazaryeriHub.Infrastructure.Sync;
@@ -694,5 +695,188 @@ public sealed class SyncPipelineTests(TestDatabase db)
             await db.Api.PutAsJsonAsync("/api/settings", new { criticalStockThreshold = settings.CriticalStockThreshold, lowStockThreshold = 0 }, Json, Ct);
             await RestoreChannelAsync();
         }
+    }
+
+    // ------------------------------------------------------------------ mutabakat uzlaştırma (ADR-024)
+
+    private async Task<PushListingsResult> PushDeviationsAsync(params int[] listingIds)
+    {
+        var response = await db.Api.PostAsJsonAsync("/api/sync/reconciliation/push", new { listingIds }, Json, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return (await response.Content.ReadFromJsonAsync<PushListingsResult>(Json, Ct))!;
+    }
+
+    private Task<ReconciliationResult> ReconcileAsync() => RunAsync(sp => sp.GetRequiredService<ReconciliationJob>().RunAsync(Channel, Ct));
+
+    [Fact]
+    public async Task Sapmayi_kanala_yaz_hedef_ayni_olsa_da_defter_degerini_gonderir_gonderilemeyenleri_atlar()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (_, listingId, code) = await SkuWithListingAsync(channelId, 5);
+            await SyncOnceAsync();
+            Mock.SetChannelStock(Channel, code, 9); // kanalda elle değişti
+
+            await OutboxAsync();
+            (await QueueAsync(listingId)).Should().OnlyContain(q => q.Durum != "BEKLIYOR", "hedef = son gönderilen: kendiliğinden düzeltilmez");
+
+            var (_, noStock, _) = await SkuWithListingAsync(channelId, -1);
+            var (_, passive, _) = await SkuWithListingAsync(channelId, 3);
+            await using (var c = db.Open())
+            {
+                await c.ExecuteAsync("UPDATE dbo.ChannelListing SET Durum = 'PASIF' WHERE Id = @passive", new { passive });
+            }
+
+            var result = await PushDeviationsAsync(listingId, noStock, passive, int.MaxValue);
+            result.Queued.Should().Be(1);
+            result.Skipped.Select(s => s.ListingId).Should().BeEquivalentTo([noStock, passive, int.MaxValue]);
+            result.Skipped.Single(s => s.ListingId == noStock).Reason.Should().Contain("stok girilmemiş");
+
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(5, "defterdeki değer kanala yazıldı");
+
+            using var depot = await db.ApiHost.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Warehouse);
+            (await depot.PostAsJsonAsync("/api/sync/reconciliation/push", new { listingIds = new[] { listingId } }, Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Sapmayi_kanala_yaz_ayni_degeri_15_dk_icinde_trendyol_a_yeniden_gondermez()
+    {
+        db.SkipIfUnavailable();
+        await using var c = db.Open();
+        var trendyol = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = 'TRENDYOL'");
+        var wasActive = await c.ExecuteScalarAsync<bool>("SELECT Aktif FROM dbo.Channel WHERE Id = @trendyol", new { trendyol });
+        var skuId = await db.CreateSkuAsync();
+        await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 5), Ct);
+        var listingId = await c.ExecuteScalarAsync<int>("""
+            INSERT dbo.ChannelListing (SkuId, ChannelId, KanalBarkod, SonGonderilenStok, SonSenkron)
+            OUTPUT inserted.Id VALUES (@skuId, @trendyol, @barcode, 5, DATEADD(MINUTE, -3, SYSUTCDATETIME()))
+            """, new { skuId, trendyol, barcode = "TY15-" + Guid.NewGuid().ToString("N")[..10] });
+        try
+        {
+            await c.ExecuteAsync("UPDATE dbo.Channel SET Aktif = 1 WHERE Id = @trendyol", new { trendyol });
+
+            var recent = await PushDeviationsAsync(listingId);
+            recent.Queued.Should().Be(0);
+            recent.Skipped.Single().Reason.Should().Contain("dk içinde tekrar gönderilemez");
+
+            await c.ExecuteAsync("UPDATE dbo.ChannelListing SET SonSenkron = DATEADD(MINUTE, -20, SYSUTCDATETIME()) WHERE Id = @listingId", new { listingId });
+            (await PushDeviationsAsync(listingId)).Queued.Should().Be(1);
+        }
+        finally
+        {
+            await c.ExecuteAsync("""
+                UPDATE dbo.Channel SET Aktif = @wasActive WHERE Id = @trendyol;
+                UPDATE dbo.ChannelListing SET Durum = 'PASIF' WHERE Id = @listingId;
+                UPDATE dbo.Outbox SET IslendiAt = SYSUTCDATETIME() WHERE IslendiAt IS NULL;
+                """, new { wasActive, trendyol, listingId });
+        }
+    }
+
+    [Fact]
+    public async Task Kanal_stogu_deftere_alinir_onizleme_yazmaz_tum_ilanlara_yayilir_tekrar_uygulama_fark_yok()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            // Defter: fiziksel 10, güvenlik 1, rezerve 2 → satılabilir 7
+            var (skuId, listingA, codeA) = await SkuWithListingAsync(channelId, 10);
+            await db.Ledger.SetSafetyStockAsync(new(skuId, db.DefaultWarehouseId, 1), Ct);
+            await db.Ledger.ReserveAsync(new(skuId, db.DefaultWarehouseId, 2), Ct);
+            var codeB = NewCode();
+            var listingB = await AddListingAsync(skuId, channelId, codeB);
+            await SyncOnceAsync();
+
+            Mock.SetChannelStock(Channel, codeA, 4); // kanalda elle düşürüldü
+            Mock.SetChannelStock(Channel, codeB, 9);
+            await ReconcileAsync();
+
+            var preview = (await db.Api.GetFromJsonAsync<IntakePreview>($"/api/stock/channel-intake/preview?sourceChannelId={channelId}", Json, Ct))!;
+            var row = preview.Rows.Single(r => r.SkuId == skuId);
+            row.Should().Match<IntakePreviewRow>(r => r.SourceValue == 4 && r.ProposedTarget == 4 && r.ProposedPhysical == 7 && r.Physical == 10);
+            row.Flags.Should().Contain(IntakeFlags.ListingsDiffer);
+            (await db.GetBalanceAsync(skuId))!.Fiziksel.Should().Be(10, "önizleme yazmaz");
+
+            using var depot = await db.ApiHost.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Warehouse);
+            (await depot.GetAsync($"/api/stock/channel-intake/preview?sourceChannelId={channelId}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+            (await depot.PostAsJsonAsync("/api/stock/channel-intake/apply",
+                    new IntakeApplyRequest(channelId, preview.PreviewedAtUtc, [new IntakeApplyRow(skuId, 4, 10)]), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden, "uygulama yalnızca Yönetici");
+
+            var applied = await ApplyIntakeAsync(new IntakeApplyRequest(channelId, preview.PreviewedAtUtc, [new IntakeApplyRow(skuId, 4, 10)]));
+            applied.Rows.Single().Outcome.Should().Be(IntakeOutcomes.Applied);
+            applied.PushQueued.Should().Be(2);
+            (await db.GetBalanceAsync(skuId)).Should().Be(new BalanceRow(7, 2, 1, 4), "Fiziksel = 4 + 2 + 1");
+
+            await using (var c = db.Open())
+            {
+                var movement = await c.QuerySingleAsync<(string Tip, int Adet, string KaynakTip, string KaynakId, string Kullanici)>(
+                    "SELECT TOP (1) Tip, Adet, KaynakTip, KaynakId, Kullanici FROM dbo.StockMovement WHERE SkuId = @skuId ORDER BY Id DESC", new { skuId });
+                movement.Should().Match<(string Tip, int Adet, string KaynakTip, string KaynakId, string Kullanici)>(m =>
+                    m.Tip == "SAYIM" && m.Adet == -3 && m.KaynakTip == "KANAL_ALIM" && m.KaynakId.StartsWith("KANAL_ALIM:" + applied.BatchId) && m.Kullanici == "test-yonetici");
+            }
+
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, codeA).Should().Be(4);
+            Mock.GetChannelStock(Channel, codeB).Should().Be(4, "aynı SKU'nun tüm ilanları defterdeki değeri alır");
+
+            var again = await ApplyIntakeAsync(new IntakeApplyRequest(channelId, preview.PreviewedAtUtc, [new IntakeApplyRow(skuId, 4, 7)]));
+            again.Rows.Single().Outcome.Should().Be(IntakeOutcomes.Unchanged);
+            (await db.CountMovementsAsync(skuId, "SAYIM")).Should().Be(1, "fark yoksa hareket yazılmaz");
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Kanal_stogu_deftere_alma_onizlemeden_sonraki_siparisi_duser_cakisan_harekette_satir_reddedilir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuA, _, codeA) = await SkuWithListingAsync(channelId, 10);
+            var (skuB, _, codeB) = await SkuWithListingAsync(channelId, 10);
+            await SyncOnceAsync();
+            Mock.SetChannelStock(Channel, codeA, 6);
+            Mock.SetChannelStock(Channel, codeB, 6);
+            await ReconcileAsync();
+            var preview = (await db.Api.GetFromJsonAsync<IntakePreview>($"/api/stock/channel-intake/preview?sourceChannelId={channelId}", Json, Ct))!;
+
+            // Önizlemeden sonra: A'ya sipariş (2 rezerve), B'ye stok girişi (fiziksel değişti)
+            await db.Ledger.ReserveAsync(new(skuA, db.DefaultWarehouseId, 2), Ct);
+            await db.Ledger.ReceiveAsync(new(skuB, db.DefaultWarehouseId, 1), Ct);
+
+            var result = await ApplyIntakeAsync(new IntakeApplyRequest(channelId, preview.PreviewedAtUtc,
+                [new IntakeApplyRow(skuA, 6, 10), new IntakeApplyRow(skuB, 6, 10)]));
+
+            result.Rows.Single(r => r.SkuId == skuA).Outcome.Should().Be(IntakeOutcomes.Applied);
+            (await db.GetBalanceAsync(skuA))!.Satilabilir.Should().Be(4, "önizlemeden sonraki sipariş hedeften düşülür: 6 − 2");
+            result.Rows.Single(r => r.SkuId == skuB).Should().Match<IntakeRowResult>(r =>
+                r.Outcome == IntakeOutcomes.Rejected && r.Message!.Contains("Önizlemeden sonra"));
+            (await db.GetBalanceAsync(skuB))!.Fiziksel.Should().Be(11, "reddedilen satır defteri değiştirmez");
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    private async Task<IntakeApplyResult> ApplyIntakeAsync(IntakeApplyRequest request)
+    {
+        var response = await db.Api.PostAsJsonAsync("/api/stock/channel-intake/apply", request, Json, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+        return (await response.Content.ReadFromJsonAsync<IntakeApplyResult>(Json, Ct))!;
     }
 }

@@ -100,7 +100,7 @@ test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   const screens: [string, string][] = [
     ['Genel Bakış', 'Genel Bakış'], ['Stok Listesi', 'Stok Listesi'], ['Stok Hareketleri', 'Stok Hareketleri'],
     ['Siparişler', 'Siparişler'], ['İade / İptal', 'İade / İptal'], ['Eşleştirme', 'Eşleştirme'],
-    ['Senkron Merkezi', 'Senkron Merkezi'], ['Ayarlar', 'Ayarlar']
+    ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Ayarlar', 'Ayarlar']
   ];
   for (const [link, heading] of screens) {
     await page.getByRole('navigation').getByRole('link', { name: link, exact: true }).click();
@@ -126,4 +126,46 @@ test('Destek rolü müşteri bilgisini maskeli görür ve yazma işlemlerini gö
 
   await page.getByRole('link', { name: 'Senkron Merkezi' }).click();
   await expect(page.getByRole('button', { name: 'Yeniden dene' })).toHaveCount(0);
+});
+
+test('Sapma satırı "Kanala gönder" ile defter değeriyle yeniden gönderilir (gönderilemiyorsa gerekçe görünür)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('link', { name: 'Senkron Merkezi' }).click();
+  await page.getByLabel('Sapma ara').fill(d.deviationSkuCode);
+  const row = page.getByTestId('deviation-row').filter({ hasText: d.deviationSkuCode });
+  await expect(row).toHaveCount(1);
+  await row.getByRole('button', { name: 'Kanala gönder' }).click();
+  // Demo ortamında kanal pasif olabilir: ilan ya kuyruğa alınır ya da gerekçesiyle atlanır; ikisi de görünür olmalı
+  await expect(page.getByText(/ilan defterdeki değerle kuyruğa alındı/)).toBeVisible();
+});
+
+test('Kanal stoğu deftere alınır: önizle, hedefi düzenle, onayla; hareket KANAL_ALIM kaynağıyla görünür', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Kanal Stoğu → Defter' }).click();
+  const source = page.getByLabel('Kaynak kanal');
+  await source.selectOption((await source.locator('option', { hasText: 'Hepsiburada' }).getAttribute('value'))!);
+  await page.getByRole('button', { name: 'Önizle' }).click();
+
+  const row = page.getByTestId('intake-row').filter({ hasText: d.deviationSkuCode });
+  await expect(row).toHaveCount(1);
+  // Kanal beklenenden 1 fazla gösteriyor → önerilen hedef kanal değeri
+  await expect(row.getByLabel(`Hedef ${d.deviationSkuCode}`)).toHaveValue(String(d.deviationChannelStock));
+  const checkbox = row.getByLabel(`Seç ${d.deviationSkuCode}`);
+  if (!(await checkbox.isChecked())) await checkbox.check();
+  // Yalnızca bu satır uygulansın
+  for (const other of await page.getByTestId('intake-row').filter({ hasNotText: d.deviationSkuCode }).all()) {
+    const cb = other.getByRole('checkbox');
+    if (await cb.isChecked()) await cb.uncheck();
+  }
+
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByTestId('intake-apply').click();
+  await expect(page.getByTestId('intake-result')).toContainText('Uygulandı');
+
+  await page.getByRole('navigation').getByRole('link', { name: 'Stok Hareketleri' }).click();
+  await page.getByLabel('SKU', { exact: true }).fill(d.deviationSkuCode);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await expect(page.locator('table').getByText(/KANAL_ALIM/).first()).toBeVisible();
 });

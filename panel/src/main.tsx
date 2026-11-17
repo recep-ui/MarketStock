@@ -9,6 +9,7 @@ import { MovementsPage } from './pages/MovementsPage';
 import { OrdersPage } from './pages/OrdersPage';
 import { ReturnsPage } from './pages/ReturnsPage';
 import { MappingPage } from './pages/MappingPage';
+import { ChannelIntakePage } from './pages/ChannelIntakePage';
 import { SyncPage } from './pages/SyncPage';
 import { SettingsPage } from './pages/SettingsPage';
 import './styles.css';
@@ -17,6 +18,7 @@ const nav = [
   { to: '/', label: 'Genel Bakış', end: true },
   { to: '/stok', label: 'Stok Listesi' },
   { to: '/hareketler', label: 'Stok Hareketleri' },
+  { to: '/kanal-stogu', label: 'Kanal Stoğu → Defter' },
   { to: '/siparisler', label: 'Siparişler' },
   { to: '/iadeler', label: 'İade / İptal' },
   { to: '/eslestirme', label: 'Eşleştirme' },
@@ -65,6 +67,7 @@ createRoot(document.getElementById('root')!).render(
             <Route index element={<OverviewPage />} />
             <Route path="stok" element={<StockPage />} />
             <Route path="hareketler" element={<MovementsPage />} />
+            <Route path="kanal-stogu" element={<ChannelIntakePage />} />
             <Route path="siparisler" element={<OrdersPage />} />
             <Route path="iadeler" element={<ReturnsPage />} />
             <Route path="eslestirme" element={<MappingPage />} />

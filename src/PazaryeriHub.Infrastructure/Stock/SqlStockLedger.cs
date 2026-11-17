@@ -30,6 +30,14 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
     public Task<StockChangeResult> AdjustToCountAsync(StockChangeRequest request, CancellationToken ct = default) =>
         ExecuteAsync("dbo.usp_SayimDuzelt", "@SayilanAdet", request, ct);
 
+    public Task<StockChangeResult> TakeChannelStockAsync(StockChangeRequest request, int? expectedPhysical, DateTime? referenceUtc, CancellationToken ct = default) =>
+        ExecuteAsync("dbo.usp_KanalStokAl", "@HedefSatilabilir", request with { SourceType = request.SourceType ?? "KANAL_ALIM" }, ct,
+            p =>
+            {
+                p.Add("@BeklenenFiziksel", expectedPhysical, DbType.Int32);
+                p.Add("@ReferansZaman", referenceUtc, DbType.DateTime2);
+            });
+
     public async Task<WarehouseBalance> SetSafetyStockAsync(StockChangeRequest request, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -74,11 +82,13 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
         return parameters;
     }
 
-    private async Task<StockChangeResult> ExecuteAsync(string procedure, string quantityParameter, StockChangeRequest request, CancellationToken ct)
+    private async Task<StockChangeResult> ExecuteAsync(string procedure, string quantityParameter, StockChangeRequest request, CancellationToken ct,
+        Action<DynamicParameters>? extra = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var parameters = BuildParameters(quantityParameter, request);
+        extra?.Invoke(parameters);
 
         try
         {
@@ -86,7 +96,7 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
             var row = await connection.QuerySingleAsync<ResultRow>(new CommandDefinition(
                 procedure, parameters, commandType: CommandType.StoredProcedure, cancellationToken: ct));
 
-            return new StockChangeResult(row.Fiziksel, row.Rezerve, row.Satilabilir, row.HareketId);
+            return new StockChangeResult(row.Fiziksel, row.Rezerve, row.Satilabilir, row.HareketId ?? 0);
         }
         catch (SqlException ex) when (TranslateError(ex) is { } translated)
         {
@@ -101,9 +111,10 @@ public sealed class SqlStockLedger(SqlConnectionFactory connectionFactory) : ISt
         (int)StockErrorCode.InsufficientReservationForShipment or
         (int)StockErrorCode.InsufficientReservationForCancel or
         (int)StockErrorCode.CountBelowReserved or
+        (int)StockErrorCode.PhysicalChangedSincePreview or
         (int)StockErrorCode.InvalidQuantity => new StockOperationException((StockErrorCode)ex.Number, ex.Message, ex),
         _ => null
     };
 
-    private sealed record ResultRow(int Fiziksel, int Rezerve, int Satilabilir, long HareketId);
+    private sealed record ResultRow(int Fiziksel, int Rezerve, int Satilabilir, long? HareketId);
 }

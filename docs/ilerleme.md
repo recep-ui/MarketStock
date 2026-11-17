@@ -7,6 +7,27 @@
 
 ---
 
+## Mutabakat uzlaştırma: sapmayı kanala yaz + kanal stoğunu deftere al (2026-11-17): TAMAM
+
+- **Sapmayı kanala yaz:** Senkron Merkezi'nde satır ve toplu gönderim mevcut hattan yapılıyor (`EslestirmeDegisti` ile zorla kuyruğa alma); Trendyol/Beymen için 15 dk koruması var. "Kanalı tamamen yenile" artık panelde.
+- **Kanal stoğunu deftere al:** yeni "Kanal Stoğu → Defter" ekranı.
+  - Kaynak kanal seçilir, önizlenir, hedef düzenlenir; uygulamayı Yönetici onaylar.
+  - Hareket SAYIM, kaynak KANAL_ALIM, kullanıcı adıyla yazılır.
+  - Ardından tüm kanallara gönderilir.
+- **Plandan sapma (düzeltme):** planda Fiziksel = kanal + Rezerve + Güvenlik yazmıştım. Uygulama sırasında bunun çekimden veya önizlemeden sonraki siparişleri satılabilir stokta fazla gösterdiğini (oversell riski) fark ettim. Formüle sonraki net rezervasyon düşümü eklendi (ADR-024).
+- **Testler:**
+  - Unit 203/203: uzlaştırma kuralları.
+  - Integration 110/110:
+    - zorla gönderim ve gerekçeli atlama, 15 dk koruması, Depo 403;
+    - önizleme yazmaz; uygulama formülü ve denetim izi;
+    - tüm ilanlara yayılım, fark yokta hareket yok;
+    - önizlemeden sonraki siparişin düşülmesi;
+    - çakışan harekette satırın reddedilmesi ve yarım hata.
+  - Playwright 7/7: sapma gönderme ve deftere alma senaryoları eklendi.
+- Doğrulanmayanlar ADR-024'te.
+
+---
+
 ## Çoklu ilan + genel düşük stok eşiği (2026-11-17): TAMAM
 
 - **Migration 0008:** `UNIQUE(SkuId, ChannelId)` kaldırıldı; kanal + barkod ve kanal + kanal ürün kodu tekil oldu. Ön kontrol çakışmada migration'ı durduruyor. Migration öncesi kontrol sorgusunda çakışma çıkmadı (test veritabanı 993 ilan, ana veritabanı 0 ilan).

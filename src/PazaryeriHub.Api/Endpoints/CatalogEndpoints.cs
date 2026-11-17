@@ -64,6 +64,11 @@ public static class CatalogEndpoints
         stock.MapPost("/counts", (IStockLedger l, ClaimsPrincipal user, StockCountRequest r, CancellationToken ct) =>
             l.AdjustToCountAsync(new StockChangeRequest(r.SkuId, r.WarehouseId, r.CountedQuantity, "PANEL", r.Reference, user.UserName()), ct))
             .RequireAuthorization(Policies.StockWrite);
+        // Kanal stoğunu deftere alma (ADR-024): önizleme Yönetici + Depo; uygulama yalnızca Yönetici (fiziksel sayım değil, dış kaynak).
+        stock.MapGet("/channel-intake/preview", (IChannelIntakeService s, int sourceChannelId, bool? onlyDifferences, CancellationToken ct) =>
+            s.PreviewAsync(sourceChannelId, onlyDifferences ?? false, ct)).RequireAuthorization(Policies.StockWrite);
+        stock.MapPost("/channel-intake/apply", (IChannelIntakeService s, ClaimsPrincipal user, IntakeApplyRequest request, CancellationToken ct) =>
+            s.ApplyAsync(request, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
         stock.MapPut("/safety-stock", (IStockLedger l, ClaimsPrincipal user, SafetyStockRequest r, CancellationToken ct) =>
             l.SetSafetyStockAsync(new StockChangeRequest(r.SkuId, r.WarehouseId, r.Quantity, "PANEL", null, user.UserName()), ct))
             .RequireAuthorization(Policies.StockWrite);

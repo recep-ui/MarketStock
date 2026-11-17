@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
-import { get, post, qs, type Channel, type Paged, type Reconciliation, type SyncItem, type SyncSummary } from '../api';
+import { get, post, qs, type Channel, type Paged, type PushListingsResult, type Reconciliation, type SyncItem, type SyncSummary } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, Notice, SyncBadge, useLoad } from '../components/ui';
@@ -21,6 +21,45 @@ export function SyncPage() {
   const summary = useLoad(() => get<SyncSummary[]>('/api/sync/summary'), []);
   const queue = useLoad(() => get<Paged<SyncItem>>(`/api/sync/queue${qs({ status, channelId, page, pageSize: 50 })}`), [status, channelId, page]);
   const deviations = useLoad(() => get<Reconciliation[]>(`/api/sync/reconciliation${qs({ channelId, onlyDeviations: true })}`), [channelId]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [deviationSearch, setDeviationSearch] = useState('');
+  const visibleDeviations = (deviations.data ?? [])
+    .filter(r => !deviationSearch || r.skuCode.toLocaleUpperCase('tr').includes(deviationSearch.trim().toLocaleUpperCase('tr')));
+  const [skipped, setSkipped] = useState<PushListingsResult['skipped']>([]);
+
+  /** Sapmayı kanala yaz (ADR-024): defterdeki değer seçilen ilanlara mevcut senkron hattından zorla gönderilir. */
+  async function pushToChannel(listingIds: number[]) {
+    setActionError(null);
+    try {
+      const r = await post<PushListingsResult>('/api/sync/reconciliation/push', { listingIds });
+      setSkipped(r.skipped);
+      setNotice(`${r.queued} ilan defterdeki değerle kuyruğa alındı${r.skipped.length ? `, ${r.skipped.length} atlandı` : ''}.`);
+      setSelected(new Set());
+      queue.reload();
+    } catch (err) {
+      setActionError(err);
+    }
+  }
+
+  async function refreshChannel() {
+    const ch = (channels.data ?? []).find(c => String(c.id) === channelId);
+    if (!ch || !window.confirm(`${channelNames[ch.code] ?? ch.name}: kanalın TÜM aktif ilanları değer aynı olsa da yeniden gönderilecek. Devam edilsin mi?`)) return;
+    setActionError(null);
+    try {
+      await post(`/api/sync/channels/${ch.id}/refresh`);
+      setNotice(`${channelNames[ch.code] ?? ch.name} kanalının tüm ilanları yeniden gönderim için kuyruğa alınıyor.`);
+    } catch (err) {
+      setActionError(err);
+    }
+  }
+
+  function toggle(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function retry(item: SyncItem) {
     setActionError(null);
@@ -99,21 +138,45 @@ export function SyncPage() {
       </Card>
 
       <Card title="Mutabakat sapmaları">
-        <p className="muted small">Son mutabakatta kanaldaki stok beklenenden farklı olan veya kanalda bulunamayan eşleştirmeler.</p>
+        <p className="muted small">
+          Son mutabakatta kanaldaki stok beklenenden farklı olan veya kanalda bulunamayan eşleştirmeler. "Kanala gönder" defterdeki değeri
+          (Beklenen) yeniden gönderir. Kanaldaki değerin doğru olduğunu düşünüyorsanız Stok Listesi → "Kanal stoğunu deftere al" ekranını kullanın.
+        </p>
+        {can('admin') && (
+          <div className="filters">
+            <button className="primary" disabled={selected.size === 0} onClick={() => pushToChannel([...selected])} data-testid="push-selected">
+              Seçilenleri kanala gönder ({selected.size})
+            </button>
+            <button disabled={visibleDeviations.length === 0}
+              onClick={() => pushToChannel(visibleDeviations.slice(0, 5000).map(r => r.listingId))}>Listelenen sapmaları kanala gönder ({visibleDeviations.length})</button>
+            <button disabled={!channelId} onClick={refreshChannel} title="Önce yukarıdan kanal seçin">Kanalı tamamen yenile</button>
+          </div>
+        )}
+        <div className="filters">
+          <input placeholder="SKU ara" value={deviationSearch} onChange={e => setDeviationSearch(e.target.value)} aria-label="Sapma ara" />
+          <span className="muted">{visibleDeviations.length} sapma{visibleDeviations.length > 200 ? ' (ilk 200 gösteriliyor)' : ''}</span>
+        </div>
+        {skipped.length > 0 && (
+          <div className="alert alert-warn">
+            Atlanan ilanlar: {skipped.slice(0, 20).map(s => `#${s.listingId}: ${s.reason}`).join(' · ')}{skipped.length > 20 ? ' …' : ''}
+          </div>
+        )}
         <table className="table">
-          <thead><tr><th>Kanal</th><th>SKU</th><th>Beklenen</th><th>Kanalda</th><th>Fark</th><th>Çekilme</th></tr></thead>
+          <thead><tr>{can('admin') && <th />}<th>Kanal</th><th>SKU</th><th>Beklenen</th><th>Kanalda</th><th>Fark</th><th>Çekilme</th>{can('admin') && <th />}</tr></thead>
           <tbody>
-            {(deviations.data ?? []).slice(0, 200).map(r => (
+            {visibleDeviations.slice(0, 200).map(r => (
               <tr key={r.listingId} className="row-deviation" data-testid="deviation-row">
+                {can('admin') && <td><input type="checkbox" aria-label={`Seç ${r.skuCode}`} checked={selected.has(r.listingId)} onChange={() => toggle(r.listingId)} /></td>}
                 <td><ChannelBadge code={r.channelCode} /></td>
                 <td>{r.skuCode}</td>
                 <td>{r.expected}</td>
                 <td>{r.channelStock ?? 'kanalda yok'}</td>
                 <td>{r.deviation ?? '—'}</td>
                 <td>{formatDateTime(r.fetchedAtUtc)}</td>
+                {can('admin') && <td><button className="small" onClick={() => pushToChannel([r.listingId])}>Kanala gönder</button></td>}
               </tr>
             ))}
-            {deviations.data?.length === 0 && <tr><td colSpan={6} className="empty">Sapma yok.</td></tr>}
+            {deviations.data && visibleDeviations.length === 0 && <tr><td colSpan={8} className="empty">Sapma yok.</td></tr>}
           </tbody>
         </table>
       </Card>
