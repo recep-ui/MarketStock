@@ -277,16 +277,91 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
             ? list.EnumerateArray().Select(l =>
             {
                 var barcode = l.TryGetProperty("product", out var p) && p.ValueKind == JsonValueKind.Object ? Str(p, "barcode") : null;
-                return new NormalizedReturnLine(Str(l, "productId"), barcode, Int(l, "quantity") ?? 1);
+                var productId = Str(l, "productId");
+                return new NormalizedReturnLine(productId, barcode, Int(l, "quantity") ?? 1, LineKey: productId ?? barcode,
+                    ChannelItemIds: productId is null ? [] : [productId]);
             }).ToList()
             : [];
         var reason = c.TryGetProperty("shipmentLines", out var l2) && l2.ValueKind == JsonValueKind.Array
             ? l2.EnumerateArray().Select(l => l.TryGetProperty("customerReason", out var cr) && cr.ValueKind == JsonValueKind.Object ? Str(cr, "description") : null)
                 .FirstOrDefault(x => x is not null)
             : null;
+        // Satır durumu sayısal (dokümandaki örnekte "status": 4); talep durumu olarak ilk satırınki gösterilir.
+        // TODO: doğrulanmalı — satır durum kodlarının anlamı (notlarda claims için New 0, ActionNeeded 1, Approved 2, Reject 3, Dispute 4).
+        var status = c.TryGetProperty("shipmentLines", out var l3) && l3.ValueKind == JsonValueKind.Array
+            ? l3.EnumerateArray().Select(l => Int(l, "status")).FirstOrDefault(x => x is not null) switch
+            {
+                0 => "New", 1 => "ActionNeeded", 2 => "Approved", 3 => "Reject", 4 => "Dispute", { } n => n.ToString(CultureInfo.InvariantCulture), null => null
+            }
+            : null;
         return new NormalizedReturn(OrderNo(orderNumber, Str(c, "shipmentNumber")), Str(c, "id"),
-            ParseDate(Str(c, "claimDate")) ?? DateTime.UtcNow, lines, reason);
+            ParseDate(Str(c, "claimDate")) ?? DateTime.UtcNow, lines, reason, status);
     }
+
+    // ------------------------------------------------------------------ İade kararı (ADR-027)
+
+    /// <summary>
+    /// Kaynak (partner-docs.beymen.com/en, 2026-11-18 okundu):
+    /// - Onay: "Confirmation of the Return" <c>PATCH /claims/{id}/approve</c> <c>[{productId, quantity}]</c> → 202.
+    /// - Teslim alındı: "Taking 'I Have Received' Action on Refund" <c>PATCH /claims/{id}/receive</c> → 202 (iade kargodan teslim
+    ///   görünmüyorsa talebi aksiyon bekleyen duruma alır).
+    /// - Red: "Problem Reporting of Return" <c>PATCH /claims/{id}/dispute</c> <c>{items:[{productId, images, reasonType, quantity, description}]}</c>;
+    ///   görsel PackageIsEmpty dışında zorunlu → uygulama görsel barındırmadığı için yalnızca PackageIsEmpty (9) desteklenir.
+    /// </summary>
+    public async Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var creds = await CredentialsAsync(ct);
+        var path = $"/claims/{Uri.EscapeDataString(request.ReturnNo)}";
+        var lines = request.Lines.Where(l => !string.IsNullOrWhiteSpace(l.ChannelProductCode)).ToList();
+        switch (request.Kind)
+        {
+            case ReturnDecisionKind.Approve:
+            {
+                if (lines.Count == 0)
+                {
+                    throw new ArgumentException("Beymen iade onayı için productId zorunludur.", nameof(request));
+                }
+                using var _ = await SendAsync(creds, HttpMethod.Patch, path + "/approve",
+                    lines.Select(l => new { productId = l.ChannelProductCode, quantity = l.Quantity }).ToList(), ct);
+                return;
+            }
+            case ReturnDecisionKind.Received:
+            {
+                using var _ = await SendAsync(creds, HttpMethod.Patch, path + "/receive", null, ct);
+                return;
+            }
+            case ReturnDecisionKind.Reject:
+            {
+                if (request.ReasonCode?.Trim() != "PackageIsEmpty")
+                {
+                    throw new ArgumentException("Bu Beymen sorun bildirimi görsel istiyor; yalnızca PackageIsEmpty desteklenir.", nameof(request));
+                }
+                if (lines.Count == 0)
+                {
+                    throw new ArgumentException("Beymen sorun bildirimi için productId zorunludur.", nameof(request));
+                }
+                var body = new
+                {
+                    items = lines.Select(l => new { productId = l.ChannelProductCode, images = Array.Empty<string>(), reasonType = 9, quantity = l.Quantity,
+                        description = request.Description }).ToList()
+                };
+                using var _ = await SendAsync(creds, HttpMethod.Patch, path + "/dispute", body, ct);
+                return;
+            }
+            default:
+                throw new NotSupportedException($"Beymen'de '{request.Kind}' kararı yok.");
+        }
+    }
+
+    public ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind) => kind switch
+    {
+        ReturnDecisionKind.Approve => new(true, "Satırlar productId ve adetle onaylanır."),
+        ReturnDecisionKind.Received => new(true, "İade kargodan teslim görünmüyorsa talebi aksiyon bekleyen duruma alır."),
+        ReturnDecisionKind.Reject => new(true, "Beymen diğer tiplerde görsel istiyor; uygulama yalnızca 'İade paketi boş geldi' (PackageIsEmpty) gönderir.",
+            RequiresReason: true, AllowedReasons: ["PackageIsEmpty"]),
+        _ => ReturnDecisionRule.NotSupportedBecause("Bu karar Beymen'de yok.")
+    };
 
     // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
 

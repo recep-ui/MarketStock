@@ -82,6 +82,22 @@
   - ✅ **Manual Progression:** `PUT /orders/{id}/shipment/status` `{trackingNumber*, trackingUrl, cargoCompanyCode*, status (4 Shipped, 8 DeliveredToCustomer, 16 Undeliverable)}` → 202.
   - ✅ **Alternatif teslimat:** `PUT /orders/{id}/alternativeDelivery` `{shipmentTrackingUrl, deliveryType (0 farklı kargo, 1 kendi araç), shipmentTrackingNumber, cargoCompanyCode}`.
 
+## 3c. İade talepleri (2026-11-18 okundu, ADR-027)
+
+- **Trendyol:**
+  - ✅ getClaims `GET /order/sellers/{sellerId}/claims`.
+    - Parametreler: claimIds, claimItemStatus (Created, WaitingInAction, Accepted, Cancelled, Rejected, Unresolved, InAnalysis), startDate/endDate (**lastModifiedDate'e göre**, ms), orderNumber, page, size.
+    - Yanıt: `id/claimId`, `orderNumber`, `orderShipmentPackageId` ("iade paketinin id'si"), `claimDate`, `items[].orderLine{id, barcode, merchantSku}`, `items[].claimItems[]{id, claimItemStatus.name, customerClaimItemReason, acceptedBySeller, autoAccepted}`.
+    - 48 saat aksiyon bekleyen iadeler otomatik kabul edilir.
+  - ✅ approveClaimLineItems `PUT …/claims/{claimId}/items/approve` `{claimLineItemIdList, params:{}}`. Yalnızca WaitingInAction; sonra WaitingFraudCheck görülebilir.
+  - ✅ createClaimIssue `POST …/claims/{claimId}/issue?claimIssueReasonId&claimItemIdList&description(≤500)`. Dosya eki (form-data `files`, ≤5 MB) 1651, 451 ve 2101 dışında **zorunlu**.
+- **Beymen:**
+  - ✅ `GET /claims`: `id`, `orderNumber`, `shipmentNumber`, `shipmentLines[]{id, productId, quantity, status, product.barcode, customerReason, sellerReason}`.
+  - ✅ `PATCH /claims/{id}/receive` (202), `PATCH /claims/{id}/approve` `[{productId, quantity}]` (202), `PATCH /claims/{id}/dispute` (images PackageIsEmpty dışında zorunlu).
+- **Hepsiburada (Talep Entegrasyonu):**
+  - ⚠️ `GET oms-external-sit…/claims/merchantId/{merchantId}?beginDate&endDate (yyyy-MM-dd HH:mm)&offset&limit`, durum bazlı `…/status/{status}`. **Yanıt şeması yok.**
+  - ✅ `POST …/claims/number/{claimNumber}/accept` (FinalizedWith: Refund/Change), `…/reject` `{ClaimRejectionReason*, MerchantStatement*, Reports?, UploadedReportsUrls?}`, `…/preapprovalconfirm`.
+
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 

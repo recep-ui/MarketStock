@@ -11,7 +11,7 @@ namespace PazaryeriHub.Api.Dev;
 
 public sealed record DemoDataResult(
     string Tag, IReadOnlyList<string> SkuCodes, IReadOnlyList<string> OrderNos, long FailedSyncId,
-    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode);
+    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode, string ReturnNo);
 
 /// <summary>
 /// Yalnızca Development/Testing: panel ekranlarını ve Playwright senaryolarını beslemek için etiketli demo veri üretir.
@@ -121,7 +121,13 @@ public sealed class DemoDataSeeder(
             OUTPUT inserted.Id VALUES (@listingId, 'STOK', 'HATA', 5, N'Kanal hata döndü (HTTP 503): Servis geçici olarak kullanılamıyor', SYSUTCDATETIME())
             """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Trendyol)] });
 
+        // Kanal iade talebi (ADR-027): kargodaki 2. sipariş (Trendyol) için; IadeCek'in yazdığı yolla tekil kaydedilir.
+        var returnNo = $"DEMO-{tag}-IADE1";
+        await services.GetRequiredService<PazaryeriHub.Application.Orders.IReturnService>().UpsertAsync(channels[ChannelCodes.Trendyol],
+            new NormalizedReturn(orderNos[1], returnNo, DateTime.UtcNow, [new NormalizedReturnLine(null, product.Skus[0].Barcode, 1, $"{orderNos[1]}-L1", [$"{returnNo}-K1"])],
+                "Beden uymadı", "WaitingInAction"), ct);
+
         return new DemoDataResult(tag, product.Skus.Select(s => s.SkuCode).ToList(), orderNos, failedSyncId,
-            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode);
+            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode, returnNo);
     }
 }

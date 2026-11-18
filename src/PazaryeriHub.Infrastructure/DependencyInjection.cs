@@ -68,6 +68,8 @@ public static class DependencyInjection
         services.AddScoped<IOrderService>(sp => sp.GetRequiredService<OrderService>());
         services.AddScoped<IOrderNotificationService, OrderNotificationService>();
         services.AddSingleton<IChannelCommandHandler, OrderStatusCommandHandler>();
+        services.AddScoped<IReturnService, ReturnService>();
+        services.AddSingleton<IChannelCommandHandler, ReturnDecisionCommandHandler>();
 
         // Senkron hattı (Outbox → SyncQueue → kanal).
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
@@ -137,6 +139,7 @@ public static class DependencyInjection
         services.AddTransient<ReconciliationJob>();
         services.AddTransient<ReferenceFetchJob>();
         services.AddTransient<ChannelCommandJob>();
+        services.AddTransient<ReturnFetchJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

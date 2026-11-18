@@ -339,10 +339,14 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         var orderNo = c.OrderShipmentPackageId is { } packageId ? OrderNo(c.OrderNumber, packageId) : c.OrderNumber;
         var created = c.ClaimDate is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime : DateTime.UtcNow;
         var lines = c.Items.Where(i => i.OrderLine?.Barcode is not null)
-            .Select(i => new NormalizedReturnLine(i.OrderLine!.Barcode, i.OrderLine.Barcode, Math.Max(1, i.ClaimItems.Count)))
+            .Select(i => new NormalizedReturnLine(i.OrderLine!.Barcode, i.OrderLine.Barcode, Math.Max(1, i.ClaimItems.Count),
+                LineKey: i.OrderLine.Id > 0 ? i.OrderLine.Id.ToString(CultureInfo.InvariantCulture) : i.OrderLine.Barcode,
+                ChannelItemIds: i.ClaimItems.Select(ci => ci.Id).OfType<string>().ToList()))
             .ToList();
         var reason = c.Items.SelectMany(i => i.ClaimItems).Select(ci => ci.CustomerClaimItemReason?.Name).FirstOrDefault(n => n is not null);
-        return new NormalizedReturn(orderNo, c.ClaimId ?? c.Id, created, lines, reason);
+        // Talep durumu kalem bazlıdır; ilk kalemin durumu gösterilir (Created, WaitingInAction, Accepted, Rejected, ...)
+        var status = c.Items.SelectMany(i => i.ClaimItems).Select(ci => ci.ClaimItemStatus?.Name).FirstOrDefault(n => n is not null);
+        return new NormalizedReturn(orderNo, c.ClaimId ?? c.Id, created, lines, reason, status);
     }
 
     // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
@@ -384,6 +388,66 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
                 throw new NotSupportedException($"Trendyol için '{type}' referans tipi desteklenmiyor.");
         }
     }
+
+    // ------------------------------------------------------------------ İade kararı (ADR-027)
+
+    /// <summary>Dokümana göre dosya eki ZORUNLU OLMAYAN red gerekçeleri (createClaimIssue): 1651, 451, 2101.</summary>
+    internal static readonly IReadOnlyList<string> RejectReasonsWithoutAttachment = ["1651", "451", "2101"];
+
+    /// <summary>
+    /// Kaynaklar (2026-11-18 okundu): approveClaimLineItems, createClaimIssue.
+    /// - Onay: <c>PUT /order/sellers/{sellerId}/claims/{claimId}/items/approve</c> <c>{claimLineItemIdList:[…], params:{}}</c>
+    ///   (yalnızca "WaitingInAction" durumunda; onaydan sonra fraud kontrolü için "WaitingFraudCheck" görülebilir).
+    /// - Red: <c>POST …/claims/{claimId}/issue?claimIssueReasonId=&amp;claimItemIdList=&amp;description=</c>. Dokümana göre 1651, 451 ve 2101
+    ///   dışındaki gerekçelerde form-data dosya eki ZORUNLU; uygulama dosya barındırmadığı için yalnızca bu üç gerekçe desteklenir.
+    ///   // TODO: doğrulanmalı — birden fazla claimItemId'nin sorguda virgülle mi tekrarlı parametreyle mi verileceği; eksiz POST gövdesi.
+    /// - "Teslim alındı" bildirimi Trendyol'da yok.
+    /// </summary>
+    public async Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var items = request.Lines.SelectMany(l => l.ChannelItemIds).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.Ordinal).ToList();
+        if (items.Count == 0)
+        {
+            throw new ArgumentException("Trendyol iade kararı için claimItem kimlikleri zorunludur.", nameof(request));
+        }
+        var creds = await CredentialsAsync(ct);
+        var basePath = $"/order/sellers/{creds.SellerId}/claims/{Uri.EscapeDataString(request.ReturnNo)}";
+        switch (request.Kind)
+        {
+            case ReturnDecisionKind.Approve:
+                await SendAsync<JsonElement?>(creds, HttpMethod.Put, basePath + "/items/approve", new ApproveClaimRequest(items, []), ct);
+                return;
+            case ReturnDecisionKind.Reject:
+            {
+                var reason = request.ReasonCode?.Trim();
+                if (reason is null || !RejectReasonsWithoutAttachment.Contains(reason))
+                {
+                    throw new ArgumentException("Bu Trendyol red gerekçesi dosya eki istiyor; yalnızca 1651, 451 ve 2101 desteklenir.", nameof(request));
+                }
+                var description = (request.Description ?? "").Trim();
+                if (description.Length > 500)
+                {
+                    throw new ArgumentException("Trendyol red açıklaması en fazla 500 karakter olabilir.", nameof(request));
+                }
+                var query = $"?claimIssueReasonId={Uri.EscapeDataString(reason)}&claimItemIdList={Uri.EscapeDataString(string.Join(',', items))}" +
+                            $"&description={Uri.EscapeDataString(description)}";
+                await SendAsync<JsonElement?>(creds, HttpMethod.Post, basePath + "/issue" + query, null, ct);
+                return;
+            }
+            default:
+                throw new NotSupportedException("Trendyol'da 'iade paketi elime ulaştı' bildirimi yok.");
+        }
+    }
+
+    public ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind) => kind switch
+    {
+        ReturnDecisionKind.Approve => new(true, "Yalnızca 'WaitingInAction' durumundaki talep onaylanabilir."),
+        ReturnDecisionKind.Reject => new(true,
+            "Trendyol diğer gerekçelerde dosya eki istiyor; uygulama yalnızca eksiz gerekçeleri (1651, 451, 2101) gönderir. Açıklama en fazla 500 karakter.",
+            RequiresReason: true, AllowedReasons: RejectReasonsWithoutAttachment),
+        _ => ReturnDecisionRule.NotSupportedBecause("Trendyol'da 'iade paketi elime ulaştı' bildirimi yok.")
+    };
 
     // ------------------------------------------------------------------ Kapsam dışı
 

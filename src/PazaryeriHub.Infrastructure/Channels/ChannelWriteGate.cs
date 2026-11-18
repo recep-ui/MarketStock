@@ -113,7 +113,7 @@ public sealed class ChannelCapabilityService(SqlConnectionFactory connectionFact
 
 /// <summary>
 /// Gerçek (Gercek modlu) kanal adaptörünü saran son savunma hattı (ADR-026). Okuma çağrıları doğrudan geçer; YAZMA çağrıları
-/// (stok, fiyat, sipariş durumu) önce <see cref="IChannelWriteGate"/>'ten geçer. Böylece hangi kod yolu çağırırsa çağırsın
+/// (stok, fiyat, sipariş durumu, iade kararı) önce <see cref="IChannelWriteGate"/>'ten geçer. Böylece hangi kod yolu çağırırsa çağırsın
 /// kapalı yetenek, pasif kanal veya global kilitte gerçek kanala istek ÇIKMAZ.
 /// </summary>
 public sealed class GuardedChannelAdapter(IChannelAdapter inner, IChannelWriteGate gate) : IChannelAdapter
@@ -149,6 +149,14 @@ public sealed class GuardedChannelAdapter(IChannelAdapter inner, IChannelWriteGa
     public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => inner.DescribeOrderNotification(target, ownCargo);
 
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) => inner.FetchReturnsAsync(sinceUtc, ct);
+
+    public async Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct)
+    {
+        await gate.EnsureAllowedAsync(ChannelCode, ChannelCapabilities.ReturnDecision, ct);
+        await inner.DecideReturnAsync(request, ct);
+    }
+
+    public ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind) => inner.DescribeReturnDecision(kind);
 
     public Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct) => inner.FetchCatalogAsync(cursor, ct);
 

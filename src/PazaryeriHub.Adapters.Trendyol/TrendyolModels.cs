@@ -229,6 +229,9 @@ internal sealed class ProductVariant
     public int? Quantity { get; init; }
 }
 
+/// <summary>Kaynak: approveClaimLineItems, <c>PUT /order/sellers/{sellerId}/claims/{claimId}/items/approve</c>.</summary>
+internal sealed record ApproveClaimRequest(IReadOnlyList<string> ClaimLineItemIdList, Dictionary<string, string> Params);
+
 // ------------------------------------------------------------------ Satıcı Bilgileri (ADR-025)
 
 /// <summary>Kaynak: Cargo Providers Service (GET /product/lookup/cargo-providers) → [{code, name}].</summary>

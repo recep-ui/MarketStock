@@ -33,6 +33,15 @@ public interface IChannelAdapter
     Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct);
 
     /// <summary>
+    /// İade kararı bildirimi (ADR-027; spesifikasyon §6'ya EK). Kanala yazar → yalnızca KanalKomutGonder'den ve yazma
+    /// kapısından (IADE_KARAR yeteneği) geçerek çağrılır.
+    /// </summary>
+    Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct);
+
+    /// <summary>Kanalın bu karar tipi için kuralı (statik; kanal çağrısı yok).</summary>
+    ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind);
+
+    /// <summary>
     /// Kanaldaki ürün kataloğu (sayfalı; ADR-022). <paramref name="cursor"/> null → ilk sayfa; dönen
     /// <see cref="ChannelCatalogPage.NextCursor"/> null ise son sayfadır. İmleç adaptöre özeldir (opak).
     /// Yalnızca resmi dokümanla doğrulanmış alanlar doldurulur; kanal vermiyorsa alan null kalır.
@@ -141,11 +150,40 @@ public sealed record BatchItemError(string? ChannelProductCode, string? Barcode,
 
 public sealed record BatchStatus(string BatchId, BatchState State, IReadOnlyList<BatchItemError> Errors);
 
+/// <param name="ReturnNo">Kanalın iade talebi kimliği (Trendyol claimId, Beymen claim id). İdempotentlik anahtarı.</param>
+/// <param name="ChannelStatus">Kanaldaki talep durumu (ham ad; ör. Trendyol WaitingInAction).</param>
 public sealed record NormalizedReturn(
     string ChannelOrderNo,
     string? ReturnNo,
     DateTime CreatedUtc,
     IReadOnlyList<NormalizedReturnLine> Lines,
-    string? Reason = null);
+    string? Reason = null,
+    string? ChannelStatus = null);
 
-public sealed record NormalizedReturnLine(string? ChannelProductCode, string? Barcode, int Quantity);
+/// <param name="LineKey">Kanal içinde satırı tanımlar (Trendyol sipariş satırı id, Beymen productId).</param>
+/// <param name="ChannelItemIds">Karar servislerinin istediği kalem kimlikleri (Trendyol claimItem id'leri).</param>
+public sealed record NormalizedReturnLine(
+    string? ChannelProductCode, string? Barcode, int Quantity, string? LineKey = null, IReadOnlyList<string>? ChannelItemIds = null);
+
+public enum ReturnDecisionKind
+{
+    /// <summary>İadeyi onayla.</summary>
+    Approve,
+
+    /// <summary>İadeyi reddet / sorun bildir (gerekçe zorunlu).</summary>
+    Reject,
+
+    /// <summary>İade paketi elime ulaştı (Beymen "I Have Received").</summary>
+    Received
+}
+
+public sealed record ReturnDecisionLine(string LineKey, string? ChannelProductCode, IReadOnlyList<string> ChannelItemIds, int Quantity);
+
+public sealed record ReturnDecisionRequest(
+    string ReturnNo, ReturnDecisionKind Kind, IReadOnlyList<ReturnDecisionLine> Lines, string? ReasonCode, string? Description);
+
+/// <param name="AllowedReasons">Reddetmede kullanılabilecek gerekçe kodları; null = kanalın tüm red gerekçeleri (M1 referansı).</param>
+public sealed record ReturnDecisionRule(bool Supported, string? Note, bool RequiresReason = false, IReadOnlyList<string>? AllowedReasons = null)
+{
+    public static ReturnDecisionRule NotSupportedBecause(string note) => new(false, note);
+}

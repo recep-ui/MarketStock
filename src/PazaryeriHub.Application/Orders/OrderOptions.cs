@@ -8,6 +8,9 @@ public sealed class OrderOptions
     /// <summary>SiparisCek tekrarlayan job'ının cron ifadesi (UTC). Boşsa job kaydedilmez.</summary>
     public string? FetchCron { get; set; } = "*/2 * * * *";
 
+    /// <summary>IadeCek (kanal başına; ADR-027). Boşsa job kaydedilmez.</summary>
+    public string? ReturnFetchCron { get; set; } = "*/15 * * * *";
+
     /// <summary>Örtüşmeli pencere: son başarılı çekmeden bu kadar dakika geriden başlanır (geç düşen siparişler kaçmasın).</summary>
     public int OverlapMinutes { get; set; } = 10;
 

@@ -24,7 +24,7 @@ test('1) Sipariş listesi kanal, durum ve sipariş no ile filtrelenir; detayda z
   await expect(page.getByRole('heading', { name: 'Siparişler' })).toBeVisible();
 
   const rows = page.getByTestId('order-row');
-  await page.getByLabel('Sipariş no').fill(`DEMO-${d.tag}`);
+  await page.getByLabel('Sipariş no', { exact: true }).fill(`DEMO-${d.tag}`);
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(6);
 
@@ -116,7 +116,7 @@ test('Destek rolü müşteri bilgisini maskeli görür ve yazma işlemlerini gö
   const d = demo();
   await login(page, 'e2e-destek');
   await page.getByRole('link', { name: 'Siparişler' }).click();
-  await page.getByLabel('Sipariş no').fill(d.orderNos[0]);
+  await page.getByLabel('Sipariş no', { exact: true }).fill(d.orderNos[0]);
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await page.getByTestId('order-row').first().click();
 
@@ -186,7 +186,7 @@ test('Sipariş durumu kanala bildirilir: deneme yeteneğinde Yönetici onayıyla
 
     // Siparişler: panelde Hazırlanıyor yap
     await page.getByRole('navigation').getByRole('link', { name: 'Siparişler' }).click();
-    await page.getByLabel('Sipariş no').fill(orderNo);
+    await page.getByLabel('Sipariş no', { exact: true }).fill(orderNo);
     await page.getByRole('button', { name: 'Filtrele' }).click();
     await page.getByTestId('order-row').filter({ hasText: orderNo }).click();
     await page.getByTestId('order-detail').getByRole('button', { name: 'Hazırlanıyor' }).click();
@@ -211,5 +211,34 @@ test('Sipariş durumu kanala bildirilir: deneme yeteneğinde Yönetici onayıyla
     await expect(page.getByText(/kanala gönderimi onayla yapıldı/)).toBeVisible();
   } finally {
     await page.request.put(`/api/channels/${hb.id}/capabilities/SIPARIS_DURUM`, { data: { state: 'KAPALI' } });
+  }
+});
+
+test('Kanal iade talebi: Depo depoya girer, Yönetici onaylar; karar denetim izine ve kanal kuyruğuna yazılır (ADR-027)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
+  const ty = channels.find(c => c.code === 'TRENDYOL')!;
+  try {
+    await page.request.put(`/api/channels/${ty.id}/capabilities/IADE_KARAR`, { data: { state: 'DENEME' } });
+    await page.getByRole('navigation').getByRole('link', { name: 'İade / İptal' }).click();
+    await page.getByRole('button', { name: 'Kanal iade talepleri' }).click();
+    await page.getByLabel('İade no').fill(d.returnNo);
+    const row = page.getByTestId('channel-return-row').filter({ hasText: d.returnNo });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('0/1');
+    await row.click();
+
+    const detail = page.getByTestId('return-detail');
+    await detail.getByRole('button', { name: 'Depoya ulaştı' }).click();
+    await expect(detail.getByText('Depoya girdi')).toBeVisible();
+
+    page.once('dialog', dialog => dialog.accept());
+    await detail.getByRole('button', { name: 'Onayla' }).click();
+    await expect(page.getByTestId('return-decisions')).toContainText('Onay');
+    await expect(page.getByTestId('return-decisions')).toContainText('Onay bekliyor');
+    await expect(row).toContainText('1/1');
+  } finally {
+    await page.request.put(`/api/channels/${ty.id}/capabilities/IADE_KARAR`, { data: { state: 'KAPALI' } });
   }
 });

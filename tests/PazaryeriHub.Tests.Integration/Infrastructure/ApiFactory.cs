@@ -67,6 +67,7 @@ public sealed class ApiFactory(string connectionString, IReadOnlyDictionary<stri
                 ["Senkron:CommandCron"] = "",
                 // Testlerde SiparisCek arka planda çalışmaz; testler job'ı doğrudan çağırır.
                 ["Siparis:FetchCron"] = "",
+                ["Siparis:ReturnFetchCron"] = "",
                 ["Hangfire:SchedulePollingIntervalSeconds"] = "1",
                 // Tohum test kullanıcıları (Testing ortamında parola her açılışta güncellenir)
                 ["Kimlik:SeedUsers:0:UserName"] = UsersByRole[Roles.Admin], ["Kimlik:SeedUsers:0:Role"] = Roles.Admin, ["Kimlik:SeedUsers:0:Password"] = Password,

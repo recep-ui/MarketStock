@@ -417,3 +417,54 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Hepsiburada: intransit `shippedDate` biçimi.
 - Beymen: picking yanıt kodu ve tekrar çağrı sonucu.
 - Yazma isteklerinde Polly yeniden denemesi (5xx'te) Hepsiburada paketleme POST'unu tekrarlayabilir; ikinci paketleme kanal tarafından reddedilmeli (doğrulanmadı).
+
+## ADR-027: Kanal iade talepleri: okuma, depoya giriş ve karar bildirimi (M3)
+**Tarih:** 2026-11-18
+**Bağlam:**
+- Trendyol ve Beymen iade okuma metotları yazılıydı ama hiçbir yerden çağrılmıyordu; spesifikasyon akış 6 (IadeCek) kurulmamıştı.
+- İade için tablo yoktu. Panel yalnızca durumu İade olan siparişlerde satır bazında "Depoya girdi" (`OL:`) yapabiliyordu.
+- Hepsiburada iade okuma `NotSupportedException` fırlatıyordu.
+
+**Karar:**
+- **Migration 0012:**
+  - `ReturnRequest`: `UNIQUE(ChannelId, KanalIadeNo)`, müşteri kişisel verisi yok.
+  - `ReturnRequestLine`: `UNIQUE(ReturnRequestId, SatirAnahtar)`; `KanalKalemleri` JSON = kanalın karar servisinin istediği kalem kimlikleri.
+  - `ReturnDecision`: yalnızca eklenir (denetim izi; kullanıcı, zaman, gerekçe, komut).
+  - `UX_StockMovement_IadeSatiri`: `KaynakTip='IADE_SATIRI'` için `UNIQUE(KaynakId, Tip)`.
+- **IadeCek** (`ReturnFetchJob`, `Siparis:ReturnFetchCron` = 15 dk, kanal başına; elle `POST /api/returns/fetch/{kanal}`):
+  - Pencere: son başarılı − 1 saat, ilk çalışmada 7 gün. Aynı talep kaç kez gelirse gelsin tek kayıt.
+  - Kanal okumayı desteklemiyorsa atlanır, hata sayılmaz.
+  - Sipariş eşleşmesi: kanal sipariş no birebir; yoksa aynı sipariş numarasında tek paket varsa o.
+  - Satır eşleşmesi: kanal satır kimliği (M2 `KanalSatirNo`), sonra SKU.
+- **Depoya giriş (Depo + Yönetici):** `usp_IadeGiris`, KaynakId `RL:{satır}`.
+  - Yalnızca siparişi eşleşmiş ve **SEVK hareketi olan** satır girilir. Satılmayan mal stoğu şişirmez.
+  - Toplam iade girişi sipariş adedini aşamaz.
+  - Eski sipariş ekranı yolu (`OL:`) ile kanal talebi yolu (`RL:`) birbirini engeller; çift giriş olmaz.
+  - Depoya giriş kanala karar bildirimini **tetiklemez**.
+- **Karar (yalnızca Yönetici):** ONAY | RED | TESLIM_ALINDI.
+  - `ReturnDecision` ve `IADE_KARAR` kanal komutu aynı transaction'da yazılır (M2 kuyruğu; yetenek `IADE_KARAR`, varsayılan KAPALI).
+  - Aynı karar ikinci kez oluşmaz.
+  - Red gerekçesi zorunludur. Kanalın izin verdiği listede olmalı, ve M1 red gerekçeleri doluysa o listede bulunmalı.
+- **Sözleşme eki (§6):** `DecideReturnAsync(ReturnDecisionRequest)`, `DescribeReturnDecision(kind)`.
+  - `NormalizedReturn.ChannelStatus`; `NormalizedReturnLine.LineKey` ve `ChannelItemIds`.
+  - Gerçek adaptörde yazma kapısından (`IADE_KARAR`) geçer.
+- **Kanal bazında** (resmi doküman, 2026-11-18):
+
+  | Kanal | Okuma | Onay | Red | Teslim alındı |
+  |---|---|---|---|---|
+  | Trendyol | getClaims (startDate/endDate = lastModifiedDate) | `PUT /claims/{claimId}/items/approve` `{claimLineItemIdList, params:{}}` (yalnızca WaitingInAction) | `POST /claims/{claimId}/issue?claimIssueReasonId&claimItemIdList&description`. Diğer gerekçeler dosya eki istiyor; **yalnızca 1651, 451, 2101**. | yok |
+  | Beymen | `GET /claims` | `PATCH /claims/{id}/approve` `[{productId, quantity}]` | `PATCH /claims/{id}/dispute`. Görsel zorunlu; **yalnızca PackageIsEmpty (9)**. | `PATCH /claims/{id}/receive` |
+  | Hepsiburada | **desteklenmiyor**: talep listesi yanıt şeması portalda yok | (dokümanda var, kullanılmıyor) | (dokümanda var, kullanılmıyor) | — |
+
+- **Panel:** İade / İptal → "Kanal iade talepleri" (varsayılan sekme).
+  - Liste ve detay: satırlar, "Depoya ulaştı" butonu ve girilemiyorsa nedeni.
+  - Yönetici için Onayla / Teslim alındı / Reddet (gerekçe kanalın listesinden; yalnızca izin verilenler).
+  - Kararlar ve kanal komut durumu.
+- **Demo veri:** kargodaki Trendyol siparişi için bir iade talebi.
+
+**Doğrulanmadı:**
+- Trendyol: `orderShipmentPackageId`'nin iade paketi mi asıl paket mi olduğu (doküman "return package" diyor) → sipariş, numaraya göre tek paketse eşleşir.
+- Trendyol: claim `orderLine.id` ile V2 `lineId`'nin aynı değer olduğu.
+- Trendyol: `claimItemIdList`'in virgülle verilmesi; eksiz `issue` POST'unun gövdesi.
+- Beymen: satır `status` kodlarının anlamı; `images` alanının biçimi.
+- Hepsiburada: GET /claims yanıtı (gerçek bir örnek `docs/` altına konmalı).

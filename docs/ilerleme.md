@@ -7,6 +7,20 @@
 
 ---
 
+## Entegrasyon genişletme M3: Kanal iade talepleri (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- **IadeCek job'ı + tablolar** (`ReturnRequest`, `ReturnRequestLine`, `ReturnDecision`; migration 0012): Trendyol ve Beymen talepleri tekil kaydedilir.
+- **Hepsiburada:** talep listesi yanıt şeması dokümanda olmadığı için mock bırakıldı. Gerçek bir yanıt örneği gerekiyor.
+- **Depo:** "Depoya ulaştı" ile satır bazında stok girişi. Sevk şartı var, sipariş adedini aşamaz, eski yolla çift giriş olmaz.
+- **Yönetici kararları:** onay, red (gerekçe listesinden; Trendyol 1651/451/2101, Beymen PackageIsEmpty) ve teslim alındı (Beymen). Kararlar kanal işlemleri kuyruğundan, `IADE_KARAR` yeteneğiyle gider; her karar kullanıcı adıyla denetim izine yazılır.
+- **Testler:**
+  - Unit 222/222 (yeni 5 contract).
+  - Integration 120/120 (yeni 2: 5 kez gelen talep tek kayıt; depoya giriş bir kez; eski yol engeli; eşleşmeyen sipariş; Depo karar veremez; kapalı yetenek; gerekçe doğrulaması; tekil karar; kanala gönderim; denetim izi).
+  - Playwright 9/9 (yeni: depoya giriş + Yönetici onayı). Edge ile çalıştırıldı.
+- **Doğrulanmayanlar:** ADR-027.
+
+---
+
 ## Entegrasyon genişletme M2: Kanala yazma altyapısı + sipariş durumu bildirimi (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - **Yazma güvenliği:** global yazma kilidi (deneme modu açar), kanal/yetenek bazlı KAPALI/DENEME/ACIK (`ChannelCapability`), gerçek adaptörleri saran `GuardedChannelAdapter`.

@@ -68,6 +68,8 @@ public sealed class RecurringJobRegistrar(
             Set<ReconciliationJob>(ReconciliationJob.RecurringJobId(code), sync.ReconciliationCron, job => job.RunAsync(code, CancellationToken.None), utc);
             Set<PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob>(PazaryeriHub.Infrastructure.Channels.ReferenceFetchJob.RecurringJobId(code),
                 sync.ReferenceCron, job => job.RunAsync(code, true, CancellationToken.None), utc);
+            Set<PazaryeriHub.Infrastructure.Orders.ReturnFetchJob>(PazaryeriHub.Infrastructure.Orders.ReturnFetchJob.RecurringJobId(code),
+                orderOptions.Value.ReturnFetchCron, job => job.RunAsync(code, true, CancellationToken.None), utc);
             Set<PazaryeriHub.Infrastructure.Channels.ChannelCommandJob>(PazaryeriHub.Infrastructure.Channels.ChannelCommandJob.RecurringJobId(code),
                 sync.CommandCron, job => job.RunAsync(code, CancellationToken.None), utc);
         }

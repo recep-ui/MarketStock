@@ -15,6 +15,13 @@ public sealed class MockChannelStore
     private readonly ConcurrentDictionary<string, ConcurrentQueue<NormalizedReturn>> _returns = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, List<OrderStatusUpdate>> _statusUpdates = new(StringComparer.Ordinal);
 
+    private readonly ConcurrentQueue<ReturnDecisionRequest> _decisions = new();
+
+    /// <summary>Mock kanala bildirilmiş iade kararları.</summary>
+    public IReadOnlyList<ReturnDecisionRequest> ReturnDecisions => _decisions.ToList();
+
+    public void RecordReturnDecision(ReturnDecisionRequest request) => _decisions.Enqueue(request);
+
     /// <summary>Kanal için ayarlanırsa her UpdateOrderStatusAsync bu hatayı fırlatır (kaldırılana kadar).</summary>
     public ConcurrentDictionary<string, Exception> FailStatusUpdate { get; } = new(StringComparer.Ordinal);
 
@@ -182,6 +189,16 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
         store.RecordStatusUpdate(update);
         return Task.CompletedTask;
     }
+
+    public Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct)
+    {
+        store.RecordReturnDecision(request);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Mock: tüm kararlar desteklenir; red gerekçesi zorunlu (kanalın referans listesinden).</summary>
+    public ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind) =>
+        kind == ReturnDecisionKind.Reject ? new(true, "Mock: red.", RequiresReason: true) : new(true, "Mock.");
 
     /// <summary>Mock: Hazırlanıyor desteklenir; Kargoda kendi kargoda takip no zorunlu, kanal kargosunda bildirim gerekmez.</summary>
     public OrderNotificationRule DescribeOrderNotification(OrderStatus target, bool ownCargo) => target switch

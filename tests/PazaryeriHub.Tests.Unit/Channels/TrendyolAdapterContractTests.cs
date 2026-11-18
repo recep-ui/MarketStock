@@ -226,7 +226,8 @@ public sealed class TrendyolAdapterContractTests
         http.Requests.Single().Uri.AbsolutePath.Should().Be("/integration/order/sellers/12345/claims");
         var r = returns.Should().ContainSingle().Subject;
         r.ChannelOrderNo.Should().Be("80869231/11650604", "siparişle aynı anahtar");
-        r.Lines.Should().ContainSingle().Which.Should().Be(new NormalizedReturnLine("8680000000", "8680000000", 2));
+        r.Lines.Should().ContainSingle().Which.Should().BeEquivalentTo(new NormalizedReturnLine("8680000000", "8680000000", 2, "1", ["a", "b"]),
+            "satır anahtarı sipariş satırı id, kalemler claimItem id (karar servisleri için)");
         r.Reason.Should().Be("Beden olmadı");
     }
 

@@ -218,6 +218,15 @@ public sealed class OrderService(
             throw new ConflictException("Satır bir SKU ile eşleşmemiş; önce eşleştirme yapılmalı.");
         }
 
+        // ADR-027: satırın iadesi kanal iade talebi ekranından (RL:) girildiyse burada ikinci kez girilmez.
+        if (await connection.ExecuteScalarAsync<int>(new CommandDefinition("""
+                SELECT COUNT(*) FROM dbo.StockMovement m JOIN dbo.ReturnRequestLine r ON m.KaynakId = CONCAT('RL:', r.Id)
+                 WHERE m.KaynakTip = 'IADE_SATIRI' AND m.Tip = 'IADE_GIRIS' AND r.OrderLineId = @orderLineId
+                """, new { orderLineId }, cancellationToken: ct)) > 0)
+        {
+            throw new ConflictException("Bu satırın iadesi kanal iade talebi ekranından zaten depoya girilmiş.");
+        }
+
         var key = LineSourceId(orderLineId);
         var shipWarehouse = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
             "SELECT WarehouseId FROM dbo.StockMovement WHERE KaynakTip = @type AND KaynakId = @key AND Tip = 'SEVK'",

@@ -35,6 +35,29 @@ public static class OrderEndpoints
             })
             .RequireAuthorization(Policies.OrderWrite);
 
+        // Kanal iade talepleri (ADR-027). Okuma tüm roller (müşteri verisi saklanmaz); depoya giriş Yönetici + Depo; karar ve çekme Yönetici.
+        var returns = app.MapGroup("/api/returns").WithTags("İade talepleri").RequireAuthorization(Policies.Read);
+        returns.MapGet("/", (IReturnService r, int? channelId, string? search, int? page, int? pageSize, CancellationToken ct) =>
+            r.SearchAsync(channelId, search, page, pageSize, ct));
+        returns.MapGet("/{id:long}", (IReturnService r, long id, CancellationToken ct) => r.GetAsync(id, ct));
+        returns.MapPost("/{id:long}/lines/{lineId:long}/receive", (IReturnService r, ClaimsPrincipal user, long id, long lineId, CancellationToken ct) =>
+            r.ReceiveLineAsync(id, lineId, user.UserName(), ct))
+            .RequireAuthorization(Policies.StockWrite);
+        returns.MapPost("/{id:long}/decision", (IReturnService r, ClaimsPrincipal user, long id, ReturnDecisionInput input, CancellationToken ct) =>
+            r.DecideAsync(id, input, user.UserName(), ct))
+            .RequireAuthorization(Policies.Admin);
+        returns.MapPost("/fetch/{channelCode}", (Hangfire.IBackgroundJobClient jobs, string channelCode) =>
+        {
+            var code = channelCode.ToUpperInvariant();
+            if (!ChannelCodes.All.Contains(code))
+            {
+                return Results.Problem(statusCode: 404, title: "Bilinmeyen kanal.", detail: $"'{channelCode}' geçersiz.");
+            }
+            var jobId = Hangfire.BackgroundJobClientExtensions.Enqueue<PazaryeriHub.Infrastructure.Orders.ReturnFetchJob>(jobs,
+                job => job.RunAsync(code, false, CancellationToken.None));
+            return Results.Accepted(value: new { jobId });
+        }).RequireAuthorization(Policies.Admin);
+
         // Kanala sipariş durumu / kargo bildirimi (ADR-026). Liste ve geçmiş herkese açık; bildirim Yönetici + Depo.
         orders.MapGet("/notifications", (IOrderNotificationService n, int? channelId, string? filter, string? search, int? page, int? pageSize, CancellationToken ct) =>
             n.SearchAsync(channelId, filter, search, page, pageSize, ct));

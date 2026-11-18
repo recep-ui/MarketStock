@@ -103,6 +103,20 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 
 export type Paged<T> = { items: T[]; total: number; page: number; pageSize: number };
 export type OrderStatus = 'Yeni' | 'Onaylandi' | 'Hazirlaniyor' | 'Kargoda' | 'TeslimEdildi' | 'Iptal' | 'Iade';
+export type ReturnListItem = {
+  id: number; channelId: number; channelCode: string; returnNo: string; channelOrderNo: string; orderId: number | null; channelStatus: string | null;
+  reason: string | null; requestedAtUtc: string; lastUpdatedUtc: string; lineCount: number; receivedLineCount: number;
+  lastDecision: string | null; lastDecisionState: string | null;
+};
+export type ReturnDecisionRule = { supported: boolean; note: string | null; requiresReason: boolean; allowedReasons: string[] | null };
+export type ReturnDetail = {
+  summary: ReturnListItem;
+  lines: { id: number; lineKey: string; barcode: string | null; channelProductCode: string | null; orderLineId: number | null; skuId: number | null;
+           skuCode: string | null; quantity: number; received: boolean; receiveProblem: string | null }[];
+  decisions: { id: number; decision: string; reasonCode: string | null; description: string | null; user: string | null; atUtc: string;
+               commandId: number | null; commandState: string | null; commandError: string | null }[];
+  rules: { decision: string; rule: ReturnDecisionRule }[];
+};
 export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME' | 'ACIK'; changedBy: string | null; changedAtUtc: string };
 export type ChannelCommand = {
   id: number; channelId: number; channelCode: string; type: string; targetKey: string; payloadJson: string; state: string; attempts: number;

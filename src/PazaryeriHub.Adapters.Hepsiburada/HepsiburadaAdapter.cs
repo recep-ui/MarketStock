@@ -328,9 +328,23 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         _ => OrderNotificationRule.NotSupportedBecause("Bu durum Hepsiburada'ya bildirilmez.")
     };
 
-    /// <summary>// TODO: doğrulanmalı — iadeler "Talep Entegrasyonu" bölümündedir; uçları henüz okunmadı.</summary>
+    /// <summary>
+    /// İadeler (ADR-027): "Talep Entegrasyonu → Talep Listeleme" <c>GET oms-external-sit…/claims/merchantId/{merchantId}?beginDate&amp;endDate
+    /// (yyyy-MM-dd HH:mm)&amp;offset&amp;limit</c> ve durum bazlı <c>…/status/{status}</c> uçları dokümanda var, ancak YANIT ŞEMASI portalda
+    /// gösterilmiyor (yalnızca "Execute request to see response"; 2026-11-18). Webhook modelindeki alanların (claimNumber, status, orderNumber,
+    /// lineItemId, merchantSku, quantity, claimDate…) GET yanıtında da aynı olduğu doğrulanmadı.
+    /// // TODO: doğrulanmalı — gerçek bir GET /claims yanıt örneği docs/ altına konunca uygulanacak.
+    /// Kararlar: onay <c>POST …/claims/number/{claimNumber}/accept</c>, red <c>POST …/claims/number/{claimNumber}/reject</c>
+    /// <c>{ClaimRejectionReason, MerchantStatement, Reports?, UploadedReportsUrls?}</c> (dokümanda var); talepler okunamadığı için kullanılmıyor.
+    /// </summary>
     public Task<IReadOnlyList<NormalizedReturn>> FetchReturnsAsync(DateTime sinceUtc, CancellationToken ct) =>
-        throw new NotSupportedException("Hepsiburada iade (talep) entegrasyonu henüz doğrulanmadı.");
+        throw new NotSupportedException("Hepsiburada talep listesi yanıt şeması dokümanda yok; örnek yanıt gelince uygulanacak.");
+
+    public Task DecideReturnAsync(ReturnDecisionRequest request, CancellationToken ct) =>
+        throw new NotSupportedException("Hepsiburada iade talepleri okunamadığı için karar bildirimi yapılmıyor.");
+
+    public ReturnDecisionRule DescribeReturnDecision(ReturnDecisionKind kind) =>
+        ReturnDecisionRule.NotSupportedBecause("Hepsiburada talep listesi yanıt şeması doğrulanmadı; iade kararı panelden verilmeli.");
 
     // ------------------------------------------------------------------ HTTP ve JSON yardımcıları
 
