@@ -63,7 +63,7 @@ public sealed class RecurringJobRegistrar(
         // Kanal başına: SiparisCek, StokGonder, FiyatGonder, Mutabakat, ReferansCek, KanalKomutGonder. Pasif kanallarda job'lar hemen çıkar.
         foreach (var code in codes)
         {
-            Set<OrderFetchJob>(OrderFetchJob.RecurringJobId(code), orderOptions.Value.FetchCron, job => job.RunAsync(code, CancellationToken.None), utc);
+            Set<OrderFetchJob>(OrderFetchJob.RecurringJobId(code), orderOptions.Value.FetchCronFor(code), job => job.RunAsync(code, CancellationToken.None), utc);
             Set<StockPushJob>(StockPushJob.RecurringJobId(code), sync.PushCron, job => job.RunAsync(code, CancellationToken.None), utc);
             Set<PricePushJob>(PricePushJob.RecurringJobId(code), sync.PricePushCron, job => job.RunAsync(code, CancellationToken.None), utc);
             Set<PazaryeriHub.Infrastructure.Questions.QuestionFetchJob>(PazaryeriHub.Infrastructure.Questions.QuestionFetchJob.RecurringJobId(code),

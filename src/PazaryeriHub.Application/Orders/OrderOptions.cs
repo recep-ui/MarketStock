@@ -5,8 +5,28 @@ public sealed class OrderOptions
 {
     public const string SectionName = "Siparis";
 
-    /// <summary>SiparisCek tekrarlayan job'ının cron ifadesi (UTC). Boşsa job kaydedilmez.</summary>
+    /// <summary>
+    /// SiparisCek tekrarlayan job'ının varsayılan cron ifadesi (UTC). Boşsa HİÇBİR kanalda job kaydedilmez (testler, deneme modu):
+    /// kanal başına ayar (<see cref="ChannelFetchCron"/>) bunu ezmez.
+    /// </summary>
     public string? FetchCron { get; set; } = "*/2 * * * *";
+
+    /// <summary>
+    /// Kanal başına SiparisCek aralığı (ADR-030; webhook yerine kısa polling). Hız limitleri resmi dokümandan:
+    /// Trendyol "Get Shipment Packages" en düşük kademede 30 istek/dk (çalışma başına ~1 istek); Hepsiburada sipariş servisleri
+    /// 1000 istek/sn (çalışma başına ~5 istek). Beymen'de hız limiti dokümanda yok → varsayılan (2 dk) kalır.
+    /// </summary>
+    public Dictionary<string, string?> ChannelFetchCron { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["TRENDYOL"] = "* * * * *",
+        ["HEPSIBURADA"] = "* * * * *"
+    };
+
+    /// <summary>Kanalın SiparisCek cron'u: genel ayar boşsa null (kapalı); kanal ayarı varsa o, yoksa genel ayar.</summary>
+    public string? FetchCronFor(string channelCode) =>
+        string.IsNullOrWhiteSpace(FetchCron) ? null
+        : ChannelFetchCron.TryGetValue(channelCode, out var cron) && !string.IsNullOrWhiteSpace(cron) ? cron.Trim()
+        : FetchCron;
 
     /// <summary>IadeCek (kanal başına; ADR-027). Boşsa job kaydedilmez.</summary>
     public string? ReturnFetchCron { get; set; } = "*/15 * * * *";

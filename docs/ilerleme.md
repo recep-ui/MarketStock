@@ -7,6 +7,16 @@
 
 ---
 
+## Sipariş çekme aralığı (2026-11-18): TAMAM
+
+- `Siparis:ChannelFetchCron`: Trendyol ve Hepsiburada 1 dk, Beymen ve softcotton 2 dk. Hız limitleri resmi dokümandan doğrulandı (ADR-030).
+- Genel `Siparis:FetchCron` boşsa hiçbir kanalda çekme job'ı yok; deneme modu ve testler değişmedi.
+- **Testler:**
+  - Unit 280/280. Yeni 4 test: varsayılanlar, genel kapama, yapılandırmadan bağlama.
+  - Integration: yeni kayıt testi. Hangfire'da siparis-cek-trendyol ve siparis-cek-hepsiburada `* * * * *`, siparis-cek-beymen `*/2 * * * *`.
+
+---
+
 ## Entegrasyon genişletme M5: Soru-Cevap (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - **SoruCek job'ı + tablolar** (`CustomerQuestion`, `QuestionAnswerLog`; migration 0014): Trendyol ve Beymen soruları tekil kaydedilir.

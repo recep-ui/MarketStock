@@ -593,3 +593,30 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
   - Tarihler 'Z'siz → Türkiye saati varsayıldı.
   - Cevap uzunluk sınırı dokümanda yok; 10–2000 uygulanıyor.
 - Hepsiburada: liste yanıt örneği (`docs/` altına) ve tarih parametre biçimi gerekiyor.
+
+## ADR-030: Kanal başına sipariş çekme aralığı (webhook yerine kısa polling)
+**Tarih:** 2026-11-18
+**Bağlam:**
+- Webhook ertelendi; uygulamanın herkese açık HTTPS adresi yok.
+- Sipariş çekme tüm kanallarda 2 dakikada birdi. Bu, overselling penceresini (kanalda satılan ürünün bizde rezerve edilmesine kadar geçen süre) uzatıyor.
+- Ürün sahibi, aralığın hız limitleri resmi dokümandan doğrulanarak kısaltılmasını istedi.
+
+**Karar:**
+- `Siparis:ChannelFetchCron` sözlüğü (kanal kodu → cron) eklendi; `OrderOptions.FetchCronFor(kanal)`:
+  - Genel `Siparis:FetchCron` boşsa hiçbir kanalda SiparisCek kaydedilmez. Bu genel kapama şalteridir; testler ve deneme modu böyle çalışır.
+  - Kanal ayarı doluysa o, boşsa genel ayar kullanılır.
+- **Varsayılanlar:**
+
+  | Kanal | Aralık | Dayanak (resmi doküman, 2026-11-18) |
+  |---|---|---|
+  | Trendyol | **1 dk** | "Service Limitations → Order Services": Get Shipment Packages **30 istek/dk** (en düşük kademe, 50.000 ürün) … 100 istek/dk. Çalışma başına çoğunlukla 1 istek (V2 orders, 50'lik sayfa, 10 dk örtüşmeli pencere). İstemci tarafı sınırlayıcı 40 istek / 10 sn. |
+  | Hepsiburada | **1 dk** | Sipariş servisleri **1000 istek/sn**. Çalışma başına yaklaşık 5 istek (ödeme bekleyen, açık, kargolanan, teslim edilen, iptal). |
+  | Beymen | 2 dk (değişmedi) | Hız limiti dokümanda yok; her çalışmada 7 gün geriye bakılıyor. Kısaltmak için önce limit teyit edilmeli. |
+  | softcotton | 2 dk | mock |
+
+- Overselling penceresi Trendyol ve Hepsiburada'da yaklaşık 140 sn'den yaklaşık 80 sn'ye iner: en fazla 60 sn çekme beklemesi, artı OutboxIsle, StokGonder ve kanalın işleme süresi.
+- Yapılandırmayla değiştirilebilir, ör. `Siparis__ChannelFetchCron__TRENDYOL="*/2 * * * *"`.
+
+**Doğrulanmadı:**
+- Mağazanın Trendyol listeleme kademesi bilinmiyor; en düşük kademe (30 istek/dk) esas alındı.
+- Yoğun dönemde bir çalışmanın birden fazla sayfa çekmesi gerekebilir. 1 dakikada 30 isteğe yaklaşılırsa Polly 429'da bekler.
