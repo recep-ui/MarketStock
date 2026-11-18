@@ -1,7 +1,7 @@
 ﻿# Kanal API Notları (Aşama 6 hazırlık)
 
 **Tarih:** 2026-11-16 · **Kaynak:** yalnızca resmi geliştirici dokümanları (üçüncü taraf bloglar kullanılmadı).
-**Kapsam kararları:** tek depo; fiyat gönderilmez (fiyatlar satıcı panellerinden girilir, ADR-015). Gerekenler: **stok gönderme + sonuç sorgulama, sipariş çekme, iade/iptal çekme, mutabakat için kanal stoğu okuma.**
+**Kapsam kararları:** tek depo (ADR-015); fiyat gönderimi ADR-028 ile eklendi (bkz. §3d; KDV doğrulanmayan kanalda kapalı). Gerekenler: **stok gönderme + sonuç sorgulama, sipariş çekme, iade/iptal çekme, mutabakat için kanal stoğu okuma.**
 
 İşaretler: ✅ resmi dokümanda okundu · ⚠️ dokümanda yok / belirsiz → `// TODO: doğrulanmalı`
 
@@ -97,6 +97,31 @@
 - **Hepsiburada (Talep Entegrasyonu):**
   - ⚠️ `GET oms-external-sit…/claims/merchantId/{merchantId}?beginDate&endDate (yyyy-MM-dd HH:mm)&offset&limit`, durum bazlı `…/status/{status}`. **Yanıt şeması yok.**
   - ✅ `POST …/claims/number/{claimNumber}/accept` (FinalizedWith: Refund/Change), `…/reject` `{ClaimRejectionReason*, MerchantStatement*, Reports?, UploadedReportsUrls?}`, `…/preapprovalconfirm`.
+
+## 3d. Fiyat (2026-11-18 okundu, ADR-028)
+
+- **Trendyol:**
+  - ✅ `POST https://apigw.trendyol.com/integration/inventory/sellers/{sellerId}/products/price-and-inventory` (stage: `stageapigw…`).
+    - `items[]{barcode*, quantity, salePrice, listPrice}`; ≤1000 kalem.
+    - "listPrice cannot be lower than salePrice"; "When updating only stock or price, sending the other field is not required."
+    - "List price is product original price. It is the price crossed out when the selling price is low."
+    - Aynı istek 15 dk tekrarlanamaz. Yanıt `{batchRequestId}`.
+    - Kaynak: `/v2.0/docs/stock-and-price-update-updatepriceandinventory`, `/v2.0/reference/updatepriceandinventory`.
+  - ⚠️ **KDV dahil/hariç dokümanda yazmıyor.** Ürün oluşturmada ayrı `vatRate` alanı var; fiyatın KDV'li olup olmadığı belirtilmiyor.
+- **Hepsiburada (Listeleme):**
+  - ✅ `POST https://listing-external-sit.hepsiburada.com/listings/merchantid/{merchantId}/price-uploads`, gövde `[{hepsiburadaSku | merchantSku, price*}]`.
+  - ✅ Sonuç `GET …/price-uploads/id/{id}` (`op=uploadPrice`, `op=getPriceUpload`).
+  - ✅ Rehber "Listing Bilgilerini Güncelleme":
+    - ≤4000 SKU; aynı anda en fazla 5 bekleyen yükleme.
+    - Fiyat 0 → listing satışa kapanır.
+    - Kategori eşiği dışındaki fiyat listingi kilitler; sonuçta `priceValidations[]{hepsiburadaSku, type: MinLock|MaxLock, minPrice, maxPrice, description}`.
+  - ⚠️ **KDV dahil/hariç dokümanda yazmıyor**; liste fiyatı alanı yok; POST yanıt şeması yok.
+- **Beymen:**
+  - ✅ `POST /batch/products/price-stock` `items[]{productId*, quantity, salesPrice, platformPrice}`.
+    - "salesPrice: Market sales price (**VAT included**)", "platformPrice: Beymen sales price (**VAT included**)".
+    - İkisi birlikte gönderilirse salesPrice ≥ platformPrice.
+    - Aynı productId tekrarı → hepsi başarısız. ≤1000 kalem. Aynı istek 15 dk tekrarlanamaz.
+  - ✅ Sonuç: "Different price information was detected for size variants of the same product. The same price must be sent for all size variants."
 
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).

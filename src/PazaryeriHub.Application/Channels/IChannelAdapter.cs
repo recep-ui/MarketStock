@@ -21,6 +21,12 @@ public interface IChannelAdapter
     Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct);
 
     /// <summary>
+    /// Kanalın fiyat gönderim kuralı (ADR-028; spesifikasyon §6'ya EK; statik, kanal çağrısı yok). KDV'nin dahil olduğu
+    /// resmi dokümanda doğrulanmamışsa <see cref="PriceUpdateRule.VatIncluded"/> null'dır ve FIYAT yeteneği açılamaz.
+    /// </summary>
+    PriceUpdateRule DescribePriceUpdate();
+
+    /// <summary>
     /// Sipariş durumu / kargo bildirimi (ADR-026). Spesifikasyon §6'daki <c>(channelOrderNo, status, cargo)</c> imzasından
     /// SAPMA: kanallar satır ve paket kimliği istediği için istek nesnesi alır. Kanala yazar → yalnızca KanalKomutGonder
     /// job'ından ve yazma kapısından (GuardedChannelAdapter) geçerek çağrılır.
@@ -133,7 +139,31 @@ public sealed record ChannelStock(string? ChannelProductCode, string? Barcode, i
 
 public sealed record StockUpdate(string? ChannelProductCode, string? Barcode, int Quantity);
 
+/// <param name="ListPrice">Liste (üstü çizili) fiyat; KDV dahil.</param>
+/// <param name="SalePrice">Satış fiyatı; KDV dahil.</param>
 public sealed record PriceUpdate(string? ChannelProductCode, string? Barcode, decimal ListPrice, decimal SalePrice);
+
+/// <summary>Kanalın fiyat gönderim kuralı (ADR-028).</summary>
+/// <param name="Supported">Fiyat gönderimi bu adaptörde uygulanmış ve uç noktası resmi dokümanda doğrulanmış.</param>
+/// <param name="VatIncluded">
+/// Kanalın beklediği fiyatın KDV dahil olduğu resmi dokümanda yazıyor mu: true = dahil (doğrulandı), false = hariç (doğrulandı;
+/// uygulama KDV oranı tutmadığı için desteklenmez), null = dokümanda yok → <b>yetenek açılamaz</b> (varsayım yapılmaz).
+/// </param>
+/// <param name="SendsListPrice">Kanal liste (üstü çizili) fiyatı da alıyor; false ise yalnızca satış fiyatı gider.</param>
+/// <param name="SamePriceForProductVariants">Kanal aynı ürünün tüm beden varyantlarına aynı fiyatı istiyor (Beymen).</param>
+/// <param name="Source">Doğrulama kaynağı (doküman sayfası).</param>
+public sealed record PriceUpdateRule(bool Supported, bool? VatIncluded, bool SendsListPrice, bool SamePriceForProductVariants, string Note, string? Source = null)
+{
+    /// <summary>Yetenek DENEME/ACIK yapılabilir mi.</summary>
+    public bool CanEnable => Supported && VatIncluded == true;
+
+    public string? BlockReason => !Supported ? $"Fiyat gönderimi desteklenmiyor: {Note}"
+        : VatIncluded is null ? $"KDV dahil/hariç resmi dokümanda doğrulanamadı; fiyat yeteneği açılamaz. {Note}"
+        : VatIncluded == false ? "Kanal KDV hariç fiyat istiyor; uygulama KDV oranı tutmadığı için desteklenmiyor."
+        : null;
+
+    public static PriceUpdateRule NotSupported(string note) => new(false, null, false, false, note);
+}
 
 /// <summary>Toplu gönderim sonucu. Kanal işi asenkron işliyorsa <see cref="BatchId"/> ile sonradan sorgulanır.</summary>
 public sealed record BatchResult(string? BatchId, bool Accepted, string? Error = null);

@@ -72,6 +72,31 @@ public sealed class MockChannelStore
     /// <summary>Sonraki FetchOrdersAsync çağrısında fırlatılacak hata (hata senaryosu testleri için).</summary>
     public ConcurrentDictionary<string, Exception> FailNextFetch { get; } = new(StringComparer.Ordinal);
 
+    /// <summary>Kanal için ayarlanırsa her PushPriceAsync bu hatayı fırlatır (kaldırılana kadar).</summary>
+    public ConcurrentDictionary<string, Exception> FailPricePush { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>Kanalın fiyat kuralını değiştirir (ör. KDV doğrulanmamış kanal senaryosu).</summary>
+    public ConcurrentDictionary<string, PriceUpdateRule> PriceRules { get; } = new(StringComparer.Ordinal);
+
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, (decimal ListPrice, decimal SalePrice)>> _prices = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<(string Channel, PriceUpdate Update)> _pricePushes = new();
+
+    /// <summary>Kanaldaki fiyatlar (kod veya barkod anahtarıyla).</summary>
+    public ConcurrentDictionary<string, (decimal ListPrice, decimal SalePrice)> PricesOf(string channelCode) =>
+        _prices.GetOrAdd(channelCode, _ => new(StringComparer.Ordinal));
+
+    /// <summary>Kanala giden tüm fiyat kalemleri (sırayla; "kaç kez gitti" kontrolü için).</summary>
+    public IReadOnlyList<PriceUpdate> PricePushesOf(string channelCode) =>
+        _pricePushes.Where(p => p.Channel == channelCode).Select(p => p.Update).ToList();
+
+    public void RecordPricePush(string channelCode, IEnumerable<PriceUpdate> updates)
+    {
+        foreach (var u in updates)
+        {
+            _pricePushes.Enqueue((channelCode, u));
+        }
+    }
+
     /// <summary>Kanal için ayarlanırsa her PushStockAsync bu hatayı fırlatır (kaldırılana kadar).</summary>
     public ConcurrentDictionary<string, Exception> FailPush { get; } = new(StringComparer.Ordinal);
 
@@ -171,8 +196,37 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
         return Task.FromResult(new BatchResult(batchId, Accepted: true));
     }
 
-    public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
-        Task.FromResult(new BatchResult("mock-" + Guid.NewGuid().ToString("N"), Accepted: true));
+    /// <summary>Mock fiyat: liste + satış fiyatı kod/barkod anahtarıyla tutulur; başarısız kalemler <see cref="MockChannelStore.FailingItems"/>.</summary>
+    public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
+    {
+        if (store.FailPricePush.TryGetValue(ChannelCode, out var error))
+        {
+            throw error;
+        }
+
+        var batchId = "mock-" + Guid.NewGuid().ToString("N");
+        var prices = store.PricesOf(ChannelCode);
+        var errors = new List<BatchItemError>();
+        foreach (var u in updates)
+        {
+            var key = u.ChannelProductCode ?? u.Barcode ?? "";
+            if (store.FailingItems.TryGetValue(key, out var message))
+            {
+                errors.Add(new BatchItemError(u.ChannelProductCode, u.Barcode, message));
+                continue;
+            }
+            prices[key] = (u.ListPrice, u.SalePrice);
+        }
+        store.RecordPricePush(ChannelCode, updates);
+        store.BatchErrors[batchId] = errors;
+        return Task.FromResult(new BatchResult(batchId, Accepted: true));
+    }
+
+    /// <summary>Mock: KDV dahil kabul edilir (gerçek kanal çağrısı yok). Testler <see cref="MockChannelStore.PriceRules"/> ile değiştirebilir.</summary>
+    public PriceUpdateRule DescribePriceUpdate() =>
+        store.PriceRules.TryGetValue(ChannelCode, out var rule)
+            ? rule
+            : new PriceUpdateRule(true, true, true, false, "Mock kanal (gerçek API çağrısı yok).");
 
     public Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct)
     {

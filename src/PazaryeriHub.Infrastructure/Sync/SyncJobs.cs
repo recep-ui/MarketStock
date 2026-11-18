@@ -6,12 +6,16 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PazaryeriHub.Application.Channels;
+using PazaryeriHub.Application.Pricing;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Persistence;
+using PazaryeriHub.Infrastructure.Pricing;
 
 namespace PazaryeriHub.Infrastructure.Sync;
 
-public sealed record OutboxRunResult(int Events, int Batches, int Enqueued);
+/// <param name="PriceQueued">FIYAT kuyruğuna alınan ilan sayısı (ADR-028).</param>
+/// <param name="PriceApprovals">Yeni açılan fiyat onayı sayısı.</param>
+public sealed record OutboxRunResult(int Events, int Batches, int Enqueued, int PriceQueued = 0, int PriceApprovals = 0);
 
 public sealed record PushRunResult(string ChannelCode, bool Skipped, string? SkipReason, int Claimed, int Sent, int Failed, string? BatchId);
 
@@ -27,6 +31,7 @@ public sealed record BatchCheckRunResult(int Batches, int Completed, int Failed,
 public sealed class OutboxProcessorJob(
     SqlConnectionFactory connectionFactory,
     SyncStore store,
+    PriceStore priceStore,
     IOptions<SyncOptions> options,
     TimeProvider clock,
     ILogger<OutboxProcessorJob> logger)
@@ -40,7 +45,7 @@ public sealed class OutboxProcessorJob(
         await using var connection = connectionFactory.Create();
         await connection.OpenAsync(ct);
 
-        int events = 0, batches = 0, enqueued = 0;
+        int events = 0, batches = 0, enqueued = 0, priceQueued = 0, priceApprovals = 0;
         while (batches < options.Value.OutboxMaxBatchesPerRun)
         {
             await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -60,7 +65,7 @@ public sealed class OutboxProcessorJob(
                 break;
             }
 
-            var (skuIds, listingIds, channelIds, allListings) = Parse(claimed);
+            var (skuIds, listingIds, channelIds, allListings, price) = Parse(claimed);
             var candidates = (await connection.QueryAsync<int>(new CommandDefinition("""
                 SELECT l.Id FROM dbo.ChannelListing AS l JOIN dbo.Channel AS c ON c.Id = l.ChannelId
                  WHERE l.Durum = 'AKTIF' AND c.Aktif = 1
@@ -83,6 +88,28 @@ public sealed class OutboxProcessorJob(
                 .Select(t => t.ListingId).ToList();
             enqueued += await SyncStore.EnqueueAsync(connection, tx, toQueue, ct);
 
+            // Fiyat (ADR-028): yalnızca FIYAT yeteneği KAPALI olmayan kanalların aktif ilanları değerlendirilir; aynı transaction.
+            if (price.Skus.Count + price.Listings.Count + price.Channels.Count > 0)
+            {
+                var priceCandidates = (await connection.QueryAsync<int>(new CommandDefinition("""
+                    SELECT l.Id FROM dbo.ChannelListing AS l
+                      JOIN dbo.Channel AS c ON c.Id = l.ChannelId
+                      JOIN dbo.ChannelCapability AS cap ON cap.ChannelId = l.ChannelId AND cap.Yetenek = 'FIYAT' AND cap.Durum <> 'KAPALI'
+                     WHERE l.Durum = 'AKTIF' AND c.Aktif = 1
+                       AND (l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@skus))
+                            OR l.Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@listings))
+                            OR l.ChannelId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@channels)))
+                    """, new
+                    {
+                        skus = JsonSerializer.Serialize(price.Skus),
+                        listings = JsonSerializer.Serialize(price.Listings),
+                        channels = JsonSerializer.Serialize(price.Channels)
+                    }, tx, cancellationToken: ct))).ToList();
+                var evaluation = await priceStore.EvaluateAsync(connection, tx, priceCandidates, ct);
+                priceQueued += evaluation.Queued;
+                priceApprovals += evaluation.ApprovalsOpened;
+            }
+
             await tx.CommitAsync(ct);
             events += claimed.Count;
             batches++;
@@ -90,14 +117,18 @@ public sealed class OutboxProcessorJob(
 
         if (events > 0)
         {
-            logger.LogInformation("OutboxIsle: {Olay} olay işlendi ({Parti} parti), {Kuyruk} eşleştirme kuyruğa alındı.", events, batches, enqueued);
+            logger.LogInformation("OutboxIsle: {Olay} olay işlendi ({Parti} parti), {Kuyruk} eşleştirme kuyruğa alındı; fiyat: {FiyatKuyruk} kuyruğa, {FiyatOnay} onaya.",
+                events, batches, enqueued, priceQueued, priceApprovals);
         }
-        return new OutboxRunResult(events, batches, enqueued);
+        return new OutboxRunResult(events, batches, enqueued, priceQueued, priceApprovals);
     }
 
-    private (HashSet<int> Skus, HashSet<int> Listings, HashSet<int> Channels, bool All) Parse(IEnumerable<(long Id, string OlayTipi, string Payload)> events)
+    private sealed record PriceScope(HashSet<int> Skus, HashSet<int> Listings, HashSet<int> Channels);
+
+    private (HashSet<int> Skus, HashSet<int> Listings, HashSet<int> Channels, bool All, PriceScope Price) Parse(IEnumerable<(long Id, string OlayTipi, string Payload)> events)
     {
         HashSet<int> skus = [], listings = [], channels = [];
+        var price = new PriceScope([], [], []);
         var all = false;
         foreach (var e in events)
         {
@@ -112,6 +143,21 @@ public sealed class OutboxProcessorJob(
                         break;
                     case OutboxEvents.ListingChanged when root.TryGetProperty("ListingId", out var l) && l.TryGetInt32(out var listingId):
                         listings.Add(listingId);
+                        price.Listings.Add(listingId); // yeni/değişen ilan fiyatını da alır
+                        break;
+                    case OutboxEvents.PriceChanged:
+                        if (root.TryGetProperty("SkuId", out var ps) && ps.TryGetInt32(out var priceSku))
+                        {
+                            price.Skus.Add(priceSku);
+                        }
+                        if (root.TryGetProperty("ListingId", out var pl) && pl.TryGetInt32(out var priceListing))
+                        {
+                            price.Listings.Add(priceListing);
+                        }
+                        if (root.TryGetProperty("ChannelId", out var pc) && pc.TryGetInt32(out var priceChannel))
+                        {
+                            price.Channels.Add(priceChannel);
+                        }
                         break;
                     case OutboxEvents.ChannelRefresh when root.TryGetProperty("ChannelId", out var c) && c.TryGetInt32(out var channelId):
                         channels.Add(channelId);
@@ -129,7 +175,7 @@ public sealed class OutboxProcessorJob(
                 logger.LogWarning("Outbox olayı {OlayId} okunamadı; işlendi sayıldı.", e.Id);
             }
         }
-        return (skus, listings, channels, all);
+        return (skus, listings, channels, all, price);
     }
 }
 
@@ -255,6 +301,174 @@ public sealed class StockPushJob(
 }
 
 /// <summary>
+/// FiyatGonder (ADR-028), kanal başına. Kanala fiyat yazan tek yer (gerçek adaptörde ayrıca yazma kapısı, FIYAT yeteneği).
+/// - FIYAT yeteneği KAPALI veya kanalın KDV kuralı doğrulanmamışsa (<see cref="PriceUpdateRule.CanEnable"/>) hiçbir kayıt talep edilmez.
+/// - Değer gönderim anında en güncel fiyattan hesaplanır ve karar (<see cref="PriceSyncPolicy"/>) yeniden verilir: arada eşik aşıldıysa
+///   kayıt onaya düşer (kuyruk kaydı silinir, bekleyen onay açılır); reddedilmiş/aynı değer gönderilmez.
+/// - Yazma kapısı engellerse (global kilit vb.) talep geri bırakılır, deneme sayılmaz.
+/// </summary>
+public sealed class PricePushJob(
+    IEnumerable<IChannelAdapter> adapters,
+    SqlConnectionFactory connectionFactory,
+    PriceStore priceStore,
+    SyncStore store,
+    IOptions<SyncOptions> options,
+    TimeProvider clock,
+    ILogger<PricePushJob> logger)
+{
+    public static string RecurringJobId(string channelCode) => "fiyat-gonder-" + channelCode.ToLowerInvariant();
+
+    [DisableConcurrentExecution(timeoutInSeconds: 300)]
+    [AutomaticRetry(Attempts = 0)]
+    public async Task<PushRunResult> RunAsync(string channelCode, CancellationToken ct)
+    {
+        var adapter = adapters.FirstOrDefault(a => a.ChannelCode == channelCode);
+        if (adapter is null)
+        {
+            return new(channelCode, true, "Adaptör kayıtlı değil.", 0, 0, 0, null);
+        }
+
+        await using var connection = connectionFactory.Create();
+        await connection.OpenAsync(ct);
+        var channel = await connection.QuerySingleOrDefaultAsync<(int Id, bool Aktif, string? Yetenek)?>(new CommandDefinition("""
+            SELECT c.Id, c.Aktif, cap.Durum FROM dbo.Channel AS c
+              LEFT JOIN dbo.ChannelCapability AS cap ON cap.ChannelId = c.Id AND cap.Yetenek = 'FIYAT'
+             WHERE c.Kod = @channelCode
+            """, new { channelCode }, cancellationToken: ct));
+        if (channel is not { Aktif: true })
+        {
+            return new(channelCode, true, "Kanal pasif.", 0, 0, 0, null);
+        }
+        var capability = channel.Value.Yetenek ?? ChannelCapabilities.Default(ChannelCapabilities.Price);
+        if (capability == CapabilityStates.Closed)
+        {
+            return new(channelCode, true, "FIYAT yeteneği kapalı.", 0, 0, 0, null);
+        }
+        var rule = adapter.DescribePriceUpdate();
+        if (!rule.CanEnable)
+        {
+            return new(channelCode, true, rule.BlockReason, 0, 0, 0, null);
+        }
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var claimToken = SyncStore.ClaimPrefix + Guid.NewGuid().ToString("N");
+        var claimed = (await connection.QueryAsync<(long Id, int ListingId, int Deneme)>(new CommandDefinition("""
+            WITH gonderilecek AS (
+                SELECT TOP (@take) q.Id, q.ListingId, q.BatchId, q.SonDeneme, q.Deneme
+                  FROM dbo.SyncQueue AS q WITH (ROWLOCK, UPDLOCK, READPAST)
+                 WHERE q.Tip = 'FIYAT' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL
+                   AND (q.SonrakiDeneme IS NULL OR q.SonrakiDeneme <= @now)
+                   AND q.ListingId IN (SELECT l.Id FROM dbo.ChannelListing AS l WHERE l.ChannelId = @channelId)
+                 ORDER BY q.Id)
+            UPDATE gonderilecek SET BatchId = @claimToken, SonDeneme = @now, Deneme = Deneme + 1
+            OUTPUT inserted.Id, inserted.ListingId, inserted.Deneme
+            """, new { take = options.Value.PushChunkSize, now, channelId = channel.Value.Id, claimToken }, cancellationToken: ct))).ToList();
+        if (claimed.Count == 0)
+        {
+            return new(channelCode, false, null, 0, 0, 0, null);
+        }
+
+        var targets = (await priceStore.ComputeAsync(connection, null, claimed.Select(c => c.ListingId).Distinct().ToList(), ct))
+            .ToDictionary(t => t.ListingId);
+        var threshold = await PriceStore.ThresholdAsync(connection, null, ct);
+
+        var sendable = new List<(long Id, int ListingId, int Deneme, ListingPriceTarget Target)>();
+        var dropped = new List<long>();
+        var failed = 0;
+        foreach (var c in claimed)
+        {
+            if (!targets.TryGetValue(c.ListingId, out var t) || !t.Active)
+            {
+                dropped.Add(c.Id);
+                continue;
+            }
+            if (t is { ChannelProductCode: null, ChannelBarcode: null })
+            {
+                await store.MarkFailedAsync(connection, [(c.Id, options.Value.MaxAttempts)], "Eşleştirmede kanal ürün kodu veya barkodu yok.", options.Value, now, ct);
+                failed++;
+                continue;
+            }
+
+            var decision = t.Decide(threshold);
+            switch (decision.Action)
+            {
+                case PriceSyncAction.Send:
+                    sendable.Add((c.Id, c.ListingId, c.Deneme, t));
+                    break;
+                case PriceSyncAction.NeedsApproval:
+                    await PriceStore.UpsertApprovalAsync(connection, null, t, decision, ct);
+                    dropped.Add(c.Id);
+                    break;
+                case PriceSyncAction.Blocked:
+                    await store.MarkFailedAsync(connection, [(c.Id, options.Value.MaxAttempts)], decision.Reason ?? "Fiyat gönderilemez.", options.Value, now, ct);
+                    failed++;
+                    break;
+                default: // NoChange, Rejected: gönderilecek bir şey yok
+                    dropped.Add(c.Id);
+                    break;
+            }
+        }
+        await PriceStore.DeleteClaimedAsync(connection, dropped, ct);
+
+        if (sendable.Count == 0)
+        {
+            return new(channelCode, false, null, claimed.Count, 0, failed, null);
+        }
+
+        var updates = sendable.Select(s => new PriceUpdate(s.Target.ChannelProductCode, s.Target.ChannelBarcode, s.Target.Target.ListPrice, s.Target.Target.SalePrice)).ToList();
+        BatchResult result;
+        try
+        {
+            result = await adapter.PushPriceAsync(updates, ct);
+        }
+        catch (ChannelWriteBlockedException ex)
+        {
+            // Yazma kapısı (global kilit, yetenek) → deneme sayılmaz; kayıtlar bekler.
+            logger.LogWarning("FiyatGonder {Kanal}: yazma engellendi, {Adet} kayıt bekletiliyor: {Neden}", channelCode, sendable.Count, ex.Reason);
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE dbo.SyncQueue SET BatchId = NULL, Deneme = CASE WHEN Deneme > 0 THEN Deneme - 1 ELSE 0 END WHERE BatchId = @claimToken",
+                new { claimToken }, cancellationToken: ct));
+            return new(channelCode, true, ex.Reason, claimed.Count, 0, failed, null);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            logger.LogError(ex, "FiyatGonder {Kanal}: istek geçersiz ({Adet} kalem).", channelCode, sendable.Count);
+            await store.MarkFailedAsync(connection, sendable.Select(s => (s.Id, options.Value.MaxAttempts)).ToList(), StockPushJob.SimplifyError(ex), options.Value, now, ct);
+            return new(channelCode, false, null, claimed.Count, 0, claimed.Count, null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(ex, "FiyatGonder {Kanal}: gönderim başarısız ({Adet} kalem).", channelCode, sendable.Count);
+            await store.MarkFailedAsync(connection, sendable.Select(s => (s.Id, s.Deneme)).ToList(), StockPushJob.SimplifyError(ex), options.Value, now, ct);
+            return new(channelCode, false, null, claimed.Count, 0, claimed.Count, null);
+        }
+
+        if (!result.Accepted)
+        {
+            await store.MarkFailedAsync(connection, sendable.Select(s => (s.Id, s.Deneme)).ToList(), result.Error ?? "Kanal fiyat gönderimini kabul etmedi.", options.Value, now, ct);
+            return new(channelCode, false, null, claimed.Count, 0, claimed.Count, null);
+        }
+
+        if (result.BatchId is null)
+        {
+            await priceStore.MarkSentAsync(connection, sendable.Select(s => (s.Id, s.ListingId, s.Target.Target.SalePrice, s.Target.Target.ListPrice)).ToList(), now, ct);
+        }
+        else
+        {
+            var payload = JsonSerializer.Serialize(sendable.Select(s => new { q = s.Id, s = s.Target.Target.SalePrice, p = s.Target.Target.ListPrice }));
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE q SET q.BatchId = @batchId, q.GonderilenSatisFiyati = j.s, q.GonderilenListeFiyati = j.p
+                  FROM dbo.SyncQueue AS q JOIN OPENJSON(@payload) WITH (q BIGINT, s DECIMAL(18,2), p DECIMAL(18,2)) AS j ON j.q = q.Id
+                 WHERE q.BatchId = @claimToken
+                """, new { batchId = result.BatchId, payload, claimToken }, cancellationToken: ct));
+        }
+
+        logger.LogInformation("FiyatGonder {Kanal}: {Adet} fiyat gönderildi, batch {BatchId}.", channelCode, sendable.Count, result.BatchId ?? "(senkron)");
+        return new(channelCode, false, null, claimed.Count, sendable.Count, failed, result.BatchId);
+    }
+}
+
+/// <summary>
 /// BatchSorgula (CLAUDE.md §7.4): gönderilmiş toplu işlemlerin sonucunu sorgular; başarılıları GONDERILDI yapar,
 /// başarısızları üstel geri çekilme ile yeniden kuyruğa alır (5 denemeden sonra HATA). Ayrıca takılı kalmış talepleri kurtarır.
 /// </summary>
@@ -262,6 +476,7 @@ public sealed class BatchCheckJob(
     IEnumerable<IChannelAdapter> adapters,
     SqlConnectionFactory connectionFactory,
     SyncStore store,
+    PriceStore priceStore,
     IOptions<SyncOptions> options,
     TimeProvider clock,
     ILogger<BatchCheckJob> logger)
@@ -283,7 +498,8 @@ public sealed class BatchCheckJob(
             """, new { limit = now.AddMinutes(-options.Value.ClaimTimeoutMinutes) }, cancellationToken: ct));
 
         var rows = (await connection.QueryAsync<InFlightRow>(new CommandDefinition("""
-            SELECT q.Id, q.ListingId, q.BatchId, q.GonderilenDeger, q.Deneme, q.SonDeneme, c.Kod AS ChannelCode, l.KanalUrunKodu, l.KanalBarkod
+            SELECT q.Id, q.ListingId, q.Tip, q.BatchId, q.GonderilenDeger, q.GonderilenSatisFiyati, q.GonderilenListeFiyati, q.Deneme, q.SonDeneme,
+                   c.Kod AS ChannelCode, l.KanalUrunKodu, l.KanalBarkod
               FROM dbo.SyncQueue AS q
               JOIN dbo.ChannelListing AS l ON l.Id = q.ListingId
               JOIN dbo.Channel AS c ON c.Id = l.ChannelId
@@ -326,7 +542,7 @@ public sealed class BatchCheckJob(
                     break;
 
                 case BatchState.Completed:
-                    await store.MarkSentAsync(connection, items.Select(i => (i.Id, i.ListingId, i.GonderilenDeger ?? 0)).ToList(), now, ct);
+                    await MarkSentAsync(connection, items, now, ct);
                     completed++;
                     break;
 
@@ -347,7 +563,7 @@ public sealed class BatchCheckJob(
                         await store.MarkFailedAsync(connection, [(item.Id, item.Deneme)], error!.Message, options.Value, now, ct);
                     }
                     var good = items.Except(bad.Select(b => b.Item)).ToList();
-                    await store.MarkSentAsync(connection, good.Select(i => (i.Id, i.ListingId, i.GonderilenDeger ?? 0)).ToList(), now, ct);
+                    await MarkSentAsync(connection, good, now, ct);
                     completed++;
                     break;
                 }
@@ -357,12 +573,24 @@ public sealed class BatchCheckJob(
         return new BatchCheckRunResult(batches.Count, completed, failed, pending, recovered);
     }
 
+    /// <summary>Stok ve fiyat kayıtları ayrı işlenir (fiyat: ilanın son gönderilen fiyatı + geçmiş; ADR-028).</summary>
+    private async Task MarkSentAsync(SqlConnection connection, IReadOnlyCollection<InFlightRow> items, DateTime now, CancellationToken ct)
+    {
+        await store.MarkSentAsync(connection, items.Where(i => i.Tip != SyncTypes.Price)
+            .Select(i => (i.Id, i.ListingId, i.GonderilenDeger ?? 0)).ToList(), now, ct);
+        await priceStore.MarkSentAsync(connection, items.Where(i => i.Tip == SyncTypes.Price && i.GonderilenSatisFiyati is not null)
+            .Select(i => (i.Id, i.ListingId, i.GonderilenSatisFiyati!.Value, i.GonderilenListeFiyati ?? i.GonderilenSatisFiyati!.Value)).ToList(), now, ct);
+    }
+
     private sealed class InFlightRow
     {
         public long Id { get; init; }
         public int ListingId { get; init; }
+        public string Tip { get; init; } = "STOK";
         public string BatchId { get; init; } = "";
         public int? GonderilenDeger { get; init; }
+        public decimal? GonderilenSatisFiyati { get; init; }
+        public decimal? GonderilenListeFiyati { get; init; }
         public int Deneme { get; init; }
         public DateTime SonDeneme { get; init; }
         public string ChannelCode { get; init; } = "";

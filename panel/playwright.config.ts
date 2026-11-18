@@ -69,6 +69,7 @@ export default defineConfig({
       Hangfire__Queues__0: 'e2e-bos',
       Senkron__OutboxCron: '',
       Senkron__PushCron: '',
+      Senkron__PricePushCron: '',
       Senkron__BatchCheckCron: '',
       Senkron__ReconciliationCron: '',
       Siparis__FetchCron: '',

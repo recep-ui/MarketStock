@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { get, post, put, qs, type Channel, type ChannelCapability, type ChannelCommand, type OrderNotificationRow, type OrderNotifyResult, type Paged } from '../api';
+import { ApiError, get, post, put, qs, type Channel, type ChannelCapability, type ChannelCommand, type OrderNotificationRow, type OrderNotifyResult, type Paged, type PricePreview } from '../api';
 import { useAuth } from '../auth';
 import { Card, ChannelBadge, ErrorBox, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, statusLabels } from '../format';
@@ -44,8 +44,21 @@ export function ChannelWriteSettings({ channels, editable, onNotice }: { channel
   const mode = useLoad(() => selected ? get<{ mode: string }>(`/api/channels/${selected}/notification-mode`) : Promise.resolve(null), [selected]);
 
   async function setCap(capability: string, state: string) {
-    if (state !== 'KAPALI' && !window.confirm(`${capabilityLabels[capability] ?? capability}: "${stateLabels[state]}" yapılsın mı? Gerçek modlu kanalda kanala yazma başlar.`)) return;
     setError(null);
+    if (capability === 'FIYAT' && state !== 'KAPALI') {
+      // ADR-028: açmadan önce önizleme ("N ilanın fiyatı değişecek"); KDV doğrulanmamış kanalda açılamaz.
+      try {
+        const p = await get<PricePreview>(`/api/prices/channels/${selected}/preview?onlyChanges=true`);
+        if (!p.canEnable) { setError(new ApiError(400, p.blockReason ?? 'Bu kanalda fiyat gönderimi açılamaz.')); caps.reload(); return; }
+        if (!window.confirm(`${p.changing} ilanın fiyatı değişecek (${p.firstSend} ilk gönderim), ${p.needsApproval} onay bekleyecek, ${p.blocked} gönderilemez.
+`
+          + `Ayrıntılı liste: Fiyat ekranı → önizleme.
+Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); return; }
+      } catch (err) {
+        setError(err);
+        return;
+      }
+    } else if (state !== 'KAPALI' && !window.confirm(`${capabilityLabels[capability] ?? capability}: "${stateLabels[state]}" yapılsın mı? Gerçek modlu kanalda kanala yazma başlar.`)) return;
     try {
       await put(`/api/channels/${selected}/capabilities/${capability}`, { state });
       onNotice(`${capabilityLabels[capability] ?? capability} → ${stateLabels[state]}`);

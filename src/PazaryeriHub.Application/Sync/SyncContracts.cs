@@ -22,6 +22,9 @@ public sealed class SyncOptions
     /// <summary>ReferansCek (kanal başına; Satıcı Bilgileri, ADR-025). Varsayılan haftalık, Pazartesi 01:00 UTC.</summary>
     public string? ReferenceCron { get; set; } = "0 1 * * 1";
 
+    /// <summary>FiyatGonder (kanal başına; ADR-028). FIYAT yeteneği KAPALI kanalda hiçbir şey talep etmez.</summary>
+    public string? PricePushCron { get; set; } = "*/10 * * * * *";
+
     /// <summary>KanalKomutGonder (kanal başına; sipariş durumu, iade kararı, soru cevabı; ADR-026).</summary>
     public string? CommandCron { get; set; } = "*/30 * * * * *";
 
@@ -85,6 +88,12 @@ public static class OutboxEvents
     /// farklı olanlar kuyruğa girer (aynı değer yeniden gönderilmez).
     /// </summary>
     public const string LowStockThresholdChanged = "StokEsigiDegisti";
+
+    /// <summary>
+    /// Fiyat değişti (ADR-028; payload: SkuId | ListingId | ChannelId). SKU fiyatı, ilan fiyatı, kanal kuralı, eşik, onay veya
+    /// FIYAT yeteneğinin açılması yazar. OutboxIsle yalnızca FIYAT yeteneği KAPALI olmayan kanallar için değerlendirir.
+    /// </summary>
+    public const string PriceChanged = "FiyatDegisti";
 }
 
 /// <summary>AppSetting anahtarları (senkronu etkileyenler).</summary>
@@ -94,9 +103,11 @@ public static class StockSettingKeys
     public const string LowStockThreshold = "DusukStokEsigi";
 }
 
+/// <param name="SentPrice">Tip FIYAT: gönderilen satış fiyatı.</param>
 public sealed record SyncQueueItem(
     long Id, int ListingId, string SkuCode, string ChannelCode, string Type, string Status, int Attempts,
-    string? Error, string? BatchId, int? SentValue, DateTime CreatedUtc, DateTime? LastAttemptUtc, DateTime? NextAttemptUtc);
+    string? Error, string? BatchId, int? SentValue, DateTime CreatedUtc, DateTime? LastAttemptUtc, DateTime? NextAttemptUtc,
+    decimal? SentPrice = null);
 
 public sealed record SyncSummaryRow(string ChannelCode, int Pending, int InFlight, int Sent, int Error, DateTime? LastSentUtc);
 

@@ -7,6 +7,39 @@
 
 ---
 
+## Entegrasyon genişletme M4: Fiyat (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- **Fiyat verisi** (migration 0013):
+  - SKU liste/satış fiyatı, kanal kuralı (çarpan, ek, yuvarlama, taban), ilan başına elle fiyat.
+  - Onay tablosu, fiyat geçmişi, değişim eşiği (%30).
+- **Hesap ve karar:** saf `PriceAllocator` ve `PriceSyncPolicy`.
+- **Hat:** `FiyatDegisti` → OutboxIsle → `SyncQueue(FIYAT)` → FiyatGonder → BatchSorgula. Stok hattı aynı kaldı.
+- **Varsayılan KAPALI:**
+  - Açmadan önce önizleme: "N ilanın fiyatı değişecek".
+  - Eşik aşan veya DENEME'deki değişiklik Yönetici onayı bekler.
+  - Taban delinmez.
+- **KDV:** yalnızca Beymen dokümanı "VAT included" diyor → yalnızca Beymen'de açılabilir. Trendyol ve Hepsiburada adaptörleri hazır ama KDV teyidi gelene kadar açılamaz.
+- **Panel:** "Fiyat" ekranı. **Excel:** fiyat şablonu ve içe/dışa aktarma.
+- **Testler:**
+  - Unit 271/271:
+    - Yeni: PriceAllocator ve karar politikası testleri.
+    - Yeni: Excel fiyat ayrıştırma testleri.
+    - Yeni: fiyat contract testleri (3 kanal).
+    - Güncellendi: eski "fiyat desteklenmiyor" testleri.
+  - Integration 128/128. Yeni 8 test:
+    - Kapalıyken gitmez.
+    - Önizleme → aç → mock'ta bir kez görünür, geçmiş yazılır.
+    - Eşik → onay/red; Depo 403.
+    - DENEME.
+    - Taban ve elle fiyat.
+    - KDV doğrulanmamış kanal açılamaz.
+    - Varyant kuralı.
+    - Excel 4 satır (satır numaralı hatalar).
+  - Playwright 10/10. Yeni senaryo: onay → önizleme → aç. Edge ile çalıştırıldı.
+- **Doğrulanmayanlar:** ADR-028.
+
+---
+
 ## Entegrasyon genişletme M3: Kanal iade talepleri (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - **IadeCek job'ı + tablolar** (`ReturnRequest`, `ReturnRequestLine`, `ReturnDecision`; migration 0012): Trendyol ve Beymen talepleri tekil kaydedilir.

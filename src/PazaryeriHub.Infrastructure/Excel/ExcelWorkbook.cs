@@ -107,7 +107,7 @@ public static class ExcelWorkbook
         {
             sheet.Cell(1, i + 1).Value = layout[i].Header;
             // Kod/barkod sütunları metin: Excel 8690000000017'yi sayıya çevirip bozmasın
-            sheet.Column(i + 1).Style.NumberFormat.Format = layout[i].MaxLength is null ? "0" : "@";
+            sheet.Column(i + 1).Style.NumberFormat.Format = layout[i].NumberFormat ?? (layout[i].MaxLength is null ? "0" : "@");
         }
         for (var i = 0; i < extraHeaders.Count; i++)
         {

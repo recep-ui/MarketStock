@@ -13,7 +13,8 @@ namespace PazaryeriHub.Adapters.Trendyol;
 /// <summary>
 /// Trendyol gerçek adaptörü (API v2.0). Yalnızca resmi dokümanda (developers.trendyol.com/v2.0) okunan uçlar kullanılır;
 /// dokümanda açık olmayan noktalar <c>// TODO: doğrulanmalı</c> ile işaretlidir (bkz. docs/kanal-api-notlari.md).
-/// Kapsam (ADR-015): stok gönderme + sonuç, sipariş çekme, iade çekme, kanal stoğu okuma. Fiyat gönderilmez.
+/// Kapsam: stok gönderme + sonuç, sipariş çekme, iade çekme, kanal stoğu okuma; fiyat gönderimi (ADR-028) uygulanmış ama
+/// KDV dokümanda doğrulanamadığı için FIYAT yeteneği açılamaz.
 /// Hız limiti ve yeniden deneme HttpClient'a takılan dayanıklılık hattında (Polly) çözülür; burada hata çevirisi yapılır.
 /// </summary>
 public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore credentials, TimeProvider clock, ILogger<TrendyolAdapter> logger)
@@ -449,11 +450,49 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         _ => ReturnDecisionRule.NotSupportedBecause("Trendyol'da 'iade paketi elime ulaştı' bildirimi yok.")
     };
 
-    // ------------------------------------------------------------------ Kapsam dışı
+    // ------------------------------------------------------------------ Fiyat (ADR-028)
 
-    /// <summary>Fiyatlar satıcı panelinden girilir (ADR-015).</summary>
-    public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
-        throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Trendyol satıcı panelinden girilir (ADR-015).");
+    internal const string PriceSource =
+        "developers.trendyol.com/v2.0/docs/stock-and-price-update-updatepriceandinventory ve /reference/updatepriceandinventory (2026-11-18 okundu)";
+
+    /// <summary>
+    /// Uç ve alanlar doğrulandı: <c>POST /inventory/sellers/{sellerId}/products/price-and-inventory</c>
+    /// <c>{items:[{barcode, salePrice, listPrice}]}</c>; "listPrice cannot be lower than salePrice"; yalnızca fiyat gönderilebilir.
+    /// TODO: doğrulanmalı — fiyatların KDV dahil olup olmadığı dokümanda YAZMIYOR → VatIncluded = null, yetenek açılamaz.
+    /// </summary>
+    public PriceUpdateRule DescribePriceUpdate() => new(
+        Supported: true, VatIncluded: null, SendsListPrice: true, SamePriceForProductVariants: false,
+        "Trendyol dokümanı fiyatın KDV dahil mi hariç mi olduğunu belirtmiyor. Resmi bir kaynak docs/ altına konunca açılabilir.",
+        PriceSource);
+
+    public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(updates);
+        if (updates.Count > MaxItemsPerRequest)
+        {
+            throw new ArgumentException($"Trendyol tek istekte en fazla {MaxItemsPerRequest} kalem kabul eder.", nameof(updates));
+        }
+
+        var items = new List<PriceOnlyItem>(updates.Count);
+        foreach (var u in updates)
+        {
+            var barcode = u.Barcode ?? u.ChannelProductCode
+                          ?? throw new ArgumentException("Trendyol fiyat güncellemesinde barkod zorunludur.", nameof(updates));
+            if (u.SalePrice <= 0m || u.ListPrice < u.SalePrice)
+            {
+                throw new ArgumentException($"Trendyol: {barcode} için geçersiz fiyat (satış > 0 ve liste >= satış olmalı).", nameof(updates));
+            }
+            items.Add(new PriceOnlyItem(barcode, u.SalePrice, u.ListPrice));
+        }
+
+        var creds = await CredentialsAsync(ct);
+        var response = await SendAsync<BatchRequestCreated>(creds, HttpMethod.Post,
+            $"/inventory/sellers/{creds.SellerId}/products/price-and-inventory", new PriceOnlyRequest(items), ct);
+
+        return string.IsNullOrWhiteSpace(response?.BatchRequestId)
+            ? throw new ChannelApiException(Code, "Trendyol fiyat isteğini aldı ancak takip numarası (batchRequestId) dönmedi.")
+            : new BatchResult(response.BatchRequestId, Accepted: true);
+    }
 
     // ------------------------------------------------------------------ Sipariş durumu bildirimi (ADR-026)
 

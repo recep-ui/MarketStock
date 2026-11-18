@@ -27,7 +27,8 @@ public sealed class EmbeddedScriptsTests
             "PazaryeriHub.Infrastructure.Database.Migrations.0009_kanal_referans.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0010_kanala_yazma_altyapisi.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0011_siparis_kanal_kimlikleri.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0012_iade_talepleri.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0012_iade_talepleri.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0013_fiyat.sql");
     }
 
     [Fact]

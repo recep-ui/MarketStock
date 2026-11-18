@@ -9,6 +9,8 @@ public sealed record StockRow(int Row, string SkuCode, string? WarehouseName, St
 
 public sealed record ListingRow(int Row, string SkuCode, string ChannelCode, string? ChannelProductCode, string? ChannelBarcode, string Status);
 
+public sealed record PriceRow(int Row, string SkuCode, decimal SalePrice, decimal? ListPrice);
+
 public enum StockImportOperation
 {
     /// <summary>Fiziksel += Adet.</summary>
@@ -149,6 +151,100 @@ public static class ImportValidators
             rowsText => $"Aynı kanal + kanal ürün kodu dosyada birden fazla satırda var (satırlar: {rowsText}).", errors, invalid);
 
         return new ValidationOutcome<ListingRow>(candidates.Where(r => !invalid.Contains(r.Row)).ToList(), Sorted(errors));
+    }
+
+    public const decimal MaxPrice = 10_000_000m;
+
+    /// <summary>Fiyat satırları (ADR-028): sayı biçimi (virgül/nokta), &gt; 0, en fazla 2 ondalık, liste ≥ satış, dosya içi tekrar.</summary>
+    public static ValidationOutcome<PriceRow> ValidatePrices(IReadOnlyList<RawRow> rows)
+    {
+        var errors = new List<ImportRowError>();
+        var candidates = new List<PriceRow>();
+        var cols = ExcelLayouts.Prices;
+
+        foreach (var raw in rows)
+        {
+            var ok = CheckColumns(raw, cols, errors);
+            var sale = ReadPrice(raw, cols[1], errors, ref ok);
+            var list = ReadPrice(raw, cols[2], errors, ref ok);
+            if (ok && sale is not null && list is not null && list < sale)
+            {
+                errors.Add(new(raw.Row, cols[2].Header, $"Liste fiyatı ({list}) satış fiyatından ({sale}) düşük olamaz."));
+                ok = false;
+            }
+            if (ok && sale is { } s)
+            {
+                candidates.Add(new PriceRow(raw.Row, raw[cols[0]]!, s, list));
+            }
+        }
+
+        var invalid = new HashSet<int>(errors.Select(e => e.Row));
+        AddDuplicateErrors(candidates, r => r.SkuCode, r => r.Row, StringComparer.Ordinal, "SKU Kodu",
+            rowsText => $"SKU kodu dosyada birden fazla satırda var (satırlar: {rowsText}).", errors, invalid);
+        return new ValidationOutcome<PriceRow>(candidates.Where(r => !invalid.Contains(r.Row)).ToList(), Sorted(errors));
+    }
+
+    private static decimal? ReadPrice(RawRow raw, ExcelColumn col, List<ImportRowError> errors, ref bool ok)
+    {
+        if (raw[col] is not { } text)
+        {
+            return null;
+        }
+        if (!TryParsePrice(text, out var value))
+        {
+            errors.Add(new(raw.Row, col.Header, $"'{text}' geçerli bir fiyat değil."));
+            ok = false;
+            return null;
+        }
+        if (value <= 0m || value > MaxPrice)
+        {
+            errors.Add(new(raw.Row, col.Header, "Fiyat 0'dan büyük olmalı."));
+            ok = false;
+            return null;
+        }
+        if (decimal.Round(value, 2) != value)
+        {
+            errors.Add(new(raw.Row, col.Header, "Fiyat en fazla 2 ondalık olabilir."));
+            ok = false;
+            return null;
+        }
+        return value;
+    }
+
+    /// <summary>
+    /// "499,90", "499.90", "1.234,56", "1,234.56", "₺499,90" kabul edilir. Tek ayırıcı varsa ve ardından tam 3 hane geliyorsa
+    /// (ör. "1.234") binlik mi ondalık mı belirsizdir → reddedilir.
+    /// </summary>
+    public static bool TryParsePrice(string? text, out decimal value)
+    {
+        value = 0m;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+        var s = text.Trim().Replace("₺", "", StringComparison.Ordinal).Replace("TL", "", StringComparison.OrdinalIgnoreCase).Replace(" ", "", StringComparison.Ordinal);
+        int lastComma = s.LastIndexOf(','), lastDot = s.LastIndexOf('.');
+        if (lastComma >= 0 && lastDot >= 0)
+        {
+            var decimalSep = lastComma > lastDot ? ',' : '.';
+            var groupSep = decimalSep == ',' ? '.' : ',';
+            s = s.Replace(groupSep.ToString(), "", StringComparison.Ordinal).Replace(decimalSep, '.');
+        }
+        else if (lastComma >= 0 || lastDot >= 0)
+        {
+            var sep = lastComma >= 0 ? ',' : '.';
+            if (s.Count(ch => ch == sep) > 1)
+            {
+                return false;
+            }
+            var after = s.Length - s.IndexOf(sep, StringComparison.Ordinal) - 1;
+            if (after == 3 && sep == ',')
+            {
+                return false; // "1,234" belirsiz
+            }
+            s = s.Replace(sep, '.');
+        }
+        return decimal.TryParse(s, NumberStyles.AllowDecimalPoint | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value);
     }
 
     /// <summary>Zorunlu alan ve uzunluk kontrolü. Satır geçerliyse true.</summary>

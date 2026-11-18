@@ -180,6 +180,7 @@ public static class ChannelEndpoints
             case "products": kind = ExcelKind.Products; return true;
             case "stock": kind = ExcelKind.Stock; return true;
             case "listings": kind = ExcelKind.Listings; return true;
+            case "prices": kind = ExcelKind.Prices; return true;
             default: kind = default; return false;
         }
     }

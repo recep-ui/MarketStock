@@ -50,11 +50,12 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
     }
 
     /// <summary>
-    /// Eşleştirmeler için bekleyen STOK kaydı açar (debounce: zaten bekleyen varsa açılmaz).
+    /// Eşleştirmeler için bekleyen STOK (veya <paramref name="type"/> = FIYAT) kaydı açar (debounce: zaten bekleyen varsa açılmaz).
     /// UPDLOCK + HOLDLOCK eşzamanlı iki işlemcinin aynı kaydı açmasını engeller; yine de çakışırsa
     /// UX_SyncQueue_Listing_Tip_Bekleyen (2601) son savunmadır.
     /// </summary>
-    public static async Task<int> EnqueueAsync(SqlConnection connection, SqlTransaction? tx, IReadOnlyCollection<int> listingIds, CancellationToken ct)
+    public static async Task<int> EnqueueAsync(SqlConnection connection, SqlTransaction? tx, IReadOnlyCollection<int> listingIds, CancellationToken ct,
+        string type = "STOK")
     {
         if (listingIds.Count == 0)
         {
@@ -62,11 +63,11 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
         }
         return await connection.ExecuteAsync(new CommandDefinition("""
             INSERT dbo.SyncQueue (ListingId, Tip, Durum)
-            SELECT DISTINCT CAST(j.[value] AS INT), 'STOK', 'BEKLIYOR'
+            SELECT DISTINCT CAST(j.[value] AS INT), @type, 'BEKLIYOR'
               FROM OPENJSON(@ids) AS j
              WHERE NOT EXISTS (SELECT 1 FROM dbo.SyncQueue AS q WITH (UPDLOCK, HOLDLOCK)
-                               WHERE q.ListingId = CAST(j.[value] AS INT) AND q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR')
-            """, new { ids = JsonSerializer.Serialize(listingIds) }, tx, cancellationToken: ct));
+                               WHERE q.ListingId = CAST(j.[value] AS INT) AND q.Tip = @type AND q.Durum = 'BEKLIYOR')
+            """, new { ids = JsonSerializer.Serialize(listingIds), type }, tx, cancellationToken: ct));
     }
 
     /// <summary>Başarılı gönderim: kayıt GONDERILDI, eşleştirmenin son gönderilen stoğu güncellenir; sonra değer değiştiyse yeniden kuyruğa alınır.</summary>

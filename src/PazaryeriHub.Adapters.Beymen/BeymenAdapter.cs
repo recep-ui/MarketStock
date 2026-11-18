@@ -13,7 +13,7 @@ namespace PazaryeriHub.Adapters.Beymen;
 /// <summary>
 /// Beymen Partner API adaptörü. Kaynak: https://partner-docs.beymen.com/en (bkz. docs/kanal-api-notlari.md).
 /// Dokümanda açık olmayan noktalar <c>// TODO: doğrulanmalı</c> ile işaretlidir. Kapsam (ADR-015): stok + sonuç, kanal stoğu,
-/// sipariş ve iade çekme. Fiyat gönderilmez.
+/// sipariş ve iade çekme, fiyat gönderimi (ADR-028).
 /// <para>Eşleştirme anahtarı Beymen <b>productId (GUID)</b>'dir ("Kanal Ürün Kodu"); barkod "Kanal Barkod" alanında tutulabilir.</para>
 /// </summary>
 public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore credentials, TimeProvider clock, ILogger<BeymenAdapter> logger)
@@ -437,10 +437,57 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
         _ => throw new NotSupportedException($"Beymen için '{type}' referans tipi desteklenmiyor.")
     });
 
-    // ------------------------------------------------------------------ Kapsam dışı
+    // ------------------------------------------------------------------ Fiyat (ADR-028)
 
-    public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
-        throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Beymen Partner Portal'dan girilir (ADR-015).");
+    internal const string PriceSource = "partner-docs.beymen.com/en → Bulk Price and Stock Update (2026-11-18 okundu)";
+
+    /// <summary>
+    /// Doğrulandı: <c>POST /batch/products/price-stock</c> <c>{items:[{productId, salesPrice, platformPrice}]}</c>; quantity
+    /// gönderilmez ("Price fields may be omitted for stock-only updates"; en az bir alan yeter). Her iki fiyat
+    /// "<b>VAT included</b>"; ikisi birlikte gönderilirse <c>salesPrice &gt;= platformPrice</c>; aynı ürünün beden varyantlarına
+    /// aynı fiyat gönderilmeli ("Different price information was detected for size variants…").
+    /// Eşleme: liste fiyatı → <c>salesPrice</c> ("Market sales price"), satış fiyatı → <c>platformPrice</c> ("Beymen sales price").
+    /// TODO: doğrulanmalı — müşteriye gösterilen fiyatın platformPrice olduğu dokümandaki ifadeden çıkarıldı; ilk gerçek denemede kontrol edilmeli.
+    /// </summary>
+    public PriceUpdateRule DescribePriceUpdate() => new(
+        Supported: true, VatIncluded: true, SendsListPrice: true, SamePriceForProductVariants: true,
+        "Liste fiyatı → salesPrice (piyasa), satış fiyatı → platformPrice (Beymen). İki alan da KDV dahil. Aynı ürünün tüm bedenlerine aynı fiyat gönderilmeli.",
+        PriceSource);
+
+    public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(updates);
+        if (updates.Count > MaxItemsPerRequest)
+        {
+            throw new ArgumentException($"Beymen tek istekte en fazla {MaxItemsPerRequest} kalem kabul eder.", nameof(updates));
+        }
+
+        var items = updates.Select(u =>
+        {
+            var productId = u.ChannelProductCode
+                ?? throw new ArgumentException("Beymen fiyat güncellemesinde productId (Kanal Ürün Kodu) zorunludur.", nameof(updates));
+            if (u.SalePrice <= 0m || u.ListPrice < u.SalePrice)
+            {
+                throw new ArgumentException($"Beymen: {productId} için geçersiz fiyat (satış > 0 ve liste >= satış olmalı).", nameof(updates));
+            }
+            return new PriceOnlyItem(productId, u.ListPrice, u.SalePrice);
+        }).ToList();
+        if (items.GroupBy(i => i.ProductId, StringComparer.Ordinal).Any(g => g.Count() > 1))
+        {
+            // Doküman: aynı productId birden fazla gönderilirse hepsi başarısız sayılır.
+            throw new ArgumentException("Beymen: aynı productId bir istekte birden fazla kez gönderilemez.", nameof(updates));
+        }
+
+        var creds = await CredentialsAsync(ct);
+        using var doc = await SendAsync(creds, HttpMethod.Post, "/batch/products/price-stock", new { items }, ct);
+        var processId = doc is not null && doc.RootElement.ValueKind == JsonValueKind.Object ? Str(doc.RootElement, "processId") : null;
+        return processId is null
+            ? throw new ChannelApiException(Code, "Beymen fiyat isteğini aldı ancak takip numarası (processId) dönmedi.")
+            : new BatchResult(processId, Accepted: true);
+    }
+
+    /// <summary>Yalnızca fiyat kalemi (quantity yok).</summary>
+    internal sealed record PriceOnlyItem(string ProductId, decimal SalesPrice, decimal PlatformPrice);
 
     /// <summary>
     /// Sipariş durumu bildirimi (ADR-026). Kaynak (partner-docs.beymen.com/en, 2026-11-18 okundu):

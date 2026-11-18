@@ -13,7 +13,10 @@ public enum ExcelKind
     Stock,
 
     /// <summary>SKU ↔ kanal ürün kodu eşleştirmesi.</summary>
-    Listings
+    Listings,
+
+    /// <summary>SKU liste/satış fiyatı (ADR-028; Yönetici).</summary>
+    Prices
 }
 
 /// <param name="Row">Excel satır numarası (başlık 1. satır, veri 2. satırdan başlar).</param>
@@ -53,7 +56,8 @@ public interface IExcelTransferService
 }
 
 /// <summary>Şablon sütunu.</summary>
-public sealed record ExcelColumn(string Header, bool Required, int? MaxLength, string Description, string Example)
+/// <param name="NumberFormat">Excel hücre biçimi; null → MaxLength yoksa "0" (tam sayı), varsa "@" (metin).</param>
+public sealed record ExcelColumn(string Header, bool Required, int? MaxLength, string Description, string Example, string? NumberFormat = null)
 {
     public string Key { get; } = ExcelText.ToKey(Header);
 }
@@ -95,11 +99,19 @@ public static class ExcelLayouts
         new("Durum", false, 10, "AKTIF veya PASIF. Boşsa AKTIF.", "AKTIF")
     ];
 
+    public static readonly ExcelColumn[] Prices =
+    [
+        SkuCode,
+        new("Satış Fiyatı", true, null, "KDV dahil satış fiyatı (TL). 0'dan büyük, en fazla 2 ondalık. Ondalık ayırıcı virgül veya nokta olabilir.", "499,90", "0.00"),
+        new("Liste Fiyatı", false, null, "KDV dahil liste (üstü çizili) fiyat. Boşsa satış fiyatı kullanılır; satış fiyatından düşük olamaz.", "599,90", "0.00")
+    ];
+
     public static ExcelColumn[] For(ExcelKind kind) => kind switch
     {
         ExcelKind.Products => Products,
         ExcelKind.Stock => Stock,
         ExcelKind.Listings => Listings,
+        ExcelKind.Prices => Prices,
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 
@@ -108,6 +120,7 @@ public static class ExcelLayouts
         ExcelKind.Products => "Urunler",
         ExcelKind.Stock => "Stok",
         ExcelKind.Listings => "Eslestirme",
+        ExcelKind.Prices => "Fiyat",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 }

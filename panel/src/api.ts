@@ -117,6 +117,33 @@ export type ReturnDetail = {
                commandId: number | null; commandState: string | null; commandError: string | null }[];
   rules: { decision: string; rule: ReturnDecisionRule }[];
 };
+// ------------------------------------------------------------------ Fiyat (ADR-028)
+export type ChannelPriceRule = { multiplier: number; fixedAdd: number; rounding: string; floor: number | null };
+export type ChannelPriceInfo = {
+  channelId: number; channelCode: string; rule: ChannelPriceRule; capabilityState: string; supported: boolean; vatIncluded: boolean | null;
+  sendsListPrice: boolean; samePriceForProductVariants: boolean; note: string; source: string | null; canEnable: boolean; blockReason: string | null;
+};
+export type PricePreviewRow = {
+  listingId: number; skuId: number; skuCode: string; productName: string; channelProductCode: string | null; channelBarcode: string | null;
+  lastSentSale: number | null; lastSentList: number | null; newSale: number | null; newList: number | null; changePercent: number | null;
+  floorApplied: boolean; fromOverride: boolean; status: string; problem: string | null; pendingApprovalId: number | null;
+};
+export type PricePreview = {
+  channelId: number; channelCode: string; capabilityState: string; canEnable: boolean; blockReason: string | null; thresholdPercent: number;
+  total: number; changing: number; firstSend: number; needsApproval: number; unchanged: number; blocked: number; rows: PricePreviewRow[];
+};
+export type PriceApproval = {
+  id: number; listingId: number; channelId: number; channelCode: string; skuCode: string; productName: string; oldSale: number | null;
+  newSale: number; newList: number; changePercent: number | null; reason: string; state: string; createdUtc: string;
+  decidedBy: string | null; decidedUtc: string | null;
+};
+export type PriceHistory = {
+  id: number; type: string; skuId: number | null; skuCode: string | null; listingId: number | null; channelCode: string | null;
+  oldSale: number | null; newSale: number | null; oldList: number | null; newList: number | null; detail: string | null; source: string;
+  user: string | null; atUtc: string;
+};
+export type SkuPrice = { skuId: number; skuCode: string; productName: string; listPrice: number | null; salePrice: number | null };
+
 export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME' | 'ACIK'; changedBy: string | null; changedAtUtc: string };
 export type ChannelCommand = {
   id: number; channelId: number; channelCode: string; type: string; targetKey: string; payloadJson: string; state: string; attempts: number;
@@ -166,7 +193,7 @@ export type Movement = {
 };
 export type SyncItem = {
   id: number; listingId: number; skuCode: string; channelCode: string; type: string; status: 'BEKLIYOR' | 'GONDERILDI' | 'HATA';
-  attempts: number; error: string | null; batchId: string | null; sentValue: number | null; createdUtc: string;
+  attempts: number; error: string | null; batchId: string | null; sentValue: number | null; sentPrice?: number | null; createdUtc: string;
   lastAttemptUtc: string | null; nextAttemptUtc: string | null;
 };
 export type SyncSummary = { channelCode: string; pending: number; inFlight: number; sent: number; error: number; lastSentUtc: string | null };

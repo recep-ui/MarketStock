@@ -74,6 +74,8 @@ public static class DependencyInjection
         // Senkron hattı (Outbox → SyncQueue → kanal).
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
         services.AddSingleton<SyncStore>();
+        services.AddTransient<Pricing.PriceStore>();
+        services.AddScoped<PazaryeriHub.Application.Pricing.IPriceService, Pricing.PriceService>();
         services.AddScoped<ISyncService, SyncService>();
         services.AddScoped<PazaryeriHub.Application.Stock.IChannelIntakeService, Stock.ChannelIntakeService>();
 
@@ -135,6 +137,7 @@ public static class DependencyInjection
         services.AddTransient<OrderFetchJob>();
         services.AddTransient<OutboxProcessorJob>();
         services.AddTransient<StockPushJob>();
+        services.AddTransient<PricePushJob>();
         services.AddTransient<BatchCheckJob>();
         services.AddTransient<ReconciliationJob>();
         services.AddTransient<ReferenceFetchJob>();

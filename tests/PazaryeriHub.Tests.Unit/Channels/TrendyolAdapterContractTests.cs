@@ -268,12 +268,11 @@ public sealed class TrendyolAdapterContractTests
         TrendyolAdapter.Translate(HttpStatusCode.ServiceUnavailable, "", TrendyolCredentials.Stage).Message.Should().Contain("beyaz liste");
 
     [Fact]
-    public async Task Kapsam_disi_islemler_desteklenmiyor()
+    public void Fiyat_uygulandi_ama_KDV_dogrulanmadigi_icin_yetenek_acilamaz()
     {
-        var (adapter, http) = Create();
-
-        await FluentActions.Invoking(() => adapter.PushPriceAsync([], Ct)).Should().ThrowAsync<NotSupportedException>();
-        http.Requests.Should().BeEmpty();
+        // ADR-015'in fiyat kısmı ADR-028 ile iptal edildi; Trendyol dokümanı KDV'yi belirtmiyor (ayrıntı: PriceContractTests).
+        var (adapter, _) = Create();
+        adapter.DescribePriceUpdate().CanEnable.Should().BeFalse();
     }
 
     // ------------------------------------------------------------------ katalog (ADR-022)

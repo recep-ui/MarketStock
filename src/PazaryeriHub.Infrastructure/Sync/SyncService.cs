@@ -94,7 +94,7 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
             $"SELECT COUNT(*) FROM dbo.SyncQueue q JOIN dbo.ChannelListing l ON l.Id = q.ListingId {where}", args, cancellationToken: ct));
         var rows = await connection.QueryAsync<QueueRow>(new CommandDefinition($"""
             SELECT q.Id, q.ListingId, s.SkuKodu, c.Kod AS ChannelCode, q.Tip, q.Durum, q.Deneme, q.Hata, q.BatchId,
-                   q.GonderilenDeger, q.Olusma, q.SonDeneme, q.SonrakiDeneme
+                   q.GonderilenDeger, q.Olusma, q.SonDeneme, q.SonrakiDeneme, q.GonderilenSatisFiyati
               FROM dbo.SyncQueue q
               JOIN dbo.ChannelListing l ON l.Id = q.ListingId
               JOIN dbo.Sku s ON s.Id = l.SkuId
@@ -193,7 +193,7 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
     {
         var row = await connection.QuerySingleAsync<QueueRow>(new CommandDefinition("""
             SELECT q.Id, q.ListingId, s.SkuKodu, c.Kod AS ChannelCode, q.Tip, q.Durum, q.Deneme, q.Hata, q.BatchId,
-                   q.GonderilenDeger, q.Olusma, q.SonDeneme, q.SonrakiDeneme
+                   q.GonderilenDeger, q.Olusma, q.SonDeneme, q.SonrakiDeneme, q.GonderilenSatisFiyati
               FROM dbo.SyncQueue q JOIN dbo.ChannelListing l ON l.Id = q.ListingId
               JOIN dbo.Sku s ON s.Id = l.SkuId JOIN dbo.Channel c ON c.Id = l.ChannelId
              WHERE q.Id = @id
@@ -202,7 +202,7 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
     }
 
     private static SyncQueueItem ToItem(QueueRow r) => new(r.Id, r.ListingId, r.SkuKodu, r.ChannelCode, r.Tip, r.Durum, r.Deneme, r.Hata,
-        r.BatchId, r.GonderilenDeger, Utc(r.Olusma)!.Value, Utc(r.SonDeneme), Utc(r.SonrakiDeneme));
+        r.BatchId, r.GonderilenDeger, Utc(r.Olusma)!.Value, Utc(r.SonDeneme), Utc(r.SonrakiDeneme), r.GonderilenSatisFiyati);
 
     private static DateTime? Utc(DateTime? d) => d is { } v ? DateTime.SpecifyKind(v, DateTimeKind.Utc) : null;
 
@@ -225,6 +225,7 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
         public string? Hata { get; init; }
         public string? BatchId { get; init; }
         public int? GonderilenDeger { get; init; }
+        public decimal? GonderilenSatisFiyati { get; init; }
         public DateTime Olusma { get; init; }
         public DateTime? SonDeneme { get; init; }
         public DateTime? SonrakiDeneme { get; init; }

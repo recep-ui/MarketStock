@@ -9,6 +9,11 @@ internal sealed record PriceAndInventoryRequest(IReadOnlyList<PriceAndInventoryI
 /// <summary>Yalnızca stok gönderilir: "When updating only stock or price, sending the other field is not required."</summary>
 internal sealed record PriceAndInventoryItem(string Barcode, int Quantity);
 
+/// <summary>Yalnızca fiyat (ADR-028): aynı uç, <c>quantity</c> gönderilmez ("sending the other field is not required").</summary>
+internal sealed record PriceOnlyRequest(IReadOnlyList<PriceOnlyItem> Items);
+
+internal sealed record PriceOnlyItem(string Barcode, decimal SalePrice, decimal ListPrice);
+
 internal sealed record BatchRequestCreated(string? BatchRequestId);
 
 internal sealed class BatchRequestResult

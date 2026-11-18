@@ -11,7 +11,8 @@ namespace PazaryeriHub.Api.Dev;
 
 public sealed record DemoDataResult(
     string Tag, IReadOnlyList<string> SkuCodes, IReadOnlyList<string> OrderNos, long FailedSyncId,
-    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode, string ReturnNo);
+    string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode, string ReturnNo,
+    string PriceSkuCode);
 
 /// <summary>
 /// Yalnızca Development/Testing: panel ekranlarını ve Playwright senaryolarını beslemek için etiketli demo veri üretir.
@@ -121,6 +122,17 @@ public sealed class DemoDataSeeder(
             OUTPUT inserted.Id VALUES (@listingId, 'STOK', 'HATA', 5, N'Kanal hata döndü (HTTP 503): Servis geçici olarak kullanılamıyor', SYSUTCDATETIME())
             """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Trendyol)] });
 
+        // Fiyat (ADR-028): SKU fiyatları (satış 499,90 + 10×i, liste 599,90). Hepsiburada'daki 1. SKU ilanına önceden 300 TL gitmiş
+        // sayılır → %66,63 değişim eşiği (%30) aşar → bekleyen onay. FIYAT yeteneği değişmez (KAPALI kalır); kanala bir şey gitmez.
+        await services.GetRequiredService<PazaryeriHub.Application.Pricing.IPriceService>().ApplySkuPricesAsync(
+            product.Skus.Select((s, i) => new PazaryeriHub.Application.Pricing.SkuPriceChange(s.Id, 599.90m, 499.90m + 10m * i)).ToList(),
+            "PANEL", "demo", validateOnly: false, ct);
+        await connection.ExecuteAsync("""
+            UPDATE dbo.ChannelListing SET SonGonderilenSatisFiyati = 300, SonGonderilenListeFiyati = 300, SonFiyatSenkron = SYSUTCDATETIME() WHERE Id = @listingId;
+            INSERT dbo.PriceApproval (ListingId, EskiSatisFiyati, YeniSatisFiyati, YeniListeFiyati, DegisimYuzde, Neden)
+            VALUES (@listingId, 300, 499.90, 599.90, 66.63, 'ESIK');
+            """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Hepsiburada)] });
+
         // Kanal iade talebi (ADR-027): kargodaki 2. sipariş (Trendyol) için; IadeCek'in yazdığı yolla tekil kaydedilir.
         var returnNo = $"DEMO-{tag}-IADE1";
         await services.GetRequiredService<PazaryeriHub.Application.Orders.IReturnService>().UpsertAsync(channels[ChannelCodes.Trendyol],
@@ -128,6 +140,7 @@ public sealed class DemoDataSeeder(
                 "Beden uymadı", "WaitingInAction"), ct);
 
         return new DemoDataResult(tag, product.Skus.Select(s => s.SkuCode).ToList(), orderNos, failedSyncId,
-            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode, returnNo);
+            product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode, returnNo,
+            product.Skus[0].SkuCode);
     }
 }

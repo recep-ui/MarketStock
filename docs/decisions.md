@@ -118,7 +118,7 @@ Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar si
 **Tarih:** 2026-11-16 (ürün sahibi kararı)
 **Karar:**
 - **Tek depo:** Tüm stok "Ana Depo"dadır. Yeni depo ekleme uç noktası kaldırıldı. Spesifikasyondaki `WarehouseId` kolonları ve yordam parametreleri korunur (ileride çoklu depoya geçiş şema değişikliği gerektirmez); sipariş rezervasyonları `Siparis:DefaultWarehouseName` deposundan yapılır.
-- **Fiyat:** Fiyatlar pazaryeri satıcı panellerinden girilir. Bu uygulama fiyat tutmaz ve göndermez. `IChannelAdapter.PushPriceAsync` spesifikasyon sözleşmesinde kalır ancak kullanılmaz; `SyncQueue.Tip='FIYAT'` kayıt üretilmez. Gerçek adaptörlerde PushPriceAsync "desteklenmiyor" döner.
+- **Fiyat:** ~~Fiyatlar pazaryeri satıcı panellerinden girilir. Bu uygulama fiyat tutmaz ve göndermez.~~ **2026-11-18: bu madde ADR-028 ile iptal edildi** (ürün sahibi kararı). Tek depo maddesi geçerli.
 
 ## ADR-016: Kanal kimlik bilgileri ve adaptör modu
 **Tarih:** 2026-11-16
@@ -468,3 +468,78 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Trendyol: `claimItemIdList`'in virgülle verilmesi; eksiz `issue` POST'unun gövdesi.
 - Beymen: satır `status` kodlarının anlamı; `images` alanının biçimi.
 - Hepsiburada: GET /claims yanıtı (gerçek bir örnek `docs/` altına konmalı).
+
+## ADR-028: Fiyat: SKU fiyatı, kanal kuralı, onay eşiği ve gönderim (M4)
+**Tarih:** 2026-11-18 (ürün sahibi kararı; ADR-015'in fiyat maddesini iptal eder)
+**Bağlam:**
+- Fiyatlar kanal panellerinden elle giriliyordu.
+- Ürün sahibinin istekleri:
+  - SKU başına liste ve satış fiyatı tutulsun.
+  - Kanal başına kural (çarpan, sabit ek, yuvarlama, taban) ve ilan başına elle fiyat olsun.
+  - Gönderim varsayılan kapalı olsun; açmadan önce önizleme gösterilsin.
+  - Taban asla delinmesin.
+  - Son gönderilene göre %X'ten büyük değişim (varsayılan %30) otomatik gitmesin, onay beklesin.
+  - KDV dahil/hariç bilgisi kanalın resmi dokümanından doğrulansın; varsayım yapılmasın.
+
+**Karar:**
+- **Migration 0013:**
+  - `Sku.ListeFiyati` / `Sku.SatisFiyati` (KDV dahil, TL; NULL = fiyat yok → kanala gitmez).
+  - `ChannelListing.FiyatOverride`, `SonGonderilenSatisFiyati`, `SonGonderilenListeFiyati`, `SonFiyatSenkron`.
+  - `SyncQueue.GonderilenSatisFiyati` / `GonderilenListeFiyati`.
+  - `PriceApproval` (ilan başına tek bekleyen; filtreli UNIQUE).
+  - `PriceHistory` (yalnızca eklenir).
+  - `AppSetting.FiyatSapmaEsigiYuzde` = 30.
+  - Kanal kuralı `Channel.Ayarlar.fiyatKurali` = `{carpan, sabitEk, yuvarlama: YOK|TAM|KURUS_99|KURUS_90, taban}`.
+- **Hesap** (`Domain/Pricing/PriceAllocator`, saf):
+  - satış = ilan fiyatı ?? yuvarla(SKU satış × çarpan + ek)
+  - liste = yuvarla(SKU liste × çarpan + ek) (yoksa satış)
+  - satış = MAX(satış, taban)
+  - liste = MAX(liste, satış)
+  - ,99 ve ,90 yuvarlama hesaplananı hiçbir zaman düşürmez.
+- **Karar** (`PriceSyncPolicy`, saf). Sıra:
+  1. Gönderilemez (fiyat yok, kural geçersiz, varyant fiyatları farklı) → kuyruğa girmez.
+  2. Son gönderilenle aynı → gönderilmez.
+  3. Bu değer son gönderimden sonra onaylanmış → gönder.
+  4. Bu değer reddedilmiş → gönderme, yeni onay da açma.
+  5. Yetenek DENEME → onay (ilk gönderim dahil).
+  6. Eşik aşıldı → onay.
+  7. Aksi halde gönder.
+  - İlk gönderim (son gönderilen yok) eşiğe takılmaz; açmadan önceki önizlemede "ilk gönderim" olarak sayılır.
+- **Hat:**
+  - SKU fiyatı, ilan fiyatı, kanal kuralı, eşik, onay kararı ve FIYAT yeteneğinin açılması aynı transaction'da `FiyatDegisti` outbox olayı yazar.
+  - OutboxIsle yalnızca FIYAT yeteneği KAPALI olmayan kanalların aktif ilanlarını değerlendirir: `SyncQueue(Tip=FIYAT)` (debounce) veya `PriceApproval`.
+  - `FiyatGonder` (`Senkron:PricePushCron`, 10 sn; kanal başına) gönderim anında yeniden hesaplar ve karar verir; `BatchSorgula` tipine göre işler.
+  - Onaya düşen veya artık gönderilecek bir şeyi kalmayan kuyruk kaydı silinir. Gönderilemeyen kayıt sade gerekçeyle HATA olur.
+  - Yazma kapısı engellerse kayıt deneme sayılmadan bekler.
+  - Stok hattı değişmedi (StokGonder yalnızca STOK kayıtlarını alır).
+- **Kanala yazan yerler:** `SyncJobs.cs`'teki `PushStockAsync` ve `PushPriceAsync` çağrıları ile KanalKomutGonder. Gerçek adaptörde hepsi `GuardedChannelAdapter` yazma kapısından geçer (FIYAT yeteneği). Deneme modunda `Senkron__PricePushCron` da kapatılır.
+- **Yetenek açma:** `PUT /api/channels/{id}/capabilities/FIYAT` DENEME/ACIK için adaptörün `DescribePriceUpdate().CanEnable` (uç doğrulandı **ve** KDV dahil dokümanda yazıyor) şartı var; yoksa 400 ve gerekçe. FiyatGonder da aynı şartı ayrıca kontrol eder.
+- **Kanallar** (resmi doküman, 2026-11-18):
+
+  | Kanal | Uç | Alanlar | KDV | Fiyat yeteneği |
+  |---|---|---|---|---|
+  | Trendyol | `POST /inventory/sellers/{id}/products/price-and-inventory` | `{barcode, salePrice, listPrice}`; liste ≥ satış; yalnızca fiyat gönderilebilir | **dokümanda yok** | **açılamaz** |
+  | Hepsiburada | `POST listing-external…/listings/merchantid/{id}/price-uploads`, sonuç `…/price-uploads/id/{id}` | `[{hepsiburadaSku, price}]` (tek fiyat); eşik dışı fiyat listingi kilitler (MinLock/MaxLock) | **dokümanda yok** | **açılamaz** |
+  | Beymen | `POST /batch/products/price-stock` | `{productId, salesPrice, platformPrice}`; liste → salesPrice, satış → platformPrice; salesPrice ≥ platformPrice; aynı ürünün beden varyantlarına aynı fiyat | **"VAT included" (iki alan)** | açılabilir |
+  | softcotton | — | mock | — | mock |
+
+- **Beymen varyant kuralı:** aynı ürünün aynı kanaldaki aktif ilanları farklı fiyata çıkıyorsa o ürünün hiçbir ilanı gönderilmez; önizlemede gerekçe görünür.
+- **Yetki:**
+  - Okuma: tüm roller.
+  - Yalnızca Yönetici: SKU fiyatı, ilan fiyatı, kanal kuralı, eşik, onay/red ve Excel fiyat içe aktarma.
+  - Her karar kullanıcı adı ve zamanla `PriceApproval` ve `PriceHistory`'ye yazılır.
+- **Panel:** yeni "Fiyat" ekranı:
+  - Onay bekleyenler (onayla/reddet).
+  - Kanal kuralı, KDV durumu ve kaynak.
+  - Önizleme ("N ilanın fiyatı değişecek": eski → yeni, ilk gönderim, onay gerekir, gönderilemez), elle ilan fiyatı.
+  - Gönderimi aç (ACIK/DENEME) ve kapat.
+  - SKU fiyatı, Excel (şablon, içe/dışa aktarma), eşik ve geçmiş.
+  - Ayarlar → yetenek tablosunda FIYAT seçilince önce önizleme özeti gösterilir.
+- **Excel:** `prices` türü: SKU Kodu, Satış Fiyatı, Liste Fiyatı. Virgül ve nokta kabul edilir; "1,234" gibi belirsiz değer reddedilir. Hatalar satır numarasıyla raporlanır.
+
+**Doğrulanmadı / açık:**
+- **Trendyol ve Hepsiburada KDV:** resmi dokümanda yok → fiyat yeteneği açılamaz. Resmi bir kaynak (ör. entegrasyon ekibinin yazılı yanıtı) `docs/` altına konunca `DescribePriceUpdate` güncellenir.
+- **Beymen:** müşteriye gösterilen fiyatın `platformPrice` olduğu dokümandaki "Beymen sales price" ifadesinden çıkarıldı; ilk gerçek denemede kontrol edilmeli.
+- **Hepsiburada:** price-uploads POST yanıtındaki takip alanı (`id` varsayıldı); sonuç `errors[]` şeması.
+- **Trendyol:** fiyat-only batch sonucunda `requestItem` içinde barkod olduğu (stoktaki varsayımla aynı).
+- Kanalların "15 dk aynı istek" kuralı: fiyat ve stok gövdeleri farklı olduğu için çakışmaz; ancak aynı fiyatı 15 dk içinde tekrar göndermek (ör. HATA sonrası yeniden dene) reddedilebilir.

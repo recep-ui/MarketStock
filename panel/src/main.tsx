@@ -11,6 +11,7 @@ import { ReturnsPage } from './pages/ReturnsPage';
 import { MappingPage } from './pages/MappingPage';
 import { ChannelIntakePage } from './pages/ChannelIntakePage';
 import { SyncPage } from './pages/SyncPage';
+import { PricesPage } from './pages/PricesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import './styles.css';
 
@@ -22,6 +23,7 @@ const nav = [
   { to: '/siparisler', label: 'Siparişler' },
   { to: '/iadeler', label: 'İade / İptal' },
   { to: '/eslestirme', label: 'Eşleştirme' },
+  { to: '/fiyat', label: 'Fiyat' },
   { to: '/senkron', label: 'Senkron Merkezi' },
   { to: '/ayarlar', label: 'Ayarlar' }
 ];
@@ -71,6 +73,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="siparisler" element={<OrdersPage />} />
             <Route path="iadeler" element={<ReturnsPage />} />
             <Route path="eslestirme" element={<MappingPage />} />
+            <Route path="fiyat" element={<PricesPage />} />
             <Route path="senkron" element={<SyncPage />} />
             <Route path="ayarlar" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

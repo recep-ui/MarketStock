@@ -53,8 +53,15 @@ public sealed class ChannelWriteGate(IOptionsMonitor<ChannelWriteOptions> option
         ?? ChannelCapabilities.Default(capability);
 }
 
-/// <summary>Kanal yazma yeteneklerini okur/değiştirir (Yönetici). Her değişiklik kullanıcı adı ve zamanla yazılır.</summary>
-public sealed class ChannelCapabilityService(SqlConnectionFactory connectionFactory, ILogger<ChannelCapabilityService> logger) : IChannelCapabilityService
+/// <summary>
+/// Kanal yazma yeteneklerini okur/değiştirir (Yönetici). Her değişiklik kullanıcı adı ve zamanla yazılır.
+/// FIYAT (ADR-028): kanalın fiyat kuralı KDV'yi resmi dokümanla doğrulamamışsa DENEME/ACIK yapılamaz; açıldığında kanalın tüm
+/// ilanları yeniden değerlendirilsin diye aynı transaction'da FiyatDegisti(ChannelId) yazılır.
+/// </summary>
+public sealed class ChannelCapabilityService(
+    SqlConnectionFactory connectionFactory,
+    IEnumerable<IChannelAdapter> adapters,
+    ILogger<ChannelCapabilityService> logger) : IChannelCapabilityService
 {
     public async Task<IReadOnlyList<ChannelCapabilityDto>> GetAsync(int channelId, CancellationToken ct)
     {
@@ -91,12 +98,32 @@ public sealed class ChannelCapabilityService(SqlConnectionFactory connectionFact
         await using var connection = connectionFactory.Create();
         await connection.OpenAsync(ct);
         await EnsureChannelAsync(connection, channelId, ct);
+        if (cap == ChannelCapabilities.Price && st != CapabilityStates.Closed)
+        {
+            var code = await connection.ExecuteScalarAsync<string>(new CommandDefinition(
+                "SELECT Kod FROM dbo.Channel WHERE Id = @channelId", new { channelId }, cancellationToken: ct));
+            var rule = adapters.FirstOrDefault(a => a.ChannelCode == code)?.DescribePriceUpdate()
+                       ?? PriceUpdateRule.NotSupported("Kanal adaptörü kayıtlı değil.");
+            if (!rule.CanEnable)
+            {
+                throw new RequestValidationException(new Dictionary<string, string[]> { ["state"] = [rule.BlockReason!] });
+            }
+        }
+
+        await using var tx = (Microsoft.Data.SqlClient.SqlTransaction)await connection.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
         await connection.ExecuteAsync(new CommandDefinition("""
             MERGE dbo.ChannelCapability WITH (HOLDLOCK) AS t
             USING (SELECT @channelId AS ChannelId, @cap AS Yetenek) AS s ON t.ChannelId = s.ChannelId AND t.Yetenek = s.Yetenek
             WHEN MATCHED THEN UPDATE SET Durum = @st, Degistiren = @user, DegisimTarihi = SYSUTCDATETIME()
             WHEN NOT MATCHED THEN INSERT (ChannelId, Yetenek, Durum, Degistiren) VALUES (@channelId, @cap, @st, @user);
-            """, new { channelId, cap, st, user }, cancellationToken: ct));
+            """, new { channelId, cap, st, user }, tx, cancellationToken: ct));
+        if (cap == ChannelCapabilities.Price && st != CapabilityStates.Closed)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT dbo.Outbox (OlayTipi, Payload) VALUES (@type, CONCAT(N'{\"ChannelId\":', @channelId, N'}'))",
+                new { type = PazaryeriHub.Application.Sync.OutboxEvents.PriceChanged, channelId }, tx, cancellationToken: ct));
+        }
+        await tx.CommitAsync(ct);
         logger.LogWarning("Kanal yazma yeteneği değişti: kanal {KanalId}, {Yetenek} → {Durum}, kullanıcı {Kullanici}", channelId, cap, st, user);
         return (await GetAsync(channelId, ct)).Single(c => c.Capability == cap);
     }
@@ -139,6 +166,8 @@ public sealed class GuardedChannelAdapter(IChannelAdapter inner, IChannelWriteGa
     }
 
     public Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct) => inner.CheckBatchAsync(batchId, ct);
+
+    public PriceUpdateRule DescribePriceUpdate() => inner.DescribePriceUpdate();
 
     public async Task UpdateOrderStatusAsync(OrderStatusUpdate update, CancellationToken ct)
     {

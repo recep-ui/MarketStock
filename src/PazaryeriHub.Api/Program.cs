@@ -106,6 +106,7 @@ try
     app.MapChannelCatalogEndpoints();
     app.MapOrderEndpoints(app.Environment);
     app.MapSyncEndpoints();
+    app.MapPriceEndpoints();
 
     if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {

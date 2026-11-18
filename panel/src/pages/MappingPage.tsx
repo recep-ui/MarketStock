@@ -115,7 +115,7 @@ function ListingForm({ channels, onDone }: { channels: Channel[]; onDone: () => 
   );
 }
 
-function ExcelBox({ kind, label, canImport, onImported }: { kind: string; label: string; canImport: boolean; onImported: () => void }) {
+export function ExcelBox({ kind, label, canImport, onImported }: { kind: string; label: string; canImport: boolean; onImported: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [validateOnly, setValidateOnly] = useState(true);
   const [report, setReport] = useState<ImportReport | null>(null);

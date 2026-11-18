@@ -215,8 +215,9 @@ public sealed class HepsiburadaAdapterContractTests
     {
         var (adapter, http) = Create();
         await FluentActions.Invoking(() => adapter.FetchReturnsAsync(DateTime.UtcNow, Ct)).Should().ThrowAsync<NotSupportedException>();
-        await FluentActions.Invoking(() => adapter.PushPriceAsync([], Ct)).Should().ThrowAsync<NotSupportedException>();
         http.Requests.Should().BeEmpty();
+        // Fiyat: uygulandı (ADR-028) ama KDV dokümanda yok → yetenek açılamaz (PriceContractTests)
+        adapter.DescribePriceUpdate().CanEnable.Should().BeFalse();
     }
 
     // ------------------------------------------------------------------ katalog (ADR-022)

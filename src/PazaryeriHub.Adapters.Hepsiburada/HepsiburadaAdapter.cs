@@ -13,7 +13,7 @@ namespace PazaryeriHub.Adapters.Hepsiburada;
 /// <summary>
 /// Hepsiburada gerçek adaptörü. Kaynak: developers.hepsiburada.com (Listeleme ve Sipariş Entegrasyonu; portal istemci tarafında
 /// çizildiği için uygulama içi tarayıcıyla okundu, bkz. docs/kanal-api-notlari.md). Dokümanda açık olmayan noktalar
-/// <c>// TODO: doğrulanmalı</c> ile işaretlidir. Kapsam (ADR-015): stok + sonuç, kanal stoğu, sipariş çekme. Fiyat gönderilmez.
+/// <c>// TODO: doğrulanmalı</c> ile işaretlidir. Kapsam: stok + sonuç, kanal stoğu, sipariş çekme; fiyat gönderimi (ADR-028; KDV doğrulanmadığı için yetenek açılamaz).
 /// <para>
 /// Eşleştirme anahtarı <b>HBSKU</b>'dur (eşleştirmede "Kanal Ürün Kodu"): ödemesi tamamlanmış sipariş yanıtı yalnızca HBSKU
 /// (<c>items.sku</c>) taşır; stok güncelleme de HBSKU kabul eder.
@@ -68,11 +68,18 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
             : new BatchResult(id, Accepted: true);
     }
 
+    /// <summary>
+    /// Stok ve fiyat yüklemelerinin sonuç uçları ayrıdır; fiyat yüklemesinin takip numarası <see cref="PriceBatchPrefix"/> ile
+    /// işaretlenir (ADR-028) ve <c>price-uploads/id/{id}</c>'den sorgulanır.
+    /// </summary>
     public async Task<BatchStatus> CheckBatchAsync(string batchId, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(batchId);
         var creds = await CredentialsAsync(ct);
+        var isPrice = batchId.StartsWith(PriceBatchPrefix, StringComparison.Ordinal);
+        var id = isPrice ? batchId[PriceBatchPrefix.Length..] : batchId;
         using var doc = await SendAsync(creds, HttpMethod.Get,
-            $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}/stock-uploads/id/{Uri.EscapeDataString(batchId)}", null, ct);
+            $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}/{(isPrice ? "price-uploads" : "stock-uploads")}/id/{Uri.EscapeDataString(id)}", null, ct);
         return MapUploadStatus(batchId, doc?.RootElement);
     }
 
@@ -97,6 +104,17 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
                 var hbSku = Str(e, "hepsiburadaSku");
                 var message = Str(e, "message") ?? Str(e, "description") ?? e.ToString();
                 errors.Add(new BatchItemError(hbSku, null, $"Hepsiburada: {message}"));
+            }
+        }
+
+        // Fiyat yüklemesi: eşik dışı fiyat listingi kilitler (MinLock/MaxLock; "Listing Bilgilerini Güncelleme" rehberindeki örnek).
+        if (r.TryGetProperty("priceValidations", out var validations) && validations.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var v in validations.EnumerateArray())
+            {
+                var hbSku = Str(v, "hepsiburadaSku");
+                var message = Str(v, "description") ?? Str(v, "type") ?? v.ToString();
+                errors.Add(new BatchItemError(hbSku, null, $"Hepsiburada fiyat kilidi ({Str(v, "type")}): {message}"));
             }
         }
 
@@ -288,8 +306,56 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
 
     // ------------------------------------------------------------------ Kapsam dışı / henüz doğrulanmamış
 
-    public Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct) =>
-        throw new NotSupportedException("Fiyat gönderimi kapsam dışı: fiyatlar Hepsiburada satıcı panelinden girilir (ADR-015).");
+    // ------------------------------------------------------------------ Fiyat (ADR-028)
+
+    /// <summary>Fiyat yüklemesi takip numarası öneki (sonuç ucu stoktan ayrı).</summary>
+    public const string PriceBatchPrefix = "price:";
+
+    internal const string PriceSource =
+        "developers.hepsiburada.com → Listeleme → Listing Fiyat Güncelleme (op=uploadPrice), Listing Fiyat Güncelleme Sorgulama (op=getPriceUpload), " +
+        "Listing Bilgilerini Güncelleme rehberi (2026-11-18 okundu)";
+
+    /// <summary>
+    /// Uç doğrulandı: <c>POST {listing}/listings/merchantid/{merchantId}/price-uploads</c> gövde <c>[{hepsiburadaSku, price}]</c>,
+    /// sonuç <c>GET …/price-uploads/id/{id}</c>. Tek fiyat alanı (liste fiyatı yok). Kategori eşiği dışındaki fiyat listingi kilitler.
+    /// TODO: doğrulanmalı — fiyatın KDV dahil olup olmadığı dokümanda YAZMIYOR → VatIncluded = null, yetenek açılamaz.
+    /// TODO: doğrulanmalı — POST yanıtındaki takip numarası alanı (stokta olduğu gibi "id" varsayılır).
+    /// </summary>
+    public PriceUpdateRule DescribePriceUpdate() => new(
+        Supported: true, VatIncluded: null, SendsListPrice: false, SamePriceForProductVariants: false,
+        "Hepsiburada dokümanı fiyatın KDV dahil mi hariç mi olduğunu belirtmiyor; yalnızca satış fiyatı gönderilir. Eşik dışı fiyat listingi kilitler.",
+        PriceSource);
+
+    public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(updates);
+        if (updates.Count > MaxItemsPerRequest)
+        {
+            throw new ArgumentException($"Hepsiburada tek istekte en fazla {MaxItemsPerRequest} SKU kabul eder.", nameof(updates));
+        }
+
+        var body = updates.Select(u =>
+        {
+            var hbSku = u.ChannelProductCode
+                ?? throw new ArgumentException("Hepsiburada fiyat güncellemesinde HBSKU (Kanal Ürün Kodu) zorunludur.", nameof(updates));
+            return u.SalePrice > 0m
+                ? new PriceUploadItem(hbSku, u.SalePrice)
+                : throw new ArgumentException($"Hepsiburada: {hbSku} için fiyat 0'dan büyük olmalı (0 listingi satışa kapatır).", nameof(updates));
+        }).ToList();
+
+        var creds = await CredentialsAsync(ct);
+        using var doc = await SendAsync(creds, HttpMethod.Post, $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}/price-uploads", body, ct);
+        var id = doc is not null && doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("id", out var idElement)
+            ? idElement.ToString()
+            : null;
+        return string.IsNullOrWhiteSpace(id)
+            ? throw new ChannelApiException(Code, "Hepsiburada fiyat isteğini aldı ancak takip numarası (id) dönmedi.")
+            : new BatchResult(PriceBatchPrefix + id, Accepted: true);
+    }
+
+    internal sealed record PriceUploadItem(string HepsiburadaSku, decimal Price);
+
+    // ------------------------------------------------------------------ Kapsam dışı / henüz doğrulanmamış
 
     /// <summary>
     /// Sipariş durumu bildirimi (ADR-026). Kaynak (2026-11-18 okundu): Sipariş Yönetimi → Paket Süreçleri → "Kalem veya Kalemleri Paketleme",

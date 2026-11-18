@@ -242,3 +242,43 @@ test('Kanal iade talebi: Depo depoya girer, Yönetici onaylar; karar denetim izi
     await page.request.put(`/api/channels/${ty.id}/capabilities/IADE_KARAR`, { data: { state: 'KAPALI' } });
   }
 });
+
+test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönetici onayıyla kapanır, gönderim önizleme sonrası açılır (ADR-028)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
+  const ty = channels.find(c => c.code === 'TRENDYOL')!;
+  try {
+    await page.getByRole('navigation').getByRole('link', { name: 'Fiyat' }).click();
+    await expect(page.getByRole('heading', { name: 'Fiyat', exact: true })).toBeVisible();
+
+    // 1) Onay bekleyen: Hepsiburada ilanı 300 → 499,90 (%66,63 > %30)
+    const approval = page.getByTestId('price-approval-row').filter({ hasText: d.priceSkuCode });
+    await expect(approval).toHaveCount(1);
+    await expect(approval).toContainText('%66.63');
+    await expect(approval).toContainText('Eşik aşıldı');
+    page.once('dialog', dialog => dialog.accept());
+    await approval.getByRole('button', { name: 'Onayla' }).click();
+    await expect(page.getByTestId('price-approval-row').filter({ hasText: d.priceSkuCode })).toHaveCount(0);
+    await page.getByLabel('Onay durumu').selectOption('ONAYLANDI');
+    await expect(page.getByTestId('price-approval-row').filter({ hasText: d.priceSkuCode })).toContainText('e2e-yonetici');
+
+    // 2) Önizleme (Trendyol, gönderim kapalı): demo SKU değişecekler arasında, kanala hiçbir şey gitmedi
+    await page.getByLabel('Fiyat kanalı').selectOption(String(ty.id));
+    await expect(page.getByTestId('price-capability')).toHaveText('Kapalı');
+    await expect(page.getByTestId('price-preview-summary')).toContainText('ilanın fiyatı değişecek');
+    const row = page.getByTestId('price-preview-row').filter({ hasText: d.priceSkuCode }).first();
+    await expect(row).toContainText('Değişecek');
+    await expect(row).toContainText('499,90');
+
+    // 3) Önizlemeden sonra aç (onay penceresi özetle gelir)
+    page.once('dialog', dialog => {
+      expect(dialog.message()).toContain('ilanın fiyatı değişecek');
+      void dialog.accept();
+    });
+    await page.getByRole('button', { name: 'Fiyat gönderimini aç' }).click();
+    await expect(page.getByTestId('price-capability')).toHaveText('Açık');
+  } finally {
+    await page.request.put(`/api/channels/${ty.id}/capabilities/FIYAT`, { data: { state: 'KAPALI' } });
+  }
+});

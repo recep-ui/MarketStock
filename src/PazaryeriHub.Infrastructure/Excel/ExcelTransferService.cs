@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using PazaryeriHub.Application.Excel;
+using PazaryeriHub.Application.Pricing;
 using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.Persistence;
@@ -16,6 +17,8 @@ namespace PazaryeriHub.Infrastructure.Excel;
 public sealed class ExcelTransferService(
     PazaryeriHubDbContext db,
     IStockLedger ledger,
+    IPriceService prices,
+    PazaryeriHub.Infrastructure.Persistence.SqlConnectionFactory connectionFactory,
     ILogger<ExcelTransferService> logger) : IExcelTransferService
 {
     public const string DefaultWarehouseName = "Ana Depo";
@@ -26,6 +29,7 @@ public sealed class ExcelTransferService(
     private static readonly string[] ProductExtraHeaders = ["Fiziksel", "Rezerve", "Güvenlik Stoğu", "Satılabilir"];
     private static readonly string[] StockExtraHeaders = ["Rezerve", "Güvenlik Stoğu", "Satılabilir", "Ürün Adı"];
     private static readonly string[] ListingExtraHeaders = ["Son Gönderilen Stok", "Son Senkron (UTC)"];
+    private static readonly string[] PriceExtraHeaders = ["Ürün Adı", "Renk", "Beden"];
 
     public byte[] CreateTemplate(ExcelKind kind) =>
         ExcelWorkbook.Write(ExcelLayouts.SheetName(kind), ExcelLayouts.For(kind), [], []);
@@ -45,6 +49,7 @@ public sealed class ExcelTransferService(
             ExcelKind.Products => await ImportProductsAsync(read.Rows, validateOnly, ct),
             ExcelKind.Stock => await ImportStockAsync(read.Rows, fileName, validateOnly, user, ct),
             ExcelKind.Listings => await ImportListingsAsync(read.Rows, validateOnly, ct),
+            ExcelKind.Prices => await ImportPricesAsync(read.Rows, validateOnly, user, ct),
             _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
         };
 
@@ -99,6 +104,19 @@ public sealed class ExcelTransferService(
                         l.Sku.SkuCode, l.Channel.Code, l.ChannelProductCode, l.ChannelBarcode, l.Status, l.LastSentStock, l.LastSyncUtc
                     }).ToListAsync(ct);
                 return ExcelWorkbook.Write(ExcelLayouts.SheetName(kind), ExcelLayouts.Listings, ListingExtraHeaders, rows);
+            }
+            case ExcelKind.Prices:
+            {
+                // Fiyat kolonları EF modelinde yok (ADR-028; Dapper ile yönetilir).
+                await using var connection = connectionFactory.Create();
+                await connection.OpenAsync(ct);
+                var rows = (await Dapper.SqlMapper.QueryAsync<(string SkuKodu, decimal? SatisFiyati, decimal? ListeFiyati, string Ad, string? Renk, string? Beden)>(
+                        connection, new Dapper.CommandDefinition("""
+                            SELECT s.SkuKodu, s.SatisFiyati, s.ListeFiyati, p.Ad, s.Renk, s.Beden
+                              FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId ORDER BY s.SkuKodu
+                            """, cancellationToken: ct)))
+                    .Select(r => new object?[] { r.SkuKodu, r.SatisFiyati, r.ListeFiyati, r.Ad, r.Renk, r.Beden }).ToList();
+                return ExcelWorkbook.Write(ExcelLayouts.SheetName(kind), ExcelLayouts.Prices, PriceExtraHeaders, rows);
             }
             default:
                 throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
@@ -382,6 +400,31 @@ public sealed class ExcelTransferService(
         db.ChangeTracker.Clear();
 
         return Report(ExcelKind.Listings, validateOnly, rawRows.Count, created, updated, unchanged, errors);
+    }
+
+    // ------------------------------------------------------------------ Fiyat (ADR-028)
+
+    private async Task<ImportReport> ImportPricesAsync(IReadOnlyList<RawRow> rawRows, bool validateOnly, string? user, CancellationToken ct)
+    {
+        var outcome = ImportValidators.ValidatePrices(rawRows);
+        var errors = outcome.Errors.ToList();
+        var codes = outcome.Valid.Select(r => r.SkuCode).Distinct().ToList();
+        var skuIds = (await db.Skus.AsNoTracking().Where(s => codes.Contains(s.SkuCode)).Select(s => new { s.SkuCode, s.Id }).ToListAsync(ct))
+            .ToDictionary(x => x.SkuCode, x => x.Id, StringComparer.Ordinal);
+
+        var changes = new List<SkuPriceChange>();
+        foreach (var r in outcome.Valid)
+        {
+            if (!skuIds.TryGetValue(r.SkuCode, out var skuId))
+            {
+                errors.Add(new(r.Row, "SKU Kodu", $"SKU bulunamadı: '{r.SkuCode}'. Önce ürün şablonuyla ekleyin."));
+                continue;
+            }
+            changes.Add(new SkuPriceChange(skuId, r.ListPrice, r.SalePrice));
+        }
+
+        var result = await prices.ApplySkuPricesAsync(changes, "EXCEL", user, validateOnly, ct);
+        return Report(ExcelKind.Prices, validateOnly, rawRows.Count, 0, result.Updated, result.Unchanged, errors);
     }
 
     // ------------------------------------------------------------------ Yardımcılar
