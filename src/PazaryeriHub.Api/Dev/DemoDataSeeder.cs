@@ -12,7 +12,7 @@ namespace PazaryeriHub.Api.Dev;
 public sealed record DemoDataResult(
     string Tag, IReadOnlyList<string> SkuCodes, IReadOnlyList<string> OrderNos, long FailedSyncId,
     string DeviationSkuCode, int DeviationExpected, int DeviationChannelStock, string MultiListingSkuCode, string ReturnNo,
-    string PriceSkuCode);
+    string PriceSkuCode, string QuestionNo);
 
 /// <summary>
 /// Yalnızca Development/Testing: panel ekranlarını ve Playwright senaryolarını beslemek için etiketli demo veri üretir.
@@ -133,6 +133,12 @@ public sealed class DemoDataSeeder(
             VALUES (@listingId, 300, 499.90, 599.90, 66.63, 'ESIK');
             """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Hepsiburada)] });
 
+        // Müşteri sorusu (ADR-029): Trendyol'da cevap bekleyen bir soru; SoruCek'in yazdığı yolla tekil kaydedilir. Müşteri bilgisi yok.
+        var questionNo = $"DEMO-{tag}-SORU1";
+        await services.GetRequiredService<PazaryeriHub.Application.Questions.IQuestionService>().UpsertAsync(channels[ChannelCodes.Trendyol],
+            new PazaryeriHub.Application.Questions.NormalizedQuestion(questionNo, $"Demo Tişört {tag} kumaşı yüzde yüz pamuk mu?", product.Name, $"DEMO-{tag}",
+                DateTime.UtcNow.AddMinutes(-30), "WAITING_FOR_ANSWER", PazaryeriHub.Application.Questions.QuestionChannelState.Waiting, DateTime.UtcNow.AddDays(1)), ct);
+
         // Kanal iade talebi (ADR-027): kargodaki 2. sipariş (Trendyol) için; IadeCek'in yazdığı yolla tekil kaydedilir.
         var returnNo = $"DEMO-{tag}-IADE1";
         await services.GetRequiredService<PazaryeriHub.Application.Orders.IReturnService>().UpsertAsync(channels[ChannelCodes.Trendyol],
@@ -141,6 +147,6 @@ public sealed class DemoDataSeeder(
 
         return new DemoDataResult(tag, product.Skus.Select(s => s.SkuCode).ToList(), orderNos, failedSyncId,
             product.Skus[2].SkuCode, targets[deviationListing], targets[deviationListing] + 1, product.Skus[1].SkuCode, returnNo,
-            product.Skus[0].SkuCode);
+            product.Skus[0].SkuCode, questionNo);
     }
 }

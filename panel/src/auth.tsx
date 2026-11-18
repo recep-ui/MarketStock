@@ -10,7 +10,8 @@ const policies = {
   stockWrite: ['Yonetici', 'Depo'],
   orderWrite: ['Yonetici', 'Depo'],
   catalogWrite: ['Yonetici'],
-  admin: ['Yonetici']
+  admin: ['Yonetici'],
+  questionAnswer: ['Yonetici', 'Destek']
 } satisfies Record<string, Role[]>;
 export type Policy = keyof typeof policies;
 

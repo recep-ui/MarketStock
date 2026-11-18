@@ -16,6 +16,25 @@ internal sealed record PriceOnlyItem(string Barcode, decimal SalePrice, decimal 
 
 internal sealed record BatchRequestCreated(string? BatchRequestId);
 
+/// <summary>Soru (Getting Customer Questions; ADR-029). Müşteri alanları (customerId, userName) bilerek modellenmez → okunmaz.</summary>
+internal sealed class QnaQuestion
+{
+    public long Id { get; init; }
+    public string? Text { get; init; }
+    public string? Status { get; init; }
+    public long? CreationDate { get; init; }
+    public string? ProductName { get; init; }
+    public string? ProductMainId { get; init; }
+    public QnaAnswer? Answer { get; init; }
+}
+
+internal sealed class QnaAnswer
+{
+    public string? Text { get; init; }
+}
+
+internal sealed record QnaAnswerBody(string Text);
+
 internal sealed class BatchRequestResult
 {
     public string? BatchRequestId { get; init; }

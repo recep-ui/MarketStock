@@ -72,6 +72,33 @@ public sealed class MockChannelStore
     /// <summary>Sonraki FetchOrdersAsync çağrısında fırlatılacak hata (hata senaryosu testleri için).</summary>
     public ConcurrentDictionary<string, Exception> FailNextFetch { get; } = new(StringComparer.Ordinal);
 
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, PazaryeriHub.Application.Questions.NormalizedQuestion>> _questions = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<(string Channel, PazaryeriHub.Application.Questions.QuestionAnswerRequest Answer)> _answers = new();
+
+    /// <summary>Kanala soru ekler/günceller (aynı numara → güncelleme).</summary>
+    public void UpsertQuestion(string channelCode, PazaryeriHub.Application.Questions.NormalizedQuestion question) =>
+        _questions.GetOrAdd(channelCode, _ => new(StringComparer.Ordinal))[question.QuestionNo] = question;
+
+    public IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion> QuestionsOf(string channelCode) =>
+        _questions.TryGetValue(channelCode, out var q) ? q.Values.ToList() : [];
+
+    /// <summary>Kanala giden cevaplar (sırayla; "kaç kez gitti" kontrolü için).</summary>
+    public IReadOnlyList<PazaryeriHub.Application.Questions.QuestionAnswerRequest> AnswersOf(string channelCode) =>
+        _answers.Where(a => a.Channel == channelCode).Select(a => a.Answer).ToList();
+
+    /// <summary>Mock cevap: soru cevaplandı durumuna geçer (gerçek kanaldaki gibi bir sonraki çekimde görünür).</summary>
+    public void RecordAnswer(string channelCode, PazaryeriHub.Application.Questions.QuestionAnswerRequest answer)
+    {
+        _answers.Enqueue((channelCode, answer));
+        if (_questions.TryGetValue(channelCode, out var q) && q.TryGetValue(answer.QuestionNo, out var question))
+        {
+            q[answer.QuestionNo] = question with { State = PazaryeriHub.Application.Questions.QuestionChannelState.Answered, AnswerText = answer.Text, ChannelStatus = "ANSWERED" };
+        }
+    }
+
+    /// <summary>Kanal için ayarlanırsa soru okuma "desteklenmiyor" döner (doğrulanmamış kanal senaryosu).</summary>
+    public ConcurrentDictionary<string, bool> UnsupportedQuestions { get; } = new(StringComparer.Ordinal);
+
     /// <summary>Kanal için ayarlanırsa her PushPriceAsync bu hatayı fırlatır (kaldırılana kadar).</summary>
     public ConcurrentDictionary<string, Exception> FailPricePush { get; } = new(StringComparer.Ordinal);
 
@@ -221,6 +248,20 @@ public sealed class MockChannelAdapter(string channelCode, MockChannelStore stor
         store.BatchErrors[batchId] = errors;
         return Task.FromResult(new BatchResult(batchId, Accepted: true));
     }
+
+    public Task<IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct) =>
+        store.UnsupportedQuestions.ContainsKey(ChannelCode)
+            ? throw new NotSupportedException("Mock: bu kanalın soru API'si doğrulanmadı.")
+            : Task.FromResult(store.QuestionsOf(ChannelCode));
+
+    public Task AnswerQuestionAsync(PazaryeriHub.Application.Questions.QuestionAnswerRequest request, CancellationToken ct)
+    {
+        store.RecordAnswer(ChannelCode, request);
+        return Task.CompletedTask;
+    }
+
+    public PazaryeriHub.Application.Questions.QuestionAnswerRule DescribeQuestionAnswer() =>
+        new(!store.UnsupportedQuestions.ContainsKey(ChannelCode), 10, 2000, "Mock kanal (gerçek API çağrısı yok).");
 
     /// <summary>Mock: KDV dahil kabul edilir (gerçek kanal çağrısı yok). Testler <see cref="MockChannelStore.PriceRules"/> ile değiştirebilir.</summary>
     public PriceUpdateRule DescribePriceUpdate() =>

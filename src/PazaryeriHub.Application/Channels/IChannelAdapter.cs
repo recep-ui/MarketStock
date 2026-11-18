@@ -1,3 +1,4 @@
+using PazaryeriHub.Application.Questions;
 using PazaryeriHub.Domain.Orders;
 
 namespace PazaryeriHub.Application.Channels;
@@ -59,6 +60,18 @@ public interface IChannelAdapter
     /// Kanal bu listeyi doğrulanmış bir servis veya doküman listesiyle vermiyorsa <see cref="NotSupportedException"/> fırlatır.
     /// </summary>
     Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct);
+
+    /// <summary>
+    /// Müşteri soruları (ADR-029; spesifikasyon §6'ya EK). Salt okuma; müşteri adı/kimliği döndürülmez (KVKK).
+    /// Kanalın soru API'si resmi dokümanda doğrulanmamışsa <see cref="NotSupportedException"/> fırlatır.
+    /// </summary>
+    Task<IReadOnlyList<NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct);
+
+    /// <summary>Soru cevabı. Kanala yazar → yalnızca KanalKomutGonder'den ve yazma kapısından (SORU_CEVAP) geçerek çağrılır.</summary>
+    Task AnswerQuestionAsync(QuestionAnswerRequest request, CancellationToken ct);
+
+    /// <summary>Kanalın cevap kuralı (uzunluk; statik, kanal çağrısı yok).</summary>
+    QuestionAnswerRule DescribeQuestionAnswer();
 }
 
 /// <summary>Kanal kataloğundaki tek ürün (varyant). Alanlar kanalın verdiği kadar doludur.</summary>

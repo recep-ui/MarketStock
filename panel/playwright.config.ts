@@ -70,6 +70,7 @@ export default defineConfig({
       Senkron__OutboxCron: '',
       Senkron__PushCron: '',
       Senkron__PricePushCron: '',
+      Senkron__QuestionFetchCron: '',
       Senkron__BatchCheckCron: '',
       Senkron__ReconciliationCron: '',
       Siparis__FetchCron: '',

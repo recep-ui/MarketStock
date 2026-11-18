@@ -190,4 +190,15 @@ public sealed class GuardedChannelAdapter(IChannelAdapter inner, IChannelWriteGa
     public Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct) => inner.FetchCatalogAsync(cursor, ct);
 
     public Task<ChannelReferenceList> FetchReferenceAsync(ChannelReferenceType type, CancellationToken ct) => inner.FetchReferenceAsync(type, ct);
+
+    public Task<IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct) =>
+        inner.FetchQuestionsAsync(sinceUtc, ct);
+
+    public async Task AnswerQuestionAsync(PazaryeriHub.Application.Questions.QuestionAnswerRequest request, CancellationToken ct)
+    {
+        await gate.EnsureAllowedAsync(ChannelCode, ChannelCapabilities.QuestionAnswer, ct);
+        await inner.AnswerQuestionAsync(request, ct);
+    }
+
+    public PazaryeriHub.Application.Questions.QuestionAnswerRule DescribeQuestionAnswer() => inner.DescribeQuestionAnswer();
 }

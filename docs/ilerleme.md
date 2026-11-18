@@ -7,6 +7,37 @@
 
 ---
 
+## Entegrasyon genişletme M5: Soru-Cevap (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- **SoruCek job'ı + tablolar** (`CustomerQuestion`, `QuestionAnswerLog`; migration 0014): Trendyol ve Beymen soruları tekil kaydedilir.
+  - Müşteri adı, kimliği ve iletişim bilgisi saklanmaz.
+  - Hepsiburada mock: liste yanıt şeması dokümanda yok.
+- **Cevap:**
+  - Yönetici ve Destek gönderebilir (yeni "SoruCevap" yetkisi); Muhasebe ve Depo 403.
+  - "Gönderilecek cevap" onay kutusu zorunlu.
+  - Kanal uzunluk kuralı uygulanır (Trendyol 10–2000).
+  - Soru başına tek etkin cevap.
+  - Cevap `SORU_CEVAP` kanal işlemi olarak gider (varsayılan KAPALI; DENEME'de Yönetici onayı).
+  - Her cevap kullanıcı adı ve zamanla kaydedilir.
+- **Panel:** "Soru-Cevap" ekranı.
+- **Testler:**
+  - Unit 276/276. Yeni 5 contract testi:
+    - Trendyol: 2 haftalık pencere, müşteri bilgisi taşınmaz, cevap gövdesi ve uzunluk.
+    - Beymen: durum kodları, Türkiye saati, cevap gövdesi.
+    - Hepsiburada: desteklenmiyor.
+  - Integration 132/132. Yeni 4 test:
+    - 5 kez gelen soru tek kayıt; KVKK kolon kontrolü.
+    - Destek gönderir, Muhasebe 403; onay kutusu ve uzunluk; tek cevap, kanala bir kez; denetim.
+    - DENEME.
+    - Doğrulanmamış kanal atlanır.
+  - Playwright 11/11:
+    - Yeni senaryo: Destek onay kutusuyla cevap gönderir.
+    - Ekran turuna Fiyat ve Soru-Cevap eklendi.
+    - Edge ile çalıştırıldı.
+- **Doğrulanmayanlar:** ADR-029.
+
+---
+
 ## Entegrasyon genişletme M4: Fiyat (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - **Fiyat verisi** (migration 0013):

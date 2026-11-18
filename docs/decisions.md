@@ -543,3 +543,53 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **Hepsiburada:** price-uploads POST yanıtındaki takip alanı (`id` varsayıldı); sonuç `errors[]` şeması.
 - **Trendyol:** fiyat-only batch sonucunda `requestItem` içinde barkod olduğu (stoktaki varsayımla aynı).
 - Kanalların "15 dk aynı istek" kuralı: fiyat ve stok gövdeleri farklı olduğu için çakışmaz; ancak aynı fiyatı 15 dk içinde tekrar göndermek (ör. HATA sonrası yeniden dene) reddedilebilir.
+
+## ADR-029: Müşteri soruları (Soru-Cevap, M5)
+**Tarih:** 2026-11-18
+**Bağlam:**
+Ürün sahibinin kararları:
+- Soru-cevap yalnızca resmi dokümanda doğrulanan kanallarda açılır; önce Trendyol. Doğrulanmayan kanal mock kalır.
+- Destek cevap yazıp gönderebilir; müşteri adı maskeli kalır. Bunun için yeni bir "SoruCevap" yetkisi gerekir.
+- İkinci kişi onayı yok. Ama gönderilen her cevap kullanıcı adı ve zamanla kaydedilir ve göndermeden önce "Gönderilecek cevap" onay kutusu zorunludur.
+- KVKK: soru metni ve ürün bilgisi saklanır; müşteri adı ve iletişim bilgisi saklanmaz.
+
+**Karar:**
+- **Migration 0014:**
+  - `CustomerQuestion`: `UNIQUE(ChannelId, KanalSoruNo)`; soru metni, ürün adı/kodu, SKU (ilan eşleşmesiyle), durum (CEVAP_BEKLIYOR | CEVAPLANDI | KAPANDI), kanal durumu, kanaldaki cevap, son cevap tarihi. Müşteri adı/kimliği **kolon olarak yok**.
+  - `QuestionAnswerLog`: yalnızca eklenir (cevap metni, kullanıcı, zaman, kanal komutu).
+  - `ChannelJobState.IsTipi` += `SORU_CEK`.
+- **Sözleşme eki (§6):** `FetchQuestionsAsync(since)`, `AnswerQuestionAsync(QuestionAnswerRequest)`, `DescribeQuestionAnswer()`.
+  - `NormalizedQuestion` müşteri alanı taşımaz; adaptörler müşteri alanlarını modellemez, dolayısıyla okumaz.
+  - Gerçek adaptörde cevap yazma kapısından (`SORU_CEVAP`) geçer.
+- **SoruCek** (`Senkron:QuestionFetchCron`, 5 dk, kanal başına; elle `POST /api/questions/fetch/{kanal}`, Yönetici):
+  - Pencere: son başarılı − 1 saat, ilk çalışmada 7 gün.
+  - Aynı soru kaç kez gelirse gelsin tek kayıt; durum değişince güncellenir.
+  - Soru API'si doğrulanmamış kanal atlanır, hata sayılmaz.
+- **Cevap** (`POST /api/questions/{id}/answer`; SoruCevap yetkisi = Yönetici + Destek):
+  - Onay kutusu (`confirmed`) zorunlu.
+  - Uzunluk kanal kuralına göre kontrol edilir.
+  - Soru cevap bekliyor olmalı ve son cevap tarihi geçmemiş olmalı.
+  - Soru başına tek etkin cevap var; değiştirmek için kanal işleminden iptal edilir.
+  - Denetim kaydı ve `SORU_CEVAP` kanal komutu aynı transaction'da yazılır.
+  - Yetenek KAPALI ise kayıt oluşmaz (409). DENEME ise Yönetici onayı bekler (M2 kuyruğu).
+- **Kanallar** (resmi doküman, 2026-11-18):
+
+  | Kanal | Okuma | Cevap | Durum |
+  |---|---|---|---|
+  | Trendyol | `GET /qna/sellers/{id}/questions/filter` (startDate/endDate ms, ≤2 hafta → 14 günlük parçalar; page 0'dan, size ≤50) | `POST …/questions/{id}/answers` `{text}` (10–2000; yalnızca WAITING_FOR_ANSWER) | uygulandı |
+  | Beymen | `GET /questions/filter` (`items[]{id, question, answer, productName, modelCode, status, maxPermittedResponseTime, createdDate}`) | `POST /questions/{id}/answer` `{answer}` | uygulandı (durum kodları varsayım) |
+  | Hepsiburada | `GET api-asktoseller-merchant-sit…/api/v1.0/issues` (merchantId başlıkta) — **liste kök şeması ve tarih biçimi yok** | `POST …/issues/{number}/answer` multipart (Answer ≤2000) | **desteklenmiyor (mock)** |
+
+- **Panel:** yeni "Soru-Cevap" ekranı.
+  - Liste: kanal, durum ve arama filtresi; cevap bekleyenler ve son tarihi en yakın olanlar önce.
+  - Detay ve cevap formu: karakter sayacı, "Gönderilecek cevap" önizlemesi ve onay kutusu. Kutu işaretlenmeden "Cevabı gönder" pasiftir.
+  - Gönderilen cevaplar: kullanıcı, zaman, kanal işlemi durumu.
+  - Muhasebe ve Depo yalnızca görür.
+
+**Doğrulanmadı:**
+- Trendyol: startDate/endDate'in soru oluşturma mı son güncelleme tarihine mi uygulandığı (parametre açıklaması "orders" diyor). Örtüşmeli pencere kullanılıyor.
+- Beymen:
+  - `status` sayısal; dokümandaki `QnAStatus` enum sırasına göre 0 PendingResponse … 5 PlatformResponded varsayıldı.
+  - Tarihler 'Z'siz → Türkiye saati varsayıldı.
+  - Cevap uzunluk sınırı dokümanda yok; 10–2000 uygulanıyor.
+- Hepsiburada: liste yanıt örneği (`docs/` altına) ve tarih parametre biçimi gerekiyor.

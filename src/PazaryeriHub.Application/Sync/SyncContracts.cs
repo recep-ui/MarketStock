@@ -22,6 +22,9 @@ public sealed class SyncOptions
     /// <summary>ReferansCek (kanal başına; Satıcı Bilgileri, ADR-025). Varsayılan haftalık, Pazartesi 01:00 UTC.</summary>
     public string? ReferenceCron { get; set; } = "0 1 * * 1";
 
+    /// <summary>SoruCek (kanal başına; ADR-029). Kanallar 1–2 iş günü cevap süresi verdiği için 5 dakikada bir.</summary>
+    public string? QuestionFetchCron { get; set; } = "*/5 * * * *";
+
     /// <summary>FiyatGonder (kanal başına; ADR-028). FIYAT yeteneği KAPALI kanalda hiçbir şey talep etmez.</summary>
     public string? PricePushCron { get; set; } = "*/10 * * * * *";
 

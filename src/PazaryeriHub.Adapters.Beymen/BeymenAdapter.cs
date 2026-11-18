@@ -437,6 +437,75 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
         _ => throw new NotSupportedException($"Beymen için '{type}' referans tipi desteklenmiyor.")
     });
 
+    // ------------------------------------------------------------------ Soru-Cevap (ADR-029)
+
+    /// <summary>
+    /// <c>GET /questions/filter?startDate&amp;endDate&amp;page&amp;size</c> → <c>items[]{id, productName, modelCode, color, size, question, answer,
+    /// status, maxPermittedResponseTime, createdDate}</c>. Müşteri bilgisi yanıtta yok.
+    /// TODO: doğrulanmalı — status sayısal; dokümandaki QnAStatus enum sırasına göre 0 PendingResponse, 1 IssueReported, 2 Rejected,
+    /// 3 PendingPlatformReview, 4 MerchantResponded, 5 PlatformResponded varsayıldı. Tarihler 'Z'siz → Türkiye saati varsayıldı.
+    /// </summary>
+    public async Task<IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct)
+    {
+        var creds = await CredentialsAsync(ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var items = await PageAsync(creds, "/questions/filter", $"startDate={Date(sinceUtc)}&endDate={Date(now)}", ct);
+        return items.Select(MapQuestion).OfType<PazaryeriHub.Application.Questions.NormalizedQuestion>().ToList();
+    }
+
+    internal static PazaryeriHub.Application.Questions.NormalizedQuestion? MapQuestion(JsonElement q)
+    {
+        var id = Str(q, "id");
+        var text = Str(q, "question");
+        if (id is null || string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+        var status = Int(q, "status");
+        var state = status switch
+        {
+            0 => PazaryeriHub.Application.Questions.QuestionChannelState.Waiting,
+            3 or 4 or 5 => PazaryeriHub.Application.Questions.QuestionChannelState.Answered,
+            _ => PazaryeriHub.Application.Questions.QuestionChannelState.Closed
+        };
+        var statusName = status switch
+        {
+            0 => "PendingResponse", 1 => "IssueReported", 2 => "Rejected", 3 => "PendingPlatformReview", 4 => "MerchantResponded", 5 => "PlatformResponded",
+            _ => status?.ToString(CultureInfo.InvariantCulture)
+        };
+        return new(id, text, Str(q, "productName"), Str(q, "modelCode"), TurkeyTime(Str(q, "createdDate")) ?? DateTime.UtcNow, statusName, state,
+            TurkeyTime(Str(q, "maxPermittedResponseTime")), Str(q, "answer"));
+    }
+
+    private static DateTime? TurkeyTime(string? value)
+    {
+        if (value is null || !DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
+        {
+            return null;
+        }
+        return parsed.Kind == DateTimeKind.Unspecified
+            ? TimeZoneInfo.ConvertTimeToUtc(parsed, TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul"))
+            : parsed.ToUniversalTime();
+    }
+
+    /// <summary><c>POST /questions/{id}/answer</c> <c>{"answer"}</c> (200).</summary>
+    public async Task AnswerQuestionAsync(PazaryeriHub.Application.Questions.QuestionAnswerRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var rule = DescribeQuestionAnswer();
+        var text = request.Text?.Trim() ?? "";
+        if (text.Length < rule.MinLength || text.Length > rule.MaxLength)
+        {
+            throw new ArgumentException($"Beymen cevabı {rule.MinLength}–{rule.MaxLength} karakter olmalı.", nameof(request));
+        }
+        var creds = await CredentialsAsync(ct);
+        using var _ = await SendAsync(creds, HttpMethod.Post, $"/questions/{Uri.EscapeDataString(request.QuestionNo)}/answer", new { answer = text }, ct);
+    }
+
+    /// <summary>TODO: doğrulanmalı — Beymen dokümanında cevap uzunluk sınırı yok; 10–2000 (Trendyol ile aynı) güvenli sınır olarak uygulanır.</summary>
+    public PazaryeriHub.Application.Questions.QuestionAnswerRule DescribeQuestionAnswer() => new(true, 10, 2000,
+        "Beymen dokümanında uzunluk sınırı yok; 10–2000 karakter uygulanır. Son cevap tarihi kanaldan gelir.");
+
     // ------------------------------------------------------------------ Fiyat (ADR-028)
 
     internal const string PriceSource = "partner-docs.beymen.com/en → Bulk Price and Stock Update (2026-11-18 okundu)";

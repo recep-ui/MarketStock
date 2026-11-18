@@ -123,6 +123,32 @@
     - Aynı productId tekrarı → hepsi başarısız. ≤1000 kalem. Aynı istek 15 dk tekrarlanamaz.
   - ✅ Sonuç: "Different price information was detected for size variants of the same product. The same price must be sent for all size variants."
 
+## 3e. Soru-Cevap (2026-11-18 okundu, ADR-029)
+
+- **Trendyol** (`/v2.0/docs/getting-customer-questions`, `/answering-customer-questions`):
+  - ✅ `GET https://apigw.trendyol.com/integration/qna/sellers/{sellerId}/questions/filter`
+    - Parametreler: barcode, page (0'dan), size (≤50), startDate/endDate (ms; tarih yoksa son 1 hafta, en fazla 2 hafta), status, orderByField (LastModifiedDate | CreatedDate), orderByDirection.
+    - Durumlar: WAITING_FOR_ANSWER, WAITING_FOR_APPROVE, ANSWERED, REPORTED, REJECTED, UNANSWERED.
+    - Yanıt `content[]{id, text, status, creationDate, productName, productMainId, imageUrl, webUrl, answer{text,…}, rejectedAnswer, customerId, userName, showUserName}`. **customerId ve userName okunmaz.**
+  - ✅ `POST …/questions/{id}/answers` `{"text"}` → `{answerId}`.
+    - 10–2000 karakter; yalnızca WAITING_FOR_ANSWER cevaplanabilir.
+    - Yasaklı kelimede cevap reddedilir ve soru tekrar bekler; limit aşılırsa soru UNANSWERED olur.
+  - ⚠️ startDate/endDate'in hangi tarihe uygulandığı net değil.
+- **Beymen** (Question-Answer Integration):
+  - ✅ `GET /questions/filter?size&page&productName&modelCode&color&brandName&status&startDate&endDate`.
+    - Yanıt: `items[]{id, productName, modelCode, color, size, brandName, question, answer, imageUrl, status, maxPermittedResponseTime, actionDate, createdDate}`, `page`, `itemsPerPage`, `pageCount`, `total`.
+    - Müşteri bilgisi yok.
+  - ✅ `POST /questions/{id}/answer` `{"answer"}` (200).
+  - ✅ `POST /questions/{id}/report-issue` `{"reportReason"}` (kullanılmıyor).
+  - ⚠️ `status` sayısal, enum değerleri verilmemiş (sıra varsayıldı); tarih biçimi; cevap uzunluk sınırı yok.
+- **Hepsiburada** (Satıcıya Sor Entegrasyonu):
+  - ✅ Liste: `GET https://api-asktoseller-merchant-sit.hepsiburada.com/api/v1.0/issues`
+    - Başlık: merchantId, User-Agent.
+    - Parametreler: source, subject, min/maxCreatedAt, min/maxModifiedAt, issueNumber, status (1 WaitingForAnswer, 2 Answered, 3 Rejected, 4 AutoClosed), search, sortBy, desc, page (1'den), size (25).
+  - ✅ Cevap: `POST …/issues/{number}/answer`, multipart (`Answer` ≤2000, `Files`). Cevap süresi 1 iş günü (`expireDate`).
+  - ✅ Alan açıklamaları: issueNumber, customerId, orderNumber, lineItemId, status, subject, lastContent, conversations[], product{sku, name, stockCode}, expireDate, lastModifiedAt.
+  - ⚠️ **Liste yanıtının kök şeması ve tarih parametre biçimi yok** → mock.
+
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 

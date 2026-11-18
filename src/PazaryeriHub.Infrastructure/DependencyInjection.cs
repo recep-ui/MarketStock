@@ -70,6 +70,8 @@ public static class DependencyInjection
         services.AddSingleton<IChannelCommandHandler, OrderStatusCommandHandler>();
         services.AddScoped<IReturnService, ReturnService>();
         services.AddSingleton<IChannelCommandHandler, ReturnDecisionCommandHandler>();
+        services.AddScoped<PazaryeriHub.Application.Questions.IQuestionService, Questions.QuestionService>();
+        services.AddSingleton<IChannelCommandHandler, Questions.QuestionAnswerCommandHandler>();
 
         // Senkron hattı (Outbox → SyncQueue → kanal).
         services.AddOptions<SyncOptions>().BindConfiguration(SyncOptions.SectionName);
@@ -143,6 +145,7 @@ public static class DependencyInjection
         services.AddTransient<ReferenceFetchJob>();
         services.AddTransient<ChannelCommandJob>();
         services.AddTransient<ReturnFetchJob>();
+        services.AddTransient<Questions.QuestionFetchJob>();
         services.AddHostedService<RecurringJobRegistrar>();
     }
 }

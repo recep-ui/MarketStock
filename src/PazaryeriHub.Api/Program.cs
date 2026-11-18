@@ -107,6 +107,7 @@ try
     app.MapOrderEndpoints(app.Environment);
     app.MapSyncEndpoints();
     app.MapPriceEndpoints();
+    app.MapQuestionEndpoints();
 
     if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {

@@ -306,6 +306,23 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
 
     // ------------------------------------------------------------------ Kapsam dışı / henüz doğrulanmamış
 
+    // ------------------------------------------------------------------ Soru-Cevap (ADR-029)
+
+    /// <summary>
+    /// "Satıcıya Sor Entegrasyonu" okundu (2026-11-18): <c>GET https://api-asktoseller-merchant-sit.hepsiburada.com/api/v1.0/issues</c>
+    /// (merchantId başlıkta), cevap <c>POST …/issues/{number}/answer</c> multipart (Answer ≤2000).
+    /// TODO: doğrulanmalı — liste yanıtının kök şeması (dizi mi, sayfalı nesne mi) ve tarih parametre biçimi dokümanda yok →
+    /// planda kararlaştırıldığı gibi doğrulanana kadar desteklenmiyor (mock).
+    /// </summary>
+    public Task<IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct) =>
+        throw new NotSupportedException("Hepsiburada soru listesi yanıt şeması dokümanda yok; gerçek bir yanıt örneği docs/ altına konunca eklenecek.");
+
+    public Task AnswerQuestionAsync(PazaryeriHub.Application.Questions.QuestionAnswerRequest request, CancellationToken ct) =>
+        throw new NotSupportedException("Hepsiburada soru cevabı, soru okuma doğrulanana kadar desteklenmiyor.");
+
+    public PazaryeriHub.Application.Questions.QuestionAnswerRule DescribeQuestionAnswer() =>
+        PazaryeriHub.Application.Questions.QuestionAnswerRule.NotSupported("Hepsiburada soru listesi yanıt şeması dokümanda yok.");
+
     // ------------------------------------------------------------------ Fiyat (ADR-028)
 
     /// <summary>Fiyat yüklemesi takip numarası öneki (sonuç ucu stoktan ayrı).</summary>

@@ -30,6 +30,9 @@ public static class Policies
     public const string OrderWrite = "SiparisYazma";
     public const string CatalogWrite = "KatalogYazma";
     public const string Admin = "Yonetim";
+
+    /// <summary>Müşteri sorusuna cevap yazma/gönderme (ADR-029): Yönetici + Destek.</summary>
+    public const string QuestionAnswer = "SoruCevap";
 }
 
 public sealed record UserDto(int Id, string UserName, string FullName, string Role, bool Active, DateTime? LastLoginUtc);

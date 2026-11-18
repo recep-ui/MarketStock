@@ -100,7 +100,8 @@ test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   const screens: [string, string][] = [
     ['Genel Bakış', 'Genel Bakış'], ['Stok Listesi', 'Stok Listesi'], ['Stok Hareketleri', 'Stok Hareketleri'],
     ['Siparişler', 'Siparişler'], ['İade / İptal', 'İade / İptal'], ['Eşleştirme', 'Eşleştirme'],
-    ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Ayarlar', 'Ayarlar']
+    ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Fiyat', 'Fiyat'], ['Soru-Cevap', 'Soru-Cevap'],
+    ['Ayarlar', 'Ayarlar']
   ];
   for (const [link, heading] of screens) {
     await page.getByRole('navigation').getByRole('link', { name: link, exact: true }).click();
@@ -280,5 +281,51 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
     await expect(page.getByTestId('price-capability')).toHaveText('Açık');
   } finally {
     await page.request.put(`/api/channels/${ty.id}/capabilities/FIYAT`, { data: { state: 'KAPALI' } });
+  }
+});
+
+test('Soru-Cevap: Destek onay kutusunu işaretleyip cevap gönderir; cevap kullanıcı adıyla kaydedilir ve kanal kuyruğuna girer (ADR-029)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
+  const ty = channels.find(c => c.code === 'TRENDYOL')!;
+  await page.request.put(`/api/channels/${ty.id}/capabilities/SORU_CEVAP`, { data: { state: 'ACIK' } });
+  let questionId: number | undefined;
+  try {
+    await page.context().clearCookies();
+    await login(page, 'e2e-destek');
+    await page.getByRole('navigation').getByRole('link', { name: 'Soru-Cevap' }).click();
+    await page.getByLabel('Soru ara').fill(d.questionNo);
+    const row = page.getByTestId('question-row');
+    await expect(row).toHaveCount(1);
+    await row.click();
+
+    const detail = page.getByTestId('question-detail');
+    await expect(detail.getByTestId('question-text')).toContainText('pamuk');
+    const answer = 'Merhaba, ürünümüz %100 pamuktur. İyi günlerde kullanın.';
+    await detail.getByLabel('Cevap').fill(answer);
+    const send = detail.getByRole('button', { name: 'Cevabı gönder' });
+    await expect(send).toBeDisabled();                       // onay kutusu işaretlenmeden gönderilmez
+    await expect(detail.getByTestId('answer-preview')).toContainText(answer);
+    await detail.getByRole('checkbox').check();
+    await send.click();
+
+    const answers = detail.getByTestId('question-answers');
+    await expect(answers).toContainText(answer);
+    await expect(answers).toContainText('e2e-destek');
+    await expect(answers).toContainText('Kuyrukta');
+    await expect(detail.getByTestId('cannot-answer')).toContainText('zaten bir cevap var');
+
+    const list = await (await page.request.get(`/api/questions?search=${encodeURIComponent(d.questionNo)}`)).json();
+    questionId = list.items[0].id;
+  } finally {
+    // Temizlik (Yönetici): bekleyen komut iptal, yetenek kapalı — e2e'de komut job'ı çalışmaz, kanala bir şey gitmez
+    await page.context().clearCookies();
+    await login(page);
+    if (questionId) {
+      const detail = await (await page.request.get(`/api/questions/${questionId}`)).json();
+      for (const a of detail.answers) if (a.commandId) await page.request.post(`/api/channel-commands/${a.commandId}/cancel`);
+    }
+    await page.request.put(`/api/channels/${ty.id}/capabilities/SORU_CEVAP`, { data: { state: 'KAPALI' } });
   }
 });

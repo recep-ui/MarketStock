@@ -450,6 +450,91 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         _ => ReturnDecisionRule.NotSupportedBecause("Trendyol'da 'iade paketi elime ulaştı' bildirimi yok.")
     };
 
+    // ------------------------------------------------------------------ Soru-Cevap (ADR-029)
+
+    internal const string QnaSource = "developers.trendyol.com/v2.0/docs/getting-customer-questions, /answering-customer-questions (2026-11-18 okundu)";
+
+    /// <summary>
+    /// <c>GET /qna/sellers/{sellerId}/questions/filter?startDate&amp;endDate(ms)&amp;page(0'dan)&amp;size(≤50)&amp;orderByField=LastModifiedDate</c>.
+    /// Tarih aralığı en fazla 2 hafta → pencere 14 günlük parçalara bölünür. Müşteri adı/kimliği okunmaz (KVKK).
+    /// TODO: doğrulanmalı — startDate/endDate'in soru oluşturma mı son güncelleme tarihine mi uygulandığı dokümanda net değil
+    /// (parametre açıklaması "orders" diyor); IadeCek gibi örtüşmeli pencere kullanılır.
+    /// </summary>
+    public async Task<IReadOnlyList<PazaryeriHub.Application.Questions.NormalizedQuestion>> FetchQuestionsAsync(DateTime sinceUtc, CancellationToken ct)
+    {
+        var creds = await CredentialsAsync(ct);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var result = new Dictionary<long, PazaryeriHub.Application.Questions.NormalizedQuestion>();
+        for (var from = sinceUtc; from < now; from = from.AddDays(14))
+        {
+            var to = from.AddDays(14) < now ? from.AddDays(14) : now;
+            for (var page = 0; ; page++)
+            {
+                var path = $"/qna/sellers/{creds.SellerId}/questions/filter?startDate={ToEpochMs(from)}&endDate={ToEpochMs(to)}" +
+                           $"&page={page}&size=50&orderByField=LastModifiedDate&orderByDirection=ASC";
+                var response = await SendAsync<PagedResponse<QnaQuestion>>(creds, HttpMethod.Get, path, null, ct);
+                if (response is null)
+                {
+                    break;
+                }
+                foreach (var q in response.Content)
+                {
+                    if (MapQuestion(q) is { } mapped)
+                    {
+                        result[q.Id] = mapped;
+                    }
+                }
+                if (page + 1 >= response.TotalPages || response.Content.Count == 0)
+                {
+                    break;
+                }
+            }
+        }
+        return result.Values.ToList();
+    }
+
+    /// <summary>
+    /// Durumlar: WAITING_FOR_ANSWER → cevap bekliyor (yalnızca bu cevaplanabilir); ANSWERED, WAITING_FOR_APPROVE → cevaplandı;
+    /// REPORTED, REJECTED, UNANSWERED → kapandı. Bilinmeyen durum kapandı sayılır (cevap denenmez).
+    /// </summary>
+    internal static PazaryeriHub.Application.Questions.NormalizedQuestion? MapQuestion(QnaQuestion q)
+    {
+        if (q.Id <= 0 || string.IsNullOrWhiteSpace(q.Text))
+        {
+            return null;
+        }
+        var state = q.Status switch
+        {
+            "WAITING_FOR_ANSWER" => PazaryeriHub.Application.Questions.QuestionChannelState.Waiting,
+            "ANSWERED" or "WAITING_FOR_APPROVE" => PazaryeriHub.Application.Questions.QuestionChannelState.Answered,
+            _ => PazaryeriHub.Application.Questions.QuestionChannelState.Closed
+        };
+        var created = q.CreationDate is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime : DateTime.UtcNow;
+        return new(q.Id.ToString(CultureInfo.InvariantCulture), q.Text, q.ProductName, q.ProductMainId, created, q.Status, state,
+            AnswerDeadlineUtc: null, AnswerText: q.Answer?.Text);
+    }
+
+    /// <summary><c>POST /qna/sellers/{sellerId}/questions/{id}/answers</c> <c>{"text"}</c>; 10–2000 karakter.</summary>
+    public async Task AnswerQuestionAsync(PazaryeriHub.Application.Questions.QuestionAnswerRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var rule = DescribeQuestionAnswer();
+        var text = request.Text?.Trim() ?? "";
+        if (text.Length < rule.MinLength || text.Length > rule.MaxLength)
+        {
+            throw new ArgumentException($"Trendyol cevabı {rule.MinLength}–{rule.MaxLength} karakter olmalı.", nameof(request));
+        }
+        if (!long.TryParse(request.QuestionNo, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        {
+            throw new ArgumentException("Trendyol soru numarası sayısal olmalı.", nameof(request));
+        }
+        var creds = await CredentialsAsync(ct);
+        await SendAsync<object>(creds, HttpMethod.Post, $"/qna/sellers/{creds.SellerId}/questions/{id}/answers", new QnaAnswerBody(text), ct);
+    }
+
+    public PazaryeriHub.Application.Questions.QuestionAnswerRule DescribeQuestionAnswer() => new(true, 10, 2000,
+        "Yalnızca 'cevap bekliyor' durumundaki soru cevaplanabilir; cevap yasaklı kelime kontrolünden geçer, reddedilirse soru tekrar cevap bekler.");
+
     // ------------------------------------------------------------------ Fiyat (ADR-028)
 
     internal const string PriceSource =

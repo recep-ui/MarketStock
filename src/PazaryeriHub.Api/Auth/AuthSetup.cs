@@ -45,7 +45,8 @@ public static class AuthSetup
             .AddPolicy(Policies.StockWrite, p => p.RequireRole(Roles.Admin, Roles.Warehouse))
             .AddPolicy(Policies.OrderWrite, p => p.RequireRole(Roles.Admin, Roles.Warehouse))
             .AddPolicy(Policies.CatalogWrite, p => p.RequireRole(Roles.Admin))
-            .AddPolicy(Policies.Admin, p => p.RequireRole(Roles.Admin));
+            .AddPolicy(Policies.Admin, p => p.RequireRole(Roles.Admin))
+            .AddPolicy(Policies.QuestionAnswer, p => p.RequireRole(Roles.Admin, Roles.Support));
 
         return services;
     }
