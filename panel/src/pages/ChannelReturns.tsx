@@ -3,6 +3,7 @@ import { get, post, qs, type Channel, type ChannelReferenceView, type Paged, typ
 import { useAuth } from '../auth';
 import { ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
+import { ChannelFetch } from '../components/ChannelFetch';
 import { commandStateLabels } from './ChannelWrite';
 
 const decisionLabels: Record<string, string> = { ONAY: 'Onay', RED: 'Red', TESLIM_ALINDI: 'Teslim alındı' };
@@ -12,27 +13,13 @@ const decisionLabels: Record<string, string> = { ONAY: 'Onay', RED: 'Red', TESLI
  * Onay / red / teslim alındı kararını yalnızca Yönetici verir; karar kanal işlemleri kuyruğundan gider. Müşteri bilgisi saklanmaz.
  */
 export function ChannelReturns({ channels }: { channels: Channel[] }) {
-  const { can } = useAuth();
   const [channelId, setChannelId] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<unknown>(null);
   const list = useLoad(() => get<Paged<ReturnListItem>>(`/api/returns${qs({ channelId: channelId || undefined, search: search || undefined, page, pageSize: 50 })}`),
     [channelId, search, page]);
-
-  async function fetchFromChannel() {
-    const ch = channels.find(c => String(c.id) === channelId);
-    if (!ch) return;
-    setError(null);
-    try {
-      await post(`/api/returns/fetch/${ch.code.toLowerCase()}`);
-      setNotice(`${channelNames[ch.code] ?? ch.name} iade talepleri çekiliyor. Birkaç saniye sonra listeyi yenileyin.`);
-    } catch (err) {
-      setError(err);
-    }
-  }
 
   return (
     <>
@@ -47,9 +34,9 @@ export function ChannelReturns({ channels }: { channels: Channel[] }) {
         </select>
         <input placeholder="İade / sipariş no" aria-label="İade no" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         <button onClick={list.reload}>Yenile</button>
-        {can('admin') && <button disabled={!channelId} onClick={fetchFromChannel} title="Önce kanal seçin">Kanaldan iade çek</button>}
       </div>
-      <ErrorBox error={error ?? list.error} />
+      <ChannelFetch channels={channels} channelId={channelId} endpoint="/api/returns/fetch" jobType="IADE_CEK" label="Kanaldan iade çek" onDone={list.reload} />
+      <ErrorBox error={list.error} />
       <div className={selected ? 'split' : undefined}>
         <div>
           <table className="table" data-testid="channel-return-table">

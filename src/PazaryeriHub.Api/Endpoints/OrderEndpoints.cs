@@ -58,6 +58,19 @@ public static class OrderEndpoints
             return Results.Accepted(value: new { jobId });
         }).RequireAuthorization(Policies.Admin);
 
+        // Kanaldan sipariş çek (elle; Yönetici): SiparisCek job'ını kuyruğa alır. Yalnızca okuma — kanala yazmaz.
+        // Kanaldaki iptaller de bu çekimle (İptal durumu olarak) gelir. Deneme modunda zamanlanmış çekim kapalı olduğundan tek yol budur.
+        orders.MapPost("/fetch/{channelCode}", (Hangfire.IBackgroundJobClient jobs, string channelCode) =>
+        {
+            var code = channelCode.ToUpperInvariant();
+            if (!ChannelCodes.All.Contains(code))
+            {
+                return Results.Problem(statusCode: 404, title: "Bilinmeyen kanal.", detail: $"'{channelCode}' geçersiz.");
+            }
+            var jobId = Hangfire.BackgroundJobClientExtensions.Enqueue<OrderFetchJob>(jobs, job => job.RunAsync(code, CancellationToken.None));
+            return Results.Accepted(value: new { jobId });
+        }).RequireAuthorization(Policies.Admin);
+
         // Kanala sipariş durumu / kargo bildirimi (ADR-026). Liste ve geçmiş herkese açık; bildirim Yönetici + Depo.
         orders.MapGet("/notifications", (IOrderNotificationService n, int? channelId, string? filter, string? search, int? page, int? pageSize, CancellationToken ct) =>
             n.SearchAsync(channelId, filter, search, page, pageSize, ct));

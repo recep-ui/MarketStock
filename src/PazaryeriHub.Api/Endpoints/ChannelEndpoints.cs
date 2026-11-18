@@ -7,6 +7,9 @@ using PazaryeriHub.Application.Excel;
 
 namespace PazaryeriHub.Api.Endpoints;
 
+/// <param name="JobType">SIPARIS_CEK | IADE_CEK | SORU_CEK | KATALOG_CEK | MUTABAKAT | REFERANS_CEK</param>
+public sealed record ChannelJobStateDto(string JobType, DateTime? LastSuccessUtc, DateTime? LastAttemptUtc, string? LastError, int ConsecutiveFailures);
+
 /// <summary>
 /// Kanal, eşleştirme ve Excel uç noktaları.
 /// Yetki: okuma tüm roller; kanal ayarı, eşleştirme ve ürün içe aktarma Yönetici; stok içe aktarma Yönetici + Depo.
@@ -93,6 +96,17 @@ public static class ChannelEndpoints
         }).RequireAuthorization(Policies.Admin);
 
         // Kanala yazma yetenekleri ve sipariş bildirim modu (ADR-026). Okuma tüm roller; değişiklik Yönetici.
+        // Kanal işlerinin son çalışma durumu (SIPARIS_CEK, IADE_CEK, SORU_CEK, KATALOG_CEK, MUTABAKAT, REFERANS_CEK): panelde "son çekim" satırı.
+        channels.MapGet("/{id:int}/job-states", async (PazaryeriHub.Infrastructure.Persistence.SqlConnectionFactory connections, int id, CancellationToken ct) =>
+        {
+            await using var connection = connections.Create();
+            await connection.OpenAsync(ct);
+            var rows = await Dapper.SqlMapper.QueryAsync<(string IsTipi, DateTime? SonBasarili, DateTime? SonDeneme, string? SonHata, int ArdisikHata)>(connection,
+                new Dapper.CommandDefinition("SELECT IsTipi, SonBasarili, SonDeneme, SonHata, ArdisikHata FROM dbo.ChannelJobState WHERE ChannelId = @id",
+                    new { id }, cancellationToken: ct));
+            static DateTime? Utc(DateTime? v) => v is { } d ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : null;
+            return rows.Select(r => new ChannelJobStateDto(r.IsTipi, Utc(r.SonBasarili), Utc(r.SonDeneme), r.SonHata, r.ArdisikHata)).ToList();
+        });
         channels.MapGet("/{id:int}/capabilities", (IChannelCapabilityService s, int id, CancellationToken ct) => s.GetAsync(id, ct));
         channels.MapPut("/{id:int}/capabilities/{capability}", (IChannelCapabilityService s, ClaimsPrincipal user, int id, string capability,
                 ChannelCapabilityUpdate update, CancellationToken ct) => s.SetAsync(id, capability, update.State, user.UserName(), ct))

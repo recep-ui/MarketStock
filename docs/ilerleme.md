@@ -7,6 +7,25 @@
 
 ---
 
+## Panelden sipariş çekme + son çekim durumu (2026-11-18): TAMAM
+
+- **Siparişler → "Kanaldan sipariş çek"** (Yönetici; `POST /api/orders/fetch/{kanal}`): SiparisCek kuyruğa alınır. Yalnızca okuma; kanaldaki iptaller de bu çekimle gelir. Deneme modunda zamanlanmış çekim kapalı olduğu için tek yol bu.
+- **Siparişler, Kanal iade talepleri, Soru-Cevap:** Ortak "kanaldan çek" bileşeni. Son çekim zamanı, başarılı/hata durumu ve kanalın pasif olduğu görünür (`GET /api/channels/{id}/job-states`). Çekim bitince liste kendiliğinden yenilenir.
+- **Test hijyeni:**
+  - Test fikstürü ChannelJobState'i de saklayıp geri yazıyor.
+  - İki test, kullanıcının Beymen'i aktif yapmış olmasına göre ön koşulunu kendisi kuruyor.
+  - Katalog testi rastgele ürün adı kullanıyor.
+- **Önemli bulgu:** Entegrasyon testleri, deneme modunun kullandığı `PazaryeriHub_Test`'teki kullanıcı olaylarını da işledi. Kullanıcının "deftere al" stokları test uygulamasındaki mock Trendyol/Beymen'e "gönderilmiş" sayıldı. Gerçek kanallara istek gitmedi.
+  - Kullanıcı ilanlarının gönderim kaydı sıfırlandı; stoklar yeniden "gönderilecek" durumda (KanalStokYenile).
+  - Test verisi seçici olarak silindi; kullanıcının 740 SKU'su, 778 ilanı ve 500 hareketi korundu.
+  - Kalıcı çözüm: otomatik testler için ayrı veritabanı (karar bekliyor).
+- **Testler:**
+  - Unit 289/289.
+  - Integration: tam çalıştırmada 135 testten 2'si kullanıcı yapılandırması nedeniyle düştü (düzeltildi). Etkilenen 23 test yeniden çalıştırıldı ve geçti. Kullanıcı verisini etkilememek için tam set yeniden çalıştırılmadı.
+  - Playwright çalıştırılmadı (aynı veritabanına demo veri yükler).
+
+---
+
 ## Varyant ayrımı ve kanal fiyatı tüm kanallarda (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
 
 - **Beymen:** Katalog `GET /products` ucuna geçti. Model, renk, beden, ad, marka, kategori, liste ve satış fiyatı okunuyor; her productId ayrı SKU adayı.

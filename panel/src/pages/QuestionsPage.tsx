@@ -3,6 +3,7 @@ import { ApiError, get, post, qs, type Channel, type Paged } from '../api';
 import { useAuth } from '../auth';
 import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
+import { ChannelFetch } from '../components/ChannelFetch';
 import { commandStateLabels } from './ChannelWrite';
 
 export type QuestionListItem = {
@@ -24,28 +25,14 @@ const stateLabels: Record<string, string> = { CEVAP_BEKLIYOR: 'Cevap bekliyor', 
  * "Gönderilecek cevap" onay kutusu işaretlenmeden gönderilmez. Cevap kanal işlemleri kuyruğundan gider; her cevap kullanıcı adıyla kaydedilir.
  */
 export function QuestionsPage() {
-  const { can } = useAuth();
   const [channelId, setChannelId] = useState('');
   const [state, setState] = useState('CEVAP_BEKLIYOR');
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<unknown>(null);
   const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
   const list = useLoad(() => get<Paged<QuestionListItem>>(`/api/questions${qs({ channelId: channelId || undefined, state: state || undefined, search: search || undefined, pageSize: 100 })}`),
     [channelId, state, search]);
-
-  async function fetchFromChannel() {
-    const ch = (channels.data ?? []).find(c => String(c.id) === channelId);
-    if (!ch) return;
-    setError(null);
-    try {
-      await post(`/api/questions/fetch/${ch.code.toLowerCase()}`);
-      setNotice(`${channelNames[ch.code] ?? ch.name} soruları çekiliyor. Birkaç saniye sonra listeyi yenileyin.`);
-    } catch (err) {
-      setError(err);
-    }
-  }
 
   return (
     <>
@@ -66,9 +53,9 @@ export function QuestionsPage() {
           </select>
           <input placeholder="Soru / ürün / soru no" aria-label="Soru ara" value={search} onChange={e => setSearch(e.target.value)} />
           <button onClick={list.reload}>Yenile</button>
-          {can('admin') && <button disabled={!channelId} onClick={fetchFromChannel} title="Önce kanal seçin">Kanaldan soru çek</button>}
         </div>
-        <ErrorBox error={error ?? list.error} />
+        <ChannelFetch channels={channels.data ?? []} channelId={channelId} endpoint="/api/questions/fetch" jobType="SORU_CEK" label="Kanaldan soru çek" onDone={list.reload} />
+        <ErrorBox error={list.error} />
         <div className={selected ? 'split' : undefined}>
           <table className="table" data-testid="question-table">
             <thead><tr><th>Tarih</th><th>Kanal</th><th>Soru</th><th>Ürün</th><th>Durum</th><th>Son cevap</th></tr></thead>

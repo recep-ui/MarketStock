@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ChannelFetch } from '../components/ChannelFetch';
 import type { ColumnDef } from '@tanstack/react-table';
 import { get, post, qs, type Channel, type OrderDetail, type OrderListItem, type OrderStatus, type Paged } from '../api';
 import { useAuth } from '../auth';
@@ -47,6 +48,8 @@ export function OrdersPage() {
     <>
       <h1>Siparişler</h1>
       <Card>
+        <ChannelFetch channels={channels.data ?? []} endpoint="/api/orders/fetch" jobType="SIPARIS_CEK" label="Kanaldan sipariş çek" onDone={orders.reload} />
+        <p className="muted small">Yalnızca okuma: kanaldaki yeni siparişler, durum değişiklikleri ve iptaller gelir; kanala hiçbir şey yazılmaz.</p>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setSelected(null); setApplied(filters); }}>
           <select aria-label="Kanal" value={filters.channelId} onChange={e => setFilters({ ...filters, channelId: e.target.value })}>
             <option value="">Tüm kanallar</option>

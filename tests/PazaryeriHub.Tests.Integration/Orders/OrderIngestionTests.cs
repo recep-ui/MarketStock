@@ -341,8 +341,15 @@ public sealed class OrderIngestionTests(TestDatabase db)
         db.SkipIfUnavailable();
         var ct = TestContext.Current.CancellationToken;
         const string channel = ChannelCodes.Beymen;
+        bool wasActive;
+        await using (var c = db.Open())
+        {
+            // Kullanıcı deneme modunda Beymen'i aktif yapmış olabilir: ön koşul test içinde kurulur, sonunda eski haline döner.
+            wasActive = await c.ExecuteScalarAsync<bool>("SELECT Aktif FROM dbo.Channel WHERE Kod = @channel", new { channel });
+            await c.ExecuteAsync("UPDATE dbo.Channel SET Aktif = 0 WHERE Kod = @channel", new { channel });
+        }
 
-        (await RunFetchJobAsync(channel, ct)).Skipped.Should().BeTrue("Beymen başlangıçta pasif");
+        (await RunFetchJobAsync(channel, ct)).Skipped.Should().BeTrue("Beymen pasif");
 
         await using (var c = db.Open())
         {
@@ -368,7 +375,7 @@ public sealed class OrderIngestionTests(TestDatabase db)
         finally
         {
             await using var c = db.Open();
-            await c.ExecuteAsync("UPDATE dbo.Channel SET Aktif = 0 WHERE Kod = @channel", new { channel });
+            await c.ExecuteAsync("UPDATE dbo.Channel SET Aktif = @wasActive WHERE Kod = @channel", new { channel, wasActive });
         }
     }
 

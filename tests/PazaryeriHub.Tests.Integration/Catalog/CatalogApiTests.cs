@@ -154,7 +154,7 @@ public sealed class CatalogApiTests(TestDatabase db)
                 await db.Api.PutAsJsonAsync($"/api/channels/{beymen.Id}", new ChannelUpdate("Beymen", 33.33m, false, """{"stokUstLimit":50}"""), Json, ct),
                 HttpStatusCode.OK);
             updated.SharePercent.Should().Be(33.33m);
-            updated.HasCredentials.Should().BeFalse();
+            updated.HasCredentials.Should().Be(beymen.HasCredentials, "kanal güncellemesi API bilgisine dokunmaz");
         }
         finally
         {

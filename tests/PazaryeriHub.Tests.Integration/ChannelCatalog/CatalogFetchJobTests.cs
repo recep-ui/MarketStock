@@ -116,9 +116,11 @@ public sealed class CatalogFetchJobTests(TestDatabase db)
     {
         db.SkipIfUnavailable();
         var p = "KV" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        // Ad tamamen rastgele: önceki çalıştırmaların ürünleriyle ad benzerliği önerisi oluşmasın (öneri varsa SKU açılmaz).
+        var name = Guid.NewGuid().ToString("N");
         var channelId = await ChannelIdAsync();
         ChannelCatalogEntry E(string barcode, string stock, string variantKey, string? url = null) =>
-            new(null, barcode, stock, $"{p}-MDL", null, null, $"Varyant {p} Urun", "Marka", "Havlu", "Satışta", false, variantKey, null, url, url is null ? null : 349.9m, url is null ? null : 499.9m);
+            new(null, barcode, stock, $"{p}-MDL", null, null, name, "Marka", "Havlu", "Satışta", false, variantKey, null, url, url is null ? null : 349.9m, url is null ? null : 499.9m);
         Mock.SetCatalog(Channel, [
             E($"{p}-001", $"{p}-75150", "c1", "https://www.trendyol.com/chain-havlu-p-1"),
             E($"{p}-002", $"{p}-75150", "c2"),
