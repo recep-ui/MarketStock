@@ -19,8 +19,16 @@ public sealed record ChannelCatalogItem(
     string? Brand,
     string? Category,
     string? ChannelStatus,
-    bool Passive)
+    bool Passive,
+    string? VariantKey = null,
+    string? VariantAttributes = null,
+    string? ProductUrl = null,
+    decimal? SalePrice = null,
+    decimal? ListPrice = null)
 {
+    /// <summary>Renk veya beden biliniyor mu (model + renk + beden eşleşmesi/gruplaması ancak o zaman güvenilir).</summary>
+    public bool HasColorOrSize => Color is not null || Size is not null;
+
     /// <summary>Eşleşmeyenler tablosundaki tekil anahtar: barkod, yoksa kanal ürün kodu.</summary>
     public string Key => Barcode ?? ChannelProductCode ?? "";
 }
@@ -178,7 +186,9 @@ public static class ChannelCatalogMatcher
 
         // 3) Model kodu + renk + beden: bizde tek aday SKU varsa bağlanır. Dosyada aynı varyant birden fazla satırdaysa
         //    (çoklanan ilan) hepsi aynı SKU'nun ayrı ilanları olur (ADR-023).
-        if (item.ModelCode is not null)
+        //    Renk ve beden ikisi de bilinmiyorsa model kodu tek başına varyantı tanımlamaz (aynı modelin farklı renk/ebatları):
+        //    bu adım atlanır, satır eşleşmeyenlere düşer (ADR-031).
+        if (item.ModelCode is not null && item.HasColorOrSize)
         {
             var key = ModelColorSizeKey(item.ModelCode, item.Color, item.Size);
             if (byModelColorSize.TryGetValue(key, out var candidates))

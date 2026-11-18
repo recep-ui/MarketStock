@@ -209,9 +209,11 @@ public sealed class PriceService(
                 _ => PricePreviewStatus.Blocked
             };
             var problem = noCode ? "Eşleştirmede kanal ürün kodu veya barkodu yok." : decision.Action is PriceSyncAction.Send or PriceSyncAction.NoChange ? null : decision.Reason;
+            var channel = ListingChannelData.Parse(t.ChannelData);
             return new PricePreviewRow(t.ListingId, t.SkuId, t.SkuCode, t.ProductName, t.ChannelProductCode, t.ChannelBarcode,
                 t.LastSale, t.LastList, t.Target.Sendable ? t.Target.SalePrice : null, t.Target.Sendable ? t.Target.ListPrice : null,
-                decision.ChangePercent, t.Target.FloorApplied, t.Target.FromOverride, status, problem, t.PendingApprovalId);
+                decision.ChangePercent, t.Target.FloorApplied, t.Target.FromOverride, status, problem, t.PendingApprovalId,
+                channel.SalePrice, channel.ListPrice, channel.ProductUrl);
         }).ToList();
 
         var result = new PricePreview(channelId, info.ChannelCode, info.CapabilityState, info.CanEnable, info.BlockReason, threshold,

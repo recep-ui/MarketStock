@@ -143,3 +143,4 @@ button.small { padding: 3px 8px; font-size: 12px; margin-top: 8px; }
 .text-danger { color: var(--danger); }
 blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--primary); background: #f7f8fa; }
 .answer-form { display: grid; gap: 6px; margin: 12px 0; }
+.channel-link { font-size: 12px; margin-right: 6px; white-space: nowrap; }

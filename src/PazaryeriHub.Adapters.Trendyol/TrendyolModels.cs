@@ -201,6 +201,8 @@ internal sealed class ClaimStatus
 /// <summary>filterApprovedProducts içeriği (ürün grubu). Kaynak: /v2.0/reference/filterapprovedproducts (2026-11-17 okundu).</summary>
 internal sealed class ApprovedContent
 {
+    /// <summary>İçerik kimliği: aynı productMainId altındaki her renk ayrı içeriktir (ADR-031).</summary>
+    public long? ContentId { get; init; }
     public string? ProductMainId { get; init; }
     public NamedRef? Brand { get; init; }
     public NamedRef? Category { get; init; }
@@ -234,6 +236,16 @@ internal sealed class ApprovedVariant
     public bool? Archived { get; init; }
     public bool? Blacklisted { get; init; }
     public List<VariantAttribute> Attributes { get; init; } = [];
+
+    /// <summary>Ürünün trendyol.com sayfası (dokümandaki variants[].productUrl).</summary>
+    public string? ProductUrl { get; init; }
+    public VariantPrice? Price { get; init; }
+}
+
+internal sealed class VariantPrice
+{
+    public decimal? SalePrice { get; init; }
+    public decimal? ListPrice { get; init; }
 }
 
 internal sealed class VariantAttribute

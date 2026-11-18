@@ -78,6 +78,14 @@ public interface IChannelAdapter
 /// <param name="ChannelProductCode">Kanalın ürün kimliği (Hepsiburada HBSKU, Beymen productId). Trendyol'da barkod kimliktir → null.</param>
 /// <param name="StockCode">Satıcının kendi stok kodu (Hepsiburada merchantSku, Trendyol stockCode…).</param>
 /// <param name="Passive">Kanalda kapalı / arşivlenmiş.</param>
+/// <param name="VariantKey">
+/// Kanalın varyantı kesin tanımlayan anahtarı (Trendyol: içerik kimliği + varyant özellikleri). Doluysa ürün oluştururken yalnızca
+/// aynı anahtarlı satırlar tek SKU'da birleşir; farklı renk/ebat içerikleri asla birleşmez (ADR-031).
+/// </param>
+/// <param name="VariantAttributes">Kanalın varyant özellikleri, okunur metin ("Renk: Krem; Ebat: 75x150"); bilgi amaçlı.</param>
+/// <param name="ProductUrl">Ürünün kanaldaki sayfası (yalnızca kanal API'si veriyorsa; adres biçimi tahmin edilmez).</param>
+/// <param name="SalePrice">Kanalda görünen satış fiyatı (salt okuma; KDV durumu kanal dokümanına bağlı).</param>
+/// <param name="ListPrice">Kanalda görünen liste fiyatı.</param>
 public sealed record ChannelCatalogEntry(
     string? ChannelProductCode,
     string? Barcode,
@@ -89,7 +97,12 @@ public sealed record ChannelCatalogEntry(
     string? Brand,
     string? Category,
     string? ChannelStatus,
-    bool Passive);
+    bool Passive,
+    string? VariantKey = null,
+    string? VariantAttributes = null,
+    string? ProductUrl = null,
+    decimal? SalePrice = null,
+    decimal? ListPrice = null);
 
 public sealed record ChannelCatalogPage(IReadOnlyList<ChannelCatalogEntry> Items, string? NextCursor);
 

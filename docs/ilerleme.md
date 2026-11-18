@@ -7,6 +7,25 @@
 
 ---
 
+## Katalog varyant ayrımı + ürün linki + kanal fiyatı (2026-11-18): TAMAM (gerçek Trendyol ile yeniden çekim bekleniyor)
+
+- **Sorun:** Trendyol'dan ürün oluşturmada aynı modelin farklı renk ve ebatları (ör. CHAIN75150'nin 3 rengi, BAMBU85150 + Bambu50100) tek SKU'da birleşmişti.
+- **Düzeltme (ADR-031):**
+  - İçerik kimliği ve varyant özellikleriyle ayrım.
+  - Varyant bilinmiyorsa her barkod ayrı SKU; farklı stok kodu asla birleşmez.
+  - Eşleştirici renk/beden bilinmeyen satırı model koduyla bağlamaz.
+- **Ek:**
+  - Trendyol ürün linki: Stok Listesi ve Eşleştirme'de.
+  - Kanalda görünen fiyat: Fiyat önizlemesinde.
+  - "24 saatten eski" uyarısının yanlış kullanımı düzeltildi.
+- **Veri:** Hatalı oluşan 113 ürün, 209 SKU, 584 ilan test veritabanından silindi; deftere stok yazılmamıştı. Trendyol API bilgisi ve aktiflik korundu.
+- **Testler:**
+  - Unit 288/288 (yeni: gruplama, eşleştirici, uyarı, kanal verisi, Trendyol contract).
+  - Integration 134/134 (yeni: mock katalogdan oluşturma → 3 ayrı SKU, çoklanan ilan aynı SKU, link ve fiyat yazılır).
+  - Playwright 11/11. 3 tam çalıştırmanın 2'sinde ilk senaryo (sipariş listesi, bu değişiklikle ilgisiz) soğuk başlangıçta zaman aşımına uğradı; tek başına ve 3. tam çalıştırmada geçti.
+
+---
+
 ## Test hijyeni: kullanıcının kanal yapılandırması korunur (2026-11-18): TAMAM
 
 - **Sorun:** `ChannelCredentialsTests`, test veritabanındaki Trendyol API bilgisini her çalışmada sahte değerle değiştirip siliyordu. Deneme modunda girilen gerçek anahtar bu yüzden kayboldu. Ayrıca bazı sipariş testleri Trendyol'u aktif yapıp pasife çekiyordu (önceki durumu geri koymadan).

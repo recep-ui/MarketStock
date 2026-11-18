@@ -17,7 +17,7 @@ public sealed record ListingPriceTarget(
     int ListingId, int SkuId, int ProductId, string SkuCode, string ProductName, int ChannelId, string ChannelCode,
     string? ChannelProductCode, string? ChannelBarcode, bool Active, decimal? LastSale, decimal? LastList, DateTime? LastPriceSyncUtc,
     decimal? Override, PriceTarget Target, long? PendingApprovalId, (decimal Sale, decimal List)? Approved, (decimal Sale, decimal List)? Rejected,
-    string CapabilityState)
+    string CapabilityState, string? ChannelData = null)
 {
     public PriceSyncDecision Decide(decimal thresholdPercent) =>
         PriceSyncPolicy.Decide(Target, LastSale, LastList, thresholdPercent, CapabilityState, Approved, Rejected);
@@ -71,7 +71,7 @@ public sealed class PriceStore(IEnumerable<IChannelAdapter> adapters, ILogger<Pr
                    l.SonGonderilenSatisFiyati, l.SonGonderilenListeFiyati, l.SonFiyatSenkron, l.FiyatOverride,
                    s.ListeFiyati, s.SatisFiyati, c.Ayarlar, ISNULL(cap.Durum, 'KAPALI') AS CapabilityState,
                    pend.Id AS PendingId, appr.YeniSatisFiyati AS ApprovedSale, appr.YeniListeFiyati AS ApprovedList,
-                   rej.YeniSatisFiyati AS RejectedSale, rej.YeniListeFiyati AS RejectedList
+                   rej.YeniSatisFiyati AS RejectedSale, rej.YeniListeFiyati AS RejectedList, l.KanalVerisi AS ChannelData
               FROM dbo.ChannelListing AS l
               JOIN dbo.Sku AS s ON s.Id = l.SkuId
               JOIN dbo.Product AS p ON p.Id = s.ProductId
@@ -98,7 +98,7 @@ public sealed class PriceStore(IEnumerable<IChannelAdapter> adapters, ILogger<Pr
                 r.SonGonderilenSatisFiyati, r.SonGonderilenListeFiyati, Utc(r.SonFiyatSenkron), r.FiyatOverride, target, r.PendingId,
                 r.ApprovedSale is { } aS && r.ApprovedList is { } aL ? (aS, aL) : null,
                 r.RejectedSale is { } rS && r.RejectedList is { } rL ? (rS, rL) : null,
-                r.CapabilityState);
+                r.CapabilityState, r.ChannelData);
         }).ToList();
 
         // Varyant kuralı (Beymen): aynı ürünün aktif ilanları farklı fiyata çıkıyorsa hiçbiri gönderilmez.
@@ -332,5 +332,6 @@ public sealed class PriceStore(IEnumerable<IChannelAdapter> adapters, ILogger<Pr
         public decimal? ApprovedList { get; init; }
         public decimal? RejectedSale { get; init; }
         public decimal? RejectedList { get; init; }
+        public string? ChannelData { get; init; }
     }
 }

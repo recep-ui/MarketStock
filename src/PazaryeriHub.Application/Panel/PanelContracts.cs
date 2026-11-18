@@ -25,9 +25,10 @@ public sealed record DashboardDto(
 /// <param name="Expected">Kanala gitmesi gereken (hesaplanan) stok.</param>
 /// <param name="ChannelStock">Son mutabakatta kanalda görülen stok (hiç mutabakat yoksa null).</param>
 /// <summary>Bir ilanın kanal stoğu. Aynı SKU'nun aynı kanalda birden fazla ilanı olabilir (ADR-023): her ilan ayrı hücre.</summary>
+/// <param name="ProductUrl">Ürünün kanaldaki sayfası (kanal API'si veriyorsa; ADR-031).</param>
 public sealed record ChannelStockCell(
     string ChannelCode, int ListingId, string Status, int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc,
-    string? ChannelBarcode = null, string? ChannelProductCode = null)
+    string? ChannelBarcode = null, string? ChannelProductCode = null, string? ProductUrl = null, string? Variant = null)
 {
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
 }

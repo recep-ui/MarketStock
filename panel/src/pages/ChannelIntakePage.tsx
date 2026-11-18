@@ -11,6 +11,7 @@ const flagLabels: Record<string, string> = {
   ESIK_BELIRSIZ: 'Kanal 0 gösteriyor ama düşük stok eşiği var; gerçek değer belirsiz',
   UST_LIMITTE: 'Değer kanal üst limitinde; gerçek değer daha büyük olabilir',
   ESKI_CEKIM: 'Kanal değeri 24 saatten eski',
+  ILAN_DEGERI_YOK: 'İlanlardan bazıları kanal stok sorgusunda dönmedi (kara liste / arşiv vb.)',
   DEFTER_SONRADAN_DEGISTI: 'Kanal değeri çekildikten sonra defterde giriş/sayım var',
   SENKRON_BEKLIYOR: 'Bu ilan için gönderim bekliyor; kanal değeri değişmek üzere',
   FARK_YOK: 'Defterle aynı',

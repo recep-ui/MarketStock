@@ -620,3 +620,37 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 **Doğrulanmadı:**
 - Mağazanın Trendyol listeleme kademesi bilinmiyor; en düşük kademe (30 istek/dk) esas alındı.
 - Yoğun dönemde bir çalışmanın birden fazla sayfa çekmesi gerekebilir. 1 dakikada 30 isteğe yaklaşılırsa Polly 429'da bekler.
+
+## ADR-031: Katalogdan ürün oluşturmada varyant ayrımı, ürün linki ve kanal fiyatı
+**Tarih:** 2026-11-18
+**Bağlam:**
+- Trendyol'dan "Eşleşmeyenlerden ürün/SKU oluştur" ile 584 ürün çekildi ve 209 SKU oluştu; 82 SKU 2 ile 15 arası ilana bağlandı.
+- Kod barkodları model kodu + renk + beden ile grupluyordu. Trendyol'da renk ve beden yalnızca "Renk"/"Beden" adlı özelliklerden okunuyordu (TODO). Havlularda bu adlar gelmedi, bu yüzden aynı modelin farklı renk ve ebatları tek SKU'da birleşti.
+- Örnek: BAMBU85150'ye `Bambu85150000…006` ve stok kodu farklı `Bambu50100004` (50×100) bağlandı; CHAIN75150'nin 3 rengi tek SKU oldu.
+- Sonuç: tek stok havuzu. Yazma açılsaydı bir rengin stoğu diğerlerine de gönderilir, fazla satış olurdu.
+- Deftere stok yazılmamıştı (0 hareket); veri silinip yeniden oluşturuldu.
+
+**Karar:**
+- **Trendyol katalog okuma** (filterApprovedProducts yanıtı, dokümanda doğrulandı):
+  - `content.contentId`: aynı productMainId altındaki her renk ayrı içerik.
+  - `variants[].attributes`: tüm varyant özellikleri.
+  - `variants[].productUrl`: trendyol.com ürün sayfası.
+  - `variants[].price.salePrice` / `listPrice`.
+  - Beden yerine "Ebat", "Boyut", "Ölçü", "Numara" da okunur (TODO: doğrulanmalı — kategoriye göre değişebilir).
+- **Varyant anahtarı** `c{contentId}|Özellik=Değer…`. Renk okunamasa bile içerik kimliği ayırır.
+- **Ürün oluştururken gruplama** (`ChannelCatalogService.GroupKey`):
+  1. Varyant anahtarı varsa: model + anahtar + stok kodu.
+  2. Renk veya beden biliniyorsa: model + renk + beden + stok kodu.
+  3. Aksi halde her barkod ayrı SKU.
+  - Farklı satıcı stok kodları hiçbir durumda birleşmez. Aynı varyantın ikinci ilanı (çoklanan ilan, ADR-023) yine aynı SKU'ya bağlanır.
+- **Eşleştirici:** "model + renk + beden" adımı renk ve beden ikisi de bilinmiyorsa uygulanmaz. Yeni bir renk yalnızca model koduyla mevcut SKU'nun stok havuzuna bağlanmaz; eşleşmeyenlere düşer.
+- **İlan kaydı:** `ChannelListing.KanalVerisi` JSON'a renk, beden, varyant (okunur metin), `urunLinki`, `kanalSatisFiyati`, `kanalListeFiyati` eklendi. Şema değişikliği yok. Salt okuma; kanala hiçbir şey yazılmaz.
+- **Panel:**
+  - Stok Listesi'nde ürün adının altında ve Eşleştirme'de "Trendyol ↗" linki. Yeni sekmede, referrer gönderilmeden açılır; yalnızca https adresler gösterilir.
+  - Fiyat önizlemesinde "Kanalda görünen" fiyat sütunu.
+  - Hepsiburada ve Beymen dokümanında ürün sayfası adresi yok → link yok; adres biçimi tahmin edilmez.
+- **Kanal Stoğu → Defter:** Bazı ilanların kanal değeri dönmediğinde (kara liste, arşiv) artık yanıltıcı "Kanal değeri 24 saatten eski" yerine `ILAN_DEGERI_YOK` ("İlanlardan bazıları kanal stok sorgusunda dönmedi") gösterilir. Eski çekim kontrolü değeri olan ilanlara uygulanır.
+
+**Doğrulanmadı:**
+- Havlu/nevresim kategorilerinde Trendyol varyant özellik adları. Yeniden çekimden sonra Eşleştirme ekranındaki "Kanalda" sütununda görülecek.
+- `price.salePrice`'ın KDV dahil olup olmadığı (ADR-028); ekranda "kanalda görünen" olarak etiketlenir.

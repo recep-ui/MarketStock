@@ -3,6 +3,16 @@ import { ApiError } from '../api';
 import { channelNames, statusLabels, syncStatusLabels } from '../format';
 import type { OrderStatus } from '../api';
 
+/** Ürünün kanaldaki sayfası (yalnızca kanal API'sinin verdiği https adresi; ADR-031). Yeni sekmede, referrer gönderilmeden açılır. */
+export function ChannelLink({ code, url, label }: { code: string; url: string | null | undefined; label?: string }) {
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="channel-link" data-testid={`link-${code}`} title="Ürünü kanalda aç">
+      {label ?? (code.charAt(0) + code.slice(1).toLowerCase())} ↗
+    </a>
+  );
+}
+
 export function ChannelBadge({ code }: { code: string }) {
   return <span className={`badge channel-${code.toLowerCase()}`}>{channelNames[code] ?? code}</span>;
 }

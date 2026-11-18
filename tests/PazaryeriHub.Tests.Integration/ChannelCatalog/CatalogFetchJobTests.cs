@@ -106,6 +106,55 @@ public sealed class CatalogFetchJobTests(TestDatabase db)
         status.LastError.Should().Be("Kanal geçici olarak yanıt vermiyor.");
     }
 
+    /// <summary>
+    /// ADR-031: "Eşleşmeyenlerden ürün oluştur" farklı renk/ebat ürünlerini tek SKU'da birleştirmez. Aynı model kodunda, renk/beden
+    /// okunamayan 3 barkod (2 farklı içerik + farklı stok kodlu 1 ürün) → 3 ayrı SKU; aynı içerik + aynı varyantın ikinci ilanı aynı SKU'ya
+    /// bağlanır. Ürün linki ve kanal fiyatı ilan kaydına (KanalVerisi) yazılır, eşleştirme listesinde döner.
+    /// </summary>
+    [Fact]
+    public async Task Eslesmeyenlerden_urun_olusturma_farkli_varyantlari_birlestirmez_link_ve_fiyat_yazilir()
+    {
+        db.SkipIfUnavailable();
+        var p = "KV" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var channelId = await ChannelIdAsync();
+        ChannelCatalogEntry E(string barcode, string stock, string variantKey, string? url = null) =>
+            new(null, barcode, stock, $"{p}-MDL", null, null, $"Varyant {p} Urun", "Marka", "Havlu", "Satışta", false, variantKey, null, url, url is null ? null : 349.9m, url is null ? null : 499.9m);
+        Mock.SetCatalog(Channel, [
+            E($"{p}-001", $"{p}-75150", "c1", "https://www.trendyol.com/chain-havlu-p-1"),
+            E($"{p}-002", $"{p}-75150", "c2"),
+            E($"{p}-003", $"{p}-50100", "c3"),
+            E($"{p}-004", $"{p}-75150", "c1")   // c1'in çoklanan ilanı → 001 ile aynı SKU
+        ]);
+        try
+        {
+            using (var scope = db.Services.CreateScope())
+            {
+                var job = ActivatorUtilities.CreateInstance<CatalogFetchJob>(scope.ServiceProvider);
+                var report = await job.RunAsync(channelId, validateOnly: false, createMissing: true, "test", Ct);
+                report!.SkusCreated.Should().Be(3);
+            }
+
+            await using var c = db.Open();
+            var skuByBarcode = (await c.QueryAsync<(string KanalBarkod, int SkuId)>(
+                    "SELECT KanalBarkod, SkuId FROM dbo.ChannelListing WHERE ChannelId = @channelId AND KanalBarkod LIKE @p", new { channelId, p = p + "%" }))
+                .ToDictionary(x => x.KanalBarkod, x => x.SkuId);
+            skuByBarcode.Values.Distinct().Should().HaveCount(3);
+            skuByBarcode[$"{p}-001"].Should().Be(skuByBarcode[$"{p}-004"]);
+            skuByBarcode[$"{p}-001"].Should().NotBe(skuByBarcode[$"{p}-002"]);
+            skuByBarcode[$"{p}-002"].Should().NotBe(skuByBarcode[$"{p}-003"]);
+
+            var listings = await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Common.PagedResult<ListingDto>>(
+                $"/api/listings?channelId={channelId}&search={p}-001", ExcelImportApiTests.Json, Ct);
+            listings!.Items.Single(l => l.ChannelBarcode == $"{p}-001").ProductUrl.Should().Be("https://www.trendyol.com/chain-havlu-p-1");
+            var data = await c.ExecuteScalarAsync<string>("SELECT KanalVerisi FROM dbo.ChannelListing WHERE KanalBarkod = @b", new { b = $"{p}-001" });
+            ListingChannelData.Parse(data).Should().Match<ListingChannelData>(d => d.SalePrice == 349.9m && d.ListPrice == 499.9m);
+        }
+        finally
+        {
+            Mock.SetCatalog(Channel, []);
+        }
+    }
+
     private static ChannelCatalogEntry Entry(string? barcode, bool passive = false) =>
         new(null, barcode, null, null, null, null, "Katalog test ürünü", null, null, passive ? "Arşivlendi" : "Satışta", passive);
 

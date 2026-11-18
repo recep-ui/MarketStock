@@ -4,7 +4,7 @@ import {
   type PricePreview, type SkuPrice
 } from '../api';
 import { useAuth } from '../auth';
-import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ExcelBox } from './MappingPage';
@@ -201,12 +201,16 @@ function ChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[
             </div>
           )}
           <table className="table" data-testid="price-preview">
-            <thead><tr><th>SKU</th><th>Kanal kodu</th><th>Son gönderilen</th><th>Yeni</th><th>Değişim</th><th>Durum</th><th></th></tr></thead>
+            <thead><tr><th>SKU</th><th>Kanal kodu</th><th>Kanalda görünen</th><th>Son gönderilen</th><th>Yeni</th><th>Değişim</th><th>Durum</th><th></th></tr></thead>
             <tbody>
               {p.rows.map(r => (
                 <tr key={r.listingId} data-testid="price-preview-row" className={r.status === 'GONDERILEMEZ' ? 'row-danger' : undefined}>
                   <td>{r.skuCode}<div className="muted small">{r.productName}</div></td>
-                  <td>{r.channelProductCode ?? r.channelBarcode ?? '—'}</td>
+                  <td>{r.channelProductCode ?? r.channelBarcode ?? '—'} <ChannelLink code={p.channelCode} url={r.productUrl} /></td>
+                  <td data-testid="channel-price">
+                    {money(r.channelSalePrice)}
+                    {r.channelListPrice != null && r.channelListPrice !== r.channelSalePrice && <div className="muted small">liste {money(r.channelListPrice)}</div>}
+                  </td>
                   <td>{money(r.lastSentSale)}</td>
                   <td>
                     <strong>{money(r.newSale)}</strong>
@@ -219,7 +223,7 @@ function ChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[
                   <td>{can('admin') && <button className="link" onClick={() => setOverride(r.listingId, r.skuCode, r.fromOverride ? r.newSale : null)}>Elle fiyat</button>}</td>
                 </tr>
               ))}
-              {p.rows.length === 0 && <tr><td colSpan={7} className="empty">{onlyChanges ? 'Değişecek fiyat yok.' : 'Aktif ilan yok.'}</td></tr>}
+              {p.rows.length === 0 && <tr><td colSpan={8} className="empty">{onlyChanges ? 'Değişecek fiyat yok.' : 'Aktif ilan yok.'}</td></tr>}
             </tbody>
           </table>
         </>

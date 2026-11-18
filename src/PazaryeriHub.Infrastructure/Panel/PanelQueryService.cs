@@ -200,7 +200,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
 
         var listings = (await connection.QueryAsync<ListingRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.SkuId, c.Kod AS ChannelCode, l.Durum AS Status, l.SonGonderilenStok AS LastSent,
-                   l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
+                   l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode, l.KanalVerisi AS ChannelData,
                    snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc
               FROM dbo.ChannelListing l
               JOIN dbo.Channel c ON c.Id = l.ChannelId
@@ -214,9 +214,13 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
             .ToDictionary(t => t.ListingId, t => t.Target);
 
         return skus.Select(s => new StockOverviewRow(s.SkuId, s.SkuCode, s.ProductName, s.Physical, s.Reserved, s.SafetyStock, s.Available,
-            listings.Where(l => l.SkuId == s.SkuId).Select(l => new ChannelStockCell(
-                l.ChannelCode, l.ListingId, l.Status, targets[l.ListingId], l.LastSent, l.ChannelStock, Utc(l.FetchedAtUtc),
-                l.ChannelBarcode, l.ChannelProductCode)).ToList())).ToList();
+            listings.Where(l => l.SkuId == s.SkuId).Select(l =>
+            {
+                var data = PazaryeriHub.Application.Channels.ListingChannelData.Parse(l.ChannelData);
+                return new ChannelStockCell(
+                    l.ChannelCode, l.ListingId, l.Status, targets[l.ListingId], l.LastSent, l.ChannelStock, Utc(l.FetchedAtUtc),
+                    l.ChannelBarcode, l.ChannelProductCode, data.ProductUrl, data.Variant);
+            }).ToList())).ToList();
     }
 
     private static async Task<int> ThresholdAsync(SqlConnection connection, CancellationToken ct)
@@ -259,5 +263,6 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public DateTime? FetchedAtUtc { get; init; }
         public string? ChannelBarcode { get; init; }
         public string? ChannelProductCode { get; init; }
+        public string? ChannelData { get; init; }
     }
 }

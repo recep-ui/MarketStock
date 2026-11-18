@@ -18,7 +18,7 @@ public static class ListingStatus
 public sealed record ListingDto(
     int Id, int SkuId, string SkuCode, int ChannelId, string ChannelCode,
     string? ChannelProductCode, string? ChannelBarcode, string Status,
-    int? LastSentStock, DateTime? LastSyncUtc);
+    int? LastSentStock, DateTime? LastSyncUtc, string? ProductUrl = null, string? Variant = null);
 
 /// <summary>
 /// Eşleştirme ekle/güncelle. Bir SKU bir kanalda birden fazla ilana sahip olabilir (ADR-023); ilan kanal içinde barkod veya

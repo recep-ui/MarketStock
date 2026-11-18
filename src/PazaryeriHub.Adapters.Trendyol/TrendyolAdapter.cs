@@ -176,14 +176,33 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         return new ChannelCatalogPage(items, next);
     }
 
+    /// <summary>Beden yerine kullanılan varyant özellik adları (havlu/nevresimde "Ebat" gibi). // TODO: doğrulanmalı — kategoriye göre değişebilir.</summary>
+    private static readonly string[] SizeAttributeNames = ["Beden", "Ebat", "Boyut", "Ölçü", "Numara"];
+
+    /// <summary>
+    /// Katalog öğeleri (ADR-031). Trendyol'da aynı productMainId altındaki her renk ayrı içeriktir (contentId); içerik içindeki
+    /// varyantlar varyant özellikleriyle (beden/ebat) ayrılır. Varyant anahtarı = "c{contentId}" + varyant özellikleri: farklı renk/ebat
+    /// içerikleri ürün oluştururken asla tek SKU'da birleşmez. Renk/ebat okunamasa bile içerik kimliği ayırır.
+    /// Ürün linki (productUrl) ve fiyat (price.salePrice/listPrice) dokümandaki alanlardır; salt okunur.
+    /// </summary>
     private static IEnumerable<ChannelCatalogEntry> ToCatalogEntries(ApprovedContent content)
     {
-        // TODO: doğrulanmalı — renk/beden öznitelik adları kategoriye göre değişebilir; "Renk" ve "Beden" adları varsayılır.
         var contentColor = content.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValues.FirstOrDefault()?.AttributeValue;
         foreach (var v in content.Variants.Where(v => !string.IsNullOrWhiteSpace(v.Barcode)))
         {
             var color = v.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValue ?? contentColor;
-            var size = v.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Beden"))?.AttributeValue;
+            var size = v.Attributes.FirstOrDefault(a => SizeAttributeNames.Any(n => IsAttribute(a.AttributeName, n)))?.AttributeValue;
+            var variantAttrs = v.Attributes
+                .Where(x => !string.IsNullOrWhiteSpace(x.AttributeName) && !string.IsNullOrWhiteSpace(x.AttributeValue))
+                .Select(x => (Name: x.AttributeName!.Trim(), Value: x.AttributeValue!.Trim()))
+                .OrderBy(x => x.Name, StringComparer.Ordinal)
+                .ToList();
+            var described = (contentColor is not null && !variantAttrs.Any(x => IsAttribute(x.Name, "Renk")) ? [("Renk", contentColor.Trim())] : Array.Empty<(string, string)>())
+                .Concat(variantAttrs.Select(x => (x.Name, x.Value)))
+                .Select(x => $"{x.Item1}: {x.Item2}").ToList();
+            var variantKey = content.ContentId is { } cid
+                ? "c" + cid.ToString(CultureInfo.InvariantCulture) + string.Concat(variantAttrs.Select(x => "|" + x.Name + "=" + x.Value))
+                : variantAttrs.Count > 0 ? string.Join("|", variantAttrs.Select(x => x.Name + "=" + x.Value)) : null;
             var status = v.Archived == true ? "Arşivlendi"
                 : v.Blacklisted == true ? "Kara listede"
                 : v.Locked == true ? "Kilitli"
@@ -200,7 +219,12 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
                 Brand: Clean(content.Brand?.Name),
                 Category: Clean(content.Category?.Name),
                 ChannelStatus: status,
-                Passive: v.Archived == true);
+                Passive: v.Archived == true,
+                VariantKey: variantKey,
+                VariantAttributes: described.Count > 0 ? string.Join("; ", described) : null,
+                ProductUrl: Clean(v.ProductUrl),
+                SalePrice: v.Price?.SalePrice,
+                ListPrice: v.Price?.ListPrice);
         }
     }
 

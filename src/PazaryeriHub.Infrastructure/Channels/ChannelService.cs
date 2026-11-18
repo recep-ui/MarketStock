@@ -64,11 +64,20 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
         }
 
         var total = await query.CountAsync(ct);
-        var items = await query.OrderBy(l => l.Sku.SkuCode).ThenBy(l => l.ChannelId)
+        var rows = await query.OrderBy(l => l.Sku.SkuCode).ThenBy(l => l.ChannelId)
             .Skip((p - 1) * size).Take(size)
-            .Select(l => new ListingDto(l.Id, l.SkuId, l.Sku.SkuCode, l.ChannelId, l.Channel.Code,
-                l.ChannelProductCode, l.ChannelBarcode, l.Status, l.LastSentStock, l.LastSyncUtc))
+            .Select(l => new
+            {
+                Dto = new ListingDto(l.Id, l.SkuId, l.Sku.SkuCode, l.ChannelId, l.Channel.Code,
+                    l.ChannelProductCode, l.ChannelBarcode, l.Status, l.LastSentStock, l.LastSyncUtc, null, null),
+                l.ChannelDataJson
+            })
             .ToListAsync(ct);
+        var items = rows.Select(r =>
+        {
+            var data = ListingChannelData.Parse(r.ChannelDataJson);
+            return r.Dto with { ProductUrl = data.ProductUrl, Variant = data.Variant };
+        }).ToList();
 
         return new PagedResult<ListingDto>(items, total, p, size);
     }

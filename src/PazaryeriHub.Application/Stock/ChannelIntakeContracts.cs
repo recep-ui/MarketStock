@@ -48,6 +48,9 @@ public static class IntakeFlags
     public const string ThresholdAmbiguous = "ESIK_BELIRSIZ";
     public const string AtCap = "UST_LIMITTE";
     public const string StaleSnapshot = "ESKI_CEKIM";
+
+    /// <summary>SKU'nun kaynak kanaldaki ilanlarından bazıları kanal stok sorgusunda dönmedi (kara liste, arşiv vb.).</summary>
+    public const string SomeListingsMissing = "ILAN_DEGERI_YOK";
     public const string LedgerChangedAfter = "DEFTER_SONRADAN_DEGISTI";
     public const string SyncPending = "SENKRON_BEKLIYOR";
     public const string NoDifference = "FARK_YOK";
@@ -70,6 +73,7 @@ public static class ChannelIntakeRules
     public static readonly TimeSpan MaxSnapshotAge = TimeSpan.FromHours(24);
 
     /// <param name="sourceValues">Kaynak kanaldaki AKTIF ilanların son kanal değerleri (null = kanalda görülmedi).</param>
+    /// <param name="oldestSourceSnapshotUtc">Değeri olan kaynak ilanların en eski çekim anı (değeri olmayan ilan ayrı işaretlenir).</param>
     /// <param name="allValues">Tüm kanallardaki değerler (en düşük değer bilgisi için).</param>
     /// <param name="reservedSinceSnapshot">Çekimden sonraki net rezervasyon (sipariş − iptal); hedeften düşülür.</param>
     public static IntakeEvaluation Evaluate(
@@ -90,6 +94,10 @@ public static class ChannelIntakeRules
 
         // Aynı kanalda birden fazla ilan (çoklu ilan) farklı değer gösteriyorsa en düşüğü (oversell açısından güvenli).
         var value = known.Min();
+        if (known.Count < sourceValues.Count)
+        {
+            flags.Add(IntakeFlags.SomeListingsMissing);
+        }
         if (known.Distinct().Count() > 1)
         {
             flags.Add(IntakeFlags.ListingsDiffer);

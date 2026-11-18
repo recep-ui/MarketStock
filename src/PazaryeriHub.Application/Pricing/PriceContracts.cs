@@ -99,7 +99,8 @@ public static class PricePreviewStatus
 public sealed record PricePreviewRow(
     int ListingId, int SkuId, string SkuCode, string ProductName, string? ChannelProductCode, string? ChannelBarcode,
     decimal? LastSentSale, decimal? LastSentList, decimal? NewSale, decimal? NewList, decimal? ChangePercent,
-    bool FloorApplied, bool FromOverride, string Status, string? Problem, long? PendingApprovalId);
+    bool FloorApplied, bool FromOverride, string Status, string? Problem, long? PendingApprovalId,
+    decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null, string? ProductUrl = null);
 
 /// <summary>"N ilanın fiyatı değişecek" önizlemesi (ADR-028). Yeteneği açmadan önce Yönetici görür.</summary>
 public sealed record PricePreview(

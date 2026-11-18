@@ -127,6 +127,7 @@ export type PricePreviewRow = {
   listingId: number; skuId: number; skuCode: string; productName: string; channelProductCode: string | null; channelBarcode: string | null;
   lastSentSale: number | null; lastSentList: number | null; newSale: number | null; newList: number | null; changePercent: number | null;
   floorApplied: boolean; fromOverride: boolean; status: string; problem: string | null; pendingApprovalId: number | null;
+  channelSalePrice?: number | null; channelListPrice?: number | null; productUrl?: string | null;
 };
 export type PricePreview = {
   channelId: number; channelCode: string; capabilityState: string; canEnable: boolean; blockReason: string | null; thresholdPercent: number;
@@ -181,7 +182,7 @@ export type OrderDetail = OrderListItem & {
 export type ChannelCell = {
   channelCode: string; listingId: number; status: string; expected: number; lastSent: number | null;
   channelStock: number | null; fetchedAtUtc: string | null; hasDeviation: boolean;
-  channelBarcode: string | null; channelProductCode: string | null;
+  channelBarcode: string | null; channelProductCode: string | null; productUrl?: string | null; variant?: string | null;
 };
 export type StockRow = {
   skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number;
@@ -225,6 +226,7 @@ export type IntakeApplyResult = {
 export type Listing = {
   id: number; skuId: number; skuCode: string; channelId: number; channelCode: string; channelProductCode: string | null;
   channelBarcode: string | null; status: string; lastSentStock: number | null; lastSyncUtc: string | null;
+  productUrl?: string | null; variant?: string | null;
 };
 export type Warehouse = { id: number; name: string };
 export type SkuItem = { id: number; skuCode: string; barcode: string | null; productName: string; physical: number; available: number };

@@ -299,8 +299,35 @@ public sealed class TrendyolAdapterContractTests
         http.Requests.Single().Uri.PathAndQuery.Should().Be("/integration/product/sellers/12345/products/approved?page=0&size=100");
         page.NextCursor.Should().Be("p:1");
         page.Items.Should().HaveCount(2, "barkodsuz varyant atlanır");
-        page.Items[0].Should().Be(new ChannelCatalogEntry(null, "SC-1", "STK-1", "MDL-1", "Beyaz", "M", "Deluxe Bornoz", "Softcotton", "Bornoz", "Satışta", false));
-        page.Items[1].Should().Match<ChannelCatalogEntry>(e => e.Size == "L" && e.Passive && e.ChannelStatus == "Arşivlendi");
+        page.Items[0].Should().Be(new ChannelCatalogEntry(null, "SC-1", "STK-1", "MDL-1", "Beyaz", "M", "Deluxe Bornoz", "Softcotton", "Bornoz", "Satışta", false,
+            VariantKey: "c1|Beden=M", VariantAttributes: "Renk: Beyaz; Beden: M"));
+        page.Items[1].Should().Match<ChannelCatalogEntry>(e => e.Size == "L" && e.Passive && e.ChannelStatus == "Arşivlendi" && e.VariantKey == "c1|Beden=L");
+    }
+
+    /// <summary>
+    /// ADR-031: aynı productMainId altında farklı renkler ayrı içeriktir (contentId). Renk özelliği okunamasa bile içerik kimliği varyantı
+    /// ayırır; havlularda beden yerine "Ebat" okunur. productUrl ve price (salePrice/listPrice) dokümandaki alanlardır.
+    /// </summary>
+    [Fact]
+    public async Task Katalog_farkli_icerikleri_ayri_varyant_sayar_ebat_link_ve_fiyat_okunur()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"totalElements":2,"totalPages":1,"page":0,"size":100,"content":[
+              {"contentId":501,"productMainId":"Chain75150","title":"Chain Havlu","attributes":[],
+               "variants":[{"barcode":"Chain75150001","stockCode":"Chain75150","onSale":true,
+                            "attributes":[{"attributeName":"Ebat","attributeValue":"75x150"}],
+                            "productUrl":"https://www.trendyol.com/x/chain-havlu-p-501","price":{"salePrice":349.9,"listPrice":499.9}}]},
+              {"contentId":502,"productMainId":"Chain75150","title":"Chain Havlu","attributes":[],
+               "variants":[{"barcode":"Chain75150002","stockCode":"Chain75150","onSale":true,"attributes":[]}]}]}
+            """));
+
+        var items = (await adapter.FetchCatalogAsync(null, Ct)).Items;
+
+        items[0].Should().Match<ChannelCatalogEntry>(e => e.Size == "75x150" && e.VariantKey == "c501|Ebat=75x150"
+            && e.ProductUrl == "https://www.trendyol.com/x/chain-havlu-p-501" && e.SalePrice == 349.9m && e.ListPrice == 499.9m);
+        items[1].VariantKey.Should().Be("c502", "renk okunamasa da içerik kimliği farklı → farklı varyant");
+        items[1].ProductUrl.Should().BeNull();
     }
 
     [Fact]

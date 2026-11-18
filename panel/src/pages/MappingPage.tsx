@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { download, get, put, qs, upload, type Channel, type ImportReport, type Listing, type Paged } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
-import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ChannelCatalogFetch, ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
@@ -13,6 +13,15 @@ const columns: ColumnDef<Listing>[] = [
   { header: 'Kanal', cell: ({ row }) => <ChannelBadge code={row.original.channelCode} /> },
   { header: 'Kanal ürün kodu', cell: ({ row }) => row.original.channelProductCode ?? '—' },
   { header: 'Kanal barkod', cell: ({ row }) => row.original.channelBarcode ?? '—' },
+  {
+    header: 'Kanalda',
+    cell: ({ row }) => (
+      <>
+        <ChannelLink code={row.original.channelCode} url={row.original.productUrl} />
+        {row.original.variant && <div className="muted small">{row.original.variant}</div>}
+      </>
+    )
+  },
   { header: 'Durum', accessorKey: 'status' },
   { header: 'Son gönderilen', cell: ({ row }) => row.original.lastSentStock ?? '—' },
   { header: 'Son senkron', cell: ({ row }) => formatDateTime(row.original.lastSyncUtc) }

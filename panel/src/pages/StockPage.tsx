@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { get, qs, type Channel, type Paged, type StockRow } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
-import { Card, ErrorBox, useLoad } from '../components/ui';
+import { Card, ChannelLink, ErrorBox, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 
 /** Ekran 2: Stok Listesi. Fiziksel/rezerve/satılabilir + her kanalda görünen stok; sapma satırları kırmızı. */
@@ -21,7 +21,27 @@ export function StockPage() {
 
   const columns = useMemo<ColumnDef<StockRow>[]>(() => [
     { header: 'SKU', accessorKey: 'skuCode' },
-    { header: 'Ürün', accessorKey: 'productName' },
+    {
+      header: 'Ürün',
+      cell: ({ row }) => {
+        // Ürünün kanal sayfaları (ADR-031): her ilan için ayrı link; varyant bilgisi ipucu olarak.
+        const links = row.original.channels.filter(c => c.productUrl);
+        return (
+          <>
+            {row.original.productName}
+            {links.length > 0 && (
+              <div className="small">
+                {links.map(c => (
+                  <span key={c.listingId} title={c.variant ?? c.channelBarcode ?? undefined}>
+                    <ChannelLink code={c.channelCode} url={c.productUrl} label={links.length > 1 ? `${channelNames[c.channelCode] ?? c.channelCode} ${c.variant ?? c.channelBarcode ?? ''}` : undefined} />{' '}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      }
+    },
     { header: 'Fiziksel', accessorKey: 'physical' },
     { header: 'Rezerve', accessorKey: 'reserved' },
     { header: 'Güvenlik', accessorKey: 'safetyStock' },

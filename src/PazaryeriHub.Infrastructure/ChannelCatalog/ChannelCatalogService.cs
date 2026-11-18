@@ -257,9 +257,7 @@ public sealed class ChannelCatalogService(
 
         var groups = candidates
             .Where(c => !usedBarcodes.Contains(c.Item.Barcode!))
-            .GroupBy(c => c.Item.ModelCode is not null
-                ? "M:" + ChannelCatalogMatcher.ModelColorSizeKey(c.Item.ModelCode, c.Item.Color, c.Item.Size)
-                : "B:" + c.Item.Barcode, StringComparer.Ordinal)
+            .GroupBy(c => GroupKey(c.Item), StringComparer.Ordinal)
             .Select(g => g.OrderBy(m => m.Item.Row).ToList())
             .OrderBy(g => g[0].Item.Row);
 
@@ -315,6 +313,27 @@ public sealed class ChannelCatalogService(
     }
 
     /// <summary>
+    /// Aynı SKU'da birleşecek satırların anahtarı (ADR-031). Farklı ürünleri tek stok havuzunda toplamak fazla satışa yol açtığı için
+    /// birleştirme yalnızca varyant KESİN biliniyorsa yapılır:
+    /// (1) kanal varyant anahtarı varsa (Trendyol içerik + varyant özellikleri) model + anahtar + stok kodu;
+    /// (2) renk veya beden biliniyorsa model + renk + beden + stok kodu;
+    /// (3) aksi halde her barkod ayrı SKU. Farklı satıcı stok kodları hiçbir durumda birleşmez.
+    /// </summary>
+    public static string GroupKey(ChannelCatalogItem item)
+    {
+        var stock = item.StockCode ?? "";
+        if (item.ModelCode is not null && item.VariantKey is not null)
+        {
+            return "V:" + item.ModelCode + "\u001F" + item.VariantKey + "\u001F" + stock;
+        }
+        if (item.ModelCode is not null && item.HasColorOrSize)
+        {
+            return "M:" + ChannelCatalogMatcher.ModelColorSizeKey(item.ModelCode, item.Color, item.Size) + "\u001F" + stock;
+        }
+        return "B:" + (item.Barcode ?? item.ChannelProductCode);
+    }
+
+    /// <summary>
     /// Yeni SKU kodu: (1) satıcı stok kodu dosyada ve sistemde tekilse o; (2) MODEL-RENK-BEDEN tekilse o; (3) barkod.
     /// </summary>
     private static string? ChooseSkuCode(ChannelCatalogItem item, Dictionary<string, int> stockCodeCounts, Dictionary<string, int> variantCodeCounts, HashSet<string> usedCodes)
@@ -323,7 +342,7 @@ public sealed class ChannelCatalogService(
         {
             return item.StockCode;
         }
-        if (VariantCode(item) is { } variant && variantCodeCounts.GetValueOrDefault(variant) == 1 && !usedCodes.Contains(variant))
+        if (item.HasColorOrSize && VariantCode(item) is { } variant && variantCodeCounts.GetValueOrDefault(variant) == 1 && !usedCodes.Contains(variant))
         {
             return variant;
         }
@@ -555,9 +574,17 @@ public sealed class ChannelCatalogService(
         _ => 4
     };
 
-    /// <summary>ChannelListing.KanalVerisi: yalnızca beyaz listedeki ürün alanları (kişisel veri yok).</summary>
+    /// <summary>
+    /// ChannelListing.KanalVerisi: yalnızca beyaz listedeki ürün alanları (kişisel veri yok). urunLinki, kanalSatisFiyati ve
+    /// kanalListeFiyati kanalın kendi verisidir (salt okuma; ADR-031).
+    /// </summary>
     private static string ChannelData(ChannelCatalogItem item, string source) =>
-        JsonSerializer.Serialize(new { kaynak = source, kanalDurumu = item.ChannelStatus, modelKodu = item.ModelCode, stokKodu = item.StockCode });
+        JsonSerializer.Serialize(new
+        {
+            kaynak = source, kanalDurumu = item.ChannelStatus, modelKodu = item.ModelCode, stokKodu = item.StockCode,
+            renk = item.Color, beden = item.Size, varyant = item.VariantAttributes, urunLinki = item.ProductUrl,
+            kanalSatisFiyati = item.SalePrice, kanalListeFiyati = item.ListPrice
+        });
 
     private static string ProductKey(string? modelCode, string? name, string? brand) =>
         (modelCode is not null ? "M:" + modelCode : "N:" + CatalogText.Normalize(name)) + "\u001F" + CatalogText.Normalize(brand);
