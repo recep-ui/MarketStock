@@ -7,6 +7,15 @@
 
 ---
 
+## Otomatik testler ayrı veritabanında (2026-11-18): TAMAM
+
+- Entegrasyon testleri ve Playwright artık `PazaryeriHub_OtoTest` kullanıyor (yoksa oluşturuluyor). Deneme modu kullanıcının verisiyle `PazaryeriHub_Test`'te (ADR-032).
+- **Doğrulama:**
+  - Integration 135/135 ve Playwright 11/11.
+  - Kullanıcının `PazaryeriHub_Test` veritabanı her iki çalıştırmadan sonra birebir aynı (13 tablo, satır sayısı + CHECKSUM).
+
+---
+
 ## Panelden sipariş çekme + son çekim durumu (2026-11-18): TAMAM
 
 - **Siparişler → "Kanaldan sipariş çek"** (Yönetici; `POST /api/orders/fetch/{kanal}`): SiparisCek kuyruğa alınır. Yalnızca okuma; kanaldaki iptaller de bu çekimle gelir. Deneme modunda zamanlanmış çekim kapalı olduğu için tek yol bu.

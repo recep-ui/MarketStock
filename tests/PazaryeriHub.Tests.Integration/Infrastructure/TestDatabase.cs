@@ -17,8 +17,8 @@ namespace PazaryeriHub.Tests.Integration.Infrastructure;
 /// <item>Test projesinin user-secrets'ı: <c>ConnectionStrings:PazaryeriHubTest</c></item>
 /// </list>
 /// Docker kullanılmaz (ADR-008); testler yerel SQL Server'daki ayrı bir test veritabanında çalışır.
-/// Bağlantı yoksa testler ATLANIR (geçti sayılmaz). Güvenlik: veritabanı adı "Test" içermiyorsa testler çalışmaz;
-/// testler veri ekler ve gerçek veritabanını kirletmemelidir.
+/// Bağlantı yoksa testler ATLANIR (geçti sayılmaz). Bağlantının sunucusu/kimliği kullanılır, veritabanı adı her zaman
+/// <see cref="AutomatedTestDatabase"/> olur (yoksa oluşturulur): testler ne gerçek veritabanını ne de deneme modunun veritabanını kirletir.
 /// Her test kendi benzersiz SKU'sunu oluşturduğu için testler arasında temizlik gerekmez.
 /// <para>
 /// Kullanıcının test veritabanındaki kanal yapılandırması korunur: testler başlamadan kanalların aktifliği, payı, ayarları,
@@ -31,6 +31,16 @@ public sealed class TestDatabase : IAsyncLifetime
 {
     public const string EnvVar = "PAZARYERIHUB_TEST_DB";
     public const string UserSecretsKey = "ConnectionStrings:PazaryeriHubTest";
+
+    /// <summary>
+    /// Otomatik testlerin (entegrasyon + Playwright) veritabanı. Bağlantı dizesindeki sunucu ve kimlik kullanılır, veritabanı adı bu olur.
+    /// Deneme modu (scripts/deneme-modu.ps1) kullanıcının elle test verisiyle <see cref="ManualTestDatabase"/>'te kalır; testler oraya
+    /// ASLA yazmaz (testler bekleyen olayları işler ve kullanıcının stoklarını mock kanala "gönderilmiş" sayardı).
+    /// </summary>
+    public const string AutomatedTestDatabase = "PazaryeriHub_OtoTest";
+
+    /// <summary>Deneme modunun (kullanıcının elle test) veritabanı.</summary>
+    public const string ManualTestDatabase = "PazaryeriHub_Test";
 
     public string? ConnectionString { get; private set; }
     public string? SkipReason { get; private set; }
@@ -75,15 +85,18 @@ public sealed class TestDatabase : IAsyncLifetime
             return;
         }
 
-        ConnectionString = configured;
+        // Otomatik testler her zaman ayrı veritabanında çalışır (deneme modunun verisine dokunmaz).
+        ConnectionString = new SqlConnectionStringBuilder(configured) { InitialCatalog = AutomatedTestDatabase }.ConnectionString;
         Source = source;
 
         var databaseName = new SqlConnectionStringBuilder(ConnectionString).InitialCatalog;
-        if (!databaseName.Contains("Test", StringComparison.OrdinalIgnoreCase))
+        if (!databaseName.Contains("Test", StringComparison.OrdinalIgnoreCase)
+            || databaseName.Equals(ManualTestDatabase, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException(
-                $"Entegrasyon testleri yalnızca adında 'Test' geçen bir veritabanında çalışır (verilen: '{databaseName}').");
+                $"Entegrasyon testleri yalnızca otomatik test veritabanında çalışır; deneme modunun veritabanına ({ManualTestDatabase}) yazılmaz (verilen: '{databaseName}').");
         }
+        await EnsureDatabaseAsync(ConnectionString);
 
         InitialMigrationScripts = new DatabaseMigrator(NullLogger<DatabaseMigrator>.Instance).Migrate(ConnectionString);
 
@@ -202,6 +215,26 @@ public sealed class TestDatabase : IAsyncLifetime
               AND CAST(JSON_VALUE(Payload, '$.SkuId') AS INT) = @skuId
               AND (@tip IS NULL OR JSON_VALUE(Payload, '$.Tip') = @tip)
             """, new { skuId, tip });
+    }
+
+    /// <summary>Otomatik test veritabanı yoksa oluşturur (uygulamanın DatabaseBootstrapper'ıyla aynı ayarlar: Turkish_CI_AS, RCSI, snapshot).</summary>
+    private static async Task EnsureDatabaseAsync(string connectionString)
+    {
+        var name = new SqlConnectionStringBuilder(connectionString).InitialCatalog;
+        var master = new SqlConnectionStringBuilder(connectionString) { InitialCatalog = "master", Pooling = false }.ConnectionString;
+        await using var connection = new SqlConnection(master);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync("""
+            DECLARE @q nvarchar(300) = QUOTENAME(@name);
+            IF DB_ID(@name) IS NULL
+                EXEC (N'CREATE DATABASE ' + @q + N' COLLATE Turkish_CI_AS;');
+            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @name AND is_read_committed_snapshot_on = 0)
+                EXEC (N'ALTER DATABASE ' + @q + N' SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;');
+            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @name AND snapshot_isolation_state = 0)
+                EXEC (N'ALTER DATABASE ' + @q + N' SET ALLOW_SNAPSHOT_ISOLATION ON;');
+            IF EXISTS (SELECT 1 FROM sys.databases WHERE name = @name AND is_auto_close_on = 1)
+                EXEC (N'ALTER DATABASE ' + @q + N' SET AUTO_CLOSE OFF;');
+            """, new { name }, commandTimeout: 120);
     }
 
     private static string? ResolveConfiguredConnectionString(out string source)

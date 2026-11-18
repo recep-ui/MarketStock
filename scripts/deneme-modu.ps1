@@ -9,7 +9,8 @@
     - Varsayılan olarak etiketli demo veri yüklenir (ürünler, stok, siparişler, sapma, hatalı senkron).
 
     Test veritabanı bağlantısı sırasıyla: PAZARYERIHUB_TEST_DB ortam değişkeni, test projesinin user-secrets'ı
-    (ConnectionStrings:PazaryeriHubTest).
+    (ConnectionStrings:PazaryeriHubTest). Otomatik testler (entegrasyon + Playwright) aynı sunucuda ayrı veritabanını
+    (PazaryeriHub_OtoTest) kullanır; deneme modunun verisine dokunmaz.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1

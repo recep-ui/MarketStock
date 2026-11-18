@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
  * Gizli bilgi repoya yazılmaz: bağlantı dizesi ortam değişkeninden veya test projesinin user-secrets dosyasından okunur;
  * e2e kullanıcılarının parolası her çalıştırmada rastgele üretilir.
  */
-function testConnectionString(): string {
+function baseConnectionString(): string {
   if (process.env.PAZARYERIHUB_TEST_DB) return process.env.PAZARYERIHUB_TEST_DB;
   const file = join(process.env.APPDATA ?? '', 'Microsoft', 'UserSecrets', 'pazaryerihub-tests-integration-4b1e9a2c', 'secrets.json');
   if (existsSync(file)) {
@@ -19,6 +19,15 @@ function testConnectionString(): string {
     if (value) return value;
   }
   throw new Error('Test veritabanı bağlantısı bulunamadı: PAZARYERIHUB_TEST_DB veya test projesinin user-secrets (ConnectionStrings:PazaryeriHubTest).');
+}
+
+/**
+ * Otomatik testler deneme modunun veritabanından (PazaryeriHub_Test, kullanıcının elle test verisi) AYRI çalışır:
+ * aynı sunucu/kimlik, veritabanı adı PazaryeriHub_OtoTest (entegrasyon testleriyle aynı; API ilk açılışta oluşturur).
+ */
+function testConnectionString(): string {
+  const parts = baseConnectionString().split(';').filter(p => p.trim() !== '' && !/^\s*(initial catalog|database)\s*=/i.test(p));
+  return [...parts, 'Initial Catalog=PazaryeriHub_OtoTest'].join(';');
 }
 
 // Ana süreçte bir kez üretilir; worker süreçleri ortamı devralır.
@@ -56,6 +65,7 @@ export default defineConfig({
       ASPNETCORE_URLS: `http://localhost:${port}`,
       ConnectionStrings__PazaryeriHub: testConnectionString(),
       Database__MigrateOnStartup: 'true',
+      Database__AutoCreate: 'true',
       Panel__DistPath: join(process.cwd(), 'dist'),
       Kimlik__SeedUsers__0__UserName: 'e2e-yonetici',
       Kimlik__SeedUsers__0__FullName: 'E2E Yönetici',

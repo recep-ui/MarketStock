@@ -667,3 +667,21 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
   - Her HBSKU ayrı varyanttır (`h{HBSKU}`). Bu uçta model, renk ve beden yok.
   - TODO: doğrulanmalı — JSON alan adları; dokümanda alan tablosu ve XML örneği var, JSON örneği yok.
 - **Ürün linki:** Hepsiburada ve Beymen dokümanlarında ürün sayfası adresi alanı yok → link yalnızca Trendyol'da. Adres biçimi tahmin edilmez.
+
+## ADR-032: Otomatik testler ayrı veritabanında (PazaryeriHub_OtoTest)
+**Tarih:** 2026-11-18 (ürün sahibi onayı)
+**Bağlam:**
+- Entegrasyon testleri ve Playwright, deneme modunun kullandığı `PazaryeriHub_Test`'i paylaşıyordu.
+- Kullanıcı deneme modunda gerçek Trendyol/Beymen verisi çekip "deftere al" yaptıktan sonra testlerin çalıştırdığı OutboxIsle bu olayları da işledi. Kullanıcının stokları test uygulamasındaki mock kanala "gönderilmiş" sayıldı. Gerçek kanala istek gitmedi; kayıtlar elle düzeltildi.
+- Ayrıca testler kullanıcının API bilgisini ve kanal aktifliğini değiştirebiliyordu (ADR'siz düzeltme: fikstür geri yükleme).
+
+**Karar:**
+- **Bağlantı:** `TestDatabase` aynı bağlantı dizesinin sunucu ve kimliğini kullanır, veritabanı adını her zaman `PazaryeriHub_OtoTest` yapar.
+  - Kaynak sırası değişmedi: `PAZARYERIHUB_TEST_DB` veya user-secrets `ConnectionStrings:PazaryeriHubTest`.
+- **Oluşturma:** Veritabanı yoksa oluşturulur: Turkish_CI_AS, RCSI, snapshot isolation, AUTO_CLOSE OFF (DatabaseBootstrapper ile aynı).
+- **Güvenlik kilidi:** Hedef `PazaryeriHub_Test` olursa testler başlamaz.
+- **Playwright:** Aynı veritabanını kullanır (`Database__AutoCreate=true`).
+- **Deneme modu** (`scripts/deneme-modu.ps1`): `PazaryeriHub_Test`'te kalır. Kullanıcının elle test verisi testlerden etkilenmez.
+- **Fikstür geri yükleme** (kanal ayarları, API bilgileri, yetenekler, AppSetting, ChannelJobState) ek güvenlik olarak kalır.
+
+**Doğrulama:** `PazaryeriHub_Test`'in 13 tablosunun satır sayısı ve CHECKSUM özeti testlerden önce, entegrasyon testlerinden sonra (135/135) ve Playwright'tan sonra (11/11) birebir aynı.
