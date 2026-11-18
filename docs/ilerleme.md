@@ -7,6 +7,15 @@
 
 ---
 
+## Varyant ayrımı ve kanal fiyatı tüm kanallarda (2026-11-18): TAMAM (gerçek hesapla doğrulanmadı)
+
+- **Beymen:** Katalog `GET /products` ucuna geçti. Model, renk, beden, ad, marka, kategori, liste ve satış fiyatı okunuyor; her productId ayrı SKU adayı.
+- **Hepsiburada:** Listing fiyatı ve ürün adı okunuyor; her HBSKU ayrı.
+- **Ürün linki:** Yalnızca Trendyol'da; diğer iki kanalın dokümanında adres alanı yok.
+- **Testler:** Unit 289/289 (Beymen ve Hepsiburada katalog contract testleri güncellendi), Integration 134/134.
+
+---
+
 ## Katalog varyant ayrımı + ürün linki + kanal fiyatı (2026-11-18): TAMAM (gerçek Trendyol ile yeniden çekim bekleniyor)
 
 - **Sorun:** Trendyol'dan ürün oluşturmada aynı modelin farklı renk ve ebatları (ör. CHAIN75150'nin 3 rengi, BAMBU85150 + Bambu50100) tek SKU'da birleşmişti.

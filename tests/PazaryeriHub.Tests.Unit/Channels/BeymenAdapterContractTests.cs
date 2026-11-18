@@ -201,18 +201,38 @@ public sealed class BeymenAdapterContractTests
 
     // ------------------------------------------------------------------ katalog (ADR-022)
 
+    /// <summary>ADR-031: "Product Listing" (GET /products) örnek yanıtı (dokümandan; gerçek hesap kaydı değil).</summary>
     [Fact]
-    public async Task Katalog_price_stock_aramasindan_cekilir_id_kanal_kodu_barkod()
+    public async Task Katalog_urun_listesinden_cekilir_model_renk_beden_fiyat_ve_varyant_anahtari()
     {
         var (adapter, http) = Create();
         http.Respond = _ => (HttpStatusCode.OK, """
-            {"items":[{"id":"3fa85f64-5717-4562-b3fc-2c963f66afa6","barcode":"BRK-1","stock":{"count":9}}],"total":1,"size":1000,"page":0,"pageCount":1}
+            {"items":[
+              {"id":"d4cc05d9-52fb-49b1-8074-e2e6af8e5440","externalId":"x","merchantId":"m","name":"Chain Havlu","barcode":"Chain75150001","modelCode":"Chain75150",
+               "stockCode":"","brand":{"id":"717","name":"Softcotton"},"category":{"id":"98267","name":"Havlu"},"merchantColorCode":"",
+               "size":{"id":"13483","name":"75x150"},"platformColor":{"id":"2481","name":"Krem"},
+               "salesPrice":{"value":499.9,"currency":"TRY"},"platformSalesPrice":{"value":349.9,"currency":"TRY"},
+               "stock":{"count":19},"status":{"status":"OnSale","localizedDescription":"Satışta"}}],
+             "page":0,"itemsPerPage":100,"pageCount":1,"total":1}
             """);
 
         var page = await adapter.FetchCatalogAsync(null, Ct);
 
-        http.Requests.Single().Uri.PathAndQuery.Should().Be("/products/price-stock/search?size=1000&page=0");
+        http.Requests.Single().Uri.PathAndQuery.Should().Be("/products?size=100&page=0");
         page.NextCursor.Should().BeNull();
-        page.Items.Should().Equal(new ChannelCatalogEntry("3fa85f64-5717-4562-b3fc-2c963f66afa6", "BRK-1", null, null, null, null, null, null, null, null, false));
+        page.Items.Should().Equal(new ChannelCatalogEntry("d4cc05d9-52fb-49b1-8074-e2e6af8e5440", "Chain75150001", null, "Chain75150", "Krem", "75x150",
+            "Chain Havlu", "Softcotton", "Havlu", "Satışta", false, "pd4cc05d9-52fb-49b1-8074-e2e6af8e5440", "Renk: Krem; Beden: 75x150", null, 349.9m, 499.9m));
+    }
+
+    [Fact]
+    public async Task Katalog_sonraki_sayfa_imleci()
+    {
+        var (adapter, http) = Create();
+        var items = string.Join(",", Enumerable.Range(0, 100).Select(i => $$"""{"id":"id-{{i}}","barcode":"B{{i}}"}"""));
+        http.Respond = _ => (HttpStatusCode.OK, $$"""{"items":[{{items}}],"page":0,"pageCount":3}""");
+
+        (await adapter.FetchCatalogAsync(null, Ct)).NextCursor.Should().Be("p:1");
+        (await adapter.FetchCatalogAsync("p:2", Ct)).NextCursor.Should().BeNull("son sayfa (pageCount 3)");
+        http.Requests[1].Uri.PathAndQuery.Should().Be("/products?size=100&page=2");
     }
 }

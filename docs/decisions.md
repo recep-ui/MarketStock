@@ -654,3 +654,16 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 **Doğrulanmadı:**
 - Havlu/nevresim kategorilerinde Trendyol varyant özellik adları. Yeniden çekimden sonra Eşleştirme ekranındaki "Kanalda" sütununda görülecek.
 - `price.salePrice`'ın KDV dahil olup olmadığı (ADR-028); ekranda "kanalda görünen" olarak etiketlenir.
+
+### ADR-031 eki: Hepsiburada ve Beymen (2026-11-18)
+- **Beymen:** "Kanaldan ürün çek" artık `GET /products` ("Product Listing") ucundan çekiyor; önceden `products/price-stock/search` kullanılıyordu ve yalnızca id + barkod geliyordu.
+  - Okunanlar: ad, model kodu, stok kodu, marka, kategori, renk (`platformColor.name`, yoksa `merchantColorCode`), beden (`size.name`), durum.
+  - Fiyat: `salesPrice` → liste, `platformSalesPrice` → satış (ADR-028 ile aynı eşleme).
+  - Her productId ayrı varyanttır → varyant anahtarı `p{id}`; ürün oluştururken asla birleşmez.
+  - Renk ve beden dolu geldiği için Beymen ürünleri Trendyol'dan oluşan SKU'larla model + renk + beden adımında eşleşebilir. Renk adları kanallar arasında farklıysa eşleşmeyenlere düşer.
+  - Mutabakat (stok okuma) değişmedi: `products/price-stock/search`.
+  - TODO: doğrulanmalı — `/products` için en büyük sayfa boyutu ve 10.000 kayıt sınırı dokümanda yok; 100'lük sayfalar kullanılır.
+- **Hepsiburada:** Listing sorgusundan `price` (alan tablosu: "Listingin fiyatıdır") ve `productName` okunur.
+  - Her HBSKU ayrı varyanttır (`h{HBSKU}`). Bu uçta model, renk ve beden yok.
+  - TODO: doğrulanmalı — JSON alan adları; dokümanda alan tablosu ve XML örneği var, JSON örneği yok.
+- **Ürün linki:** Hepsiburada ve Beymen dokümanlarında ürün sayfası adresi alanı yok → link yalnızca Trendyol'da. Adres biçimi tahmin edilmez.

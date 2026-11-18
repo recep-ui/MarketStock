@@ -168,14 +168,20 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var url = $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}?offset={offset}&limit={limit}";
         using var doc = await SendAsync(creds, HttpMethod.Get, url, null, ct);
         var items = Items(doc?.RootElement, "listings").ToList();
+        // ADR-031: her HBSKU ayrı varyanttır (model/renk/beden bu uçta yok → ürün oluştururken birleşmez).
+        // Fiyat: "Price" = listingin fiyatı (alan açıklamaları tablosu); ürün sayfası adresi dokümanda yok → link yok.
+        // TODO: doğrulanmalı — JSON yanıtında "price" ve "productName" adları (dokümanda yalnızca alan tablosu ve XML örneği var).
         var entries = items
-            .Select(i => (HbSku: Str(i, "hepsiburadaSku"), MerchantSku: Str(i, "merchantSku"), Salable: Prop(i, "isSalable")))
+            .Select(i => (HbSku: Str(i, "hepsiburadaSku"), MerchantSku: Str(i, "merchantSku"), Salable: Prop(i, "isSalable"),
+                Name: Str(i, "productName"), Price: Prop(i, "price")))
             .Where(x => x.HbSku is not null)
             .Select(x => new ChannelCatalogEntry(
                 ChannelProductCode: x.HbSku!.Trim(), Barcode: null, StockCode: x.MerchantSku?.Trim(), ModelCode: null, Color: null, Size: null,
-                Name: null, Brand: null, Category: null,
+                Name: x.Name?.Trim(), Brand: null, Category: null,
                 ChannelStatus: x.Salable?.ValueKind switch { JsonValueKind.True => "Satışta", JsonValueKind.False => "Satışta değil", _ => null },
-                Passive: false))
+                Passive: false,
+                VariantKey: "h" + x.HbSku!.Trim(),
+                SalePrice: x.Price is { ValueKind: JsonValueKind.Number } p && p.TryGetDecimal(out var d) && d > 0 ? d : null))
             .ToList();
         var next = items.Count < limit ? null : (offset + limit).ToString(CultureInfo.InvariantCulture);
         return new ChannelCatalogPage(entries, next);

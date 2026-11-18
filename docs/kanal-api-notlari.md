@@ -149,6 +149,19 @@
   - ✅ Alan açıklamaları: issueNumber, customerId, orderNumber, lineItemId, status, subject, lastContent, conversations[], product{sku, name, stockCode}, expireDate, lastModifiedAt.
   - ⚠️ **Liste yanıtının kök şeması ve tarih parametre biçimi yok** → mock.
 
+## 3f. Katalog: varyant, fiyat, ürün linki (2026-11-18 okundu, ADR-031)
+
+- **Trendyol** (filterApprovedProducts):
+  - ✅ `content.contentId`, `variants[].attributes[]{attributeName, attributeValue}`.
+  - ✅ `variants[].productUrl`.
+  - ✅ `variants[].price{salePrice, listPrice}`.
+- **Beymen** (Product Listing, `GET /products?size&page&barcode&modelCode&brand&stockCode&status&substatus`):
+  - ✅ `items[]{id, name, barcode, modelCode, stockCode, brand{name}, category{name}, merchantColorCode, size{name}, platformColor{name}, salesPrice{value}, platformSalesPrice{value}, stock{count}, status{status, localizedDescription}}`, `page`, `itemsPerPage`, `pageCount`, `total`.
+  - ⚠️ Ürün sayfası adresi yok. Sayfa boyutu üst sınırı yok.
+- **Hepsiburada** (Listing Bilgilerini Sorgulama):
+  - ✅ Alan tablosu: HepsiburadaSku, MerchantSku, Price, AvailableStock, Pricing.FinalPrice, IsSalable…
+  - ⚠️ JSON örneği yok (XML örneğinde `ProductName`, `Price`). Ürün sayfası adresi yok.
+
 ## 4. softcotton.com.tr
 Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -90,44 +90,72 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
     }
 
     /// <summary>
-    /// Kanal kataloğu: <c>GET /products/price-stock/search</c> (size ≤ 1000; 10.000 kayıttan sonra searchAfter).
-    /// Doğrulanmış alanlar yalnızca <c>id</c> (→ Kanal Ürün Kodu, productId) ve <c>barcode</c>; model/renk/beden bu uçta yok.
-    /// TODO: doğrulanmalı — Beymen'in ürün içeriği (model, renk, beden) dönen bir listeleme ucu dokümanda bulunursa eklenmeli.
-    /// İmleç: "p:{sayfa}" veya "s:{sayfa}:{searchAfter}".
+    /// Kanal kataloğu (ADR-031): <c>GET /products?page&amp;size</c> ("Product Listing", partner-docs.beymen.com/en, 2026-11-18 okundu).
+    /// Yanıt: <c>items[]{id, name, barcode, modelCode, stockCode, brand.name, category.name, merchantColorCode, size.name, platformColor.name,
+    /// salesPrice.value, platformSalesPrice.value, status{status, localizedDescription}}</c>, <c>page</c>, <c>pageCount</c>.
+    /// Beymen'de her productId ayrı varyanttır → varyant anahtarı "p{id}" (ürün oluştururken asla birleşmez).
+    /// Fiyat eşlemesi ADR-028 ile aynı: salesPrice → liste, platformSalesPrice → satış. Ürün sayfası adresi dokümanda yok → link yok.
+    /// TODO: doğrulanmalı — en büyük sayfa boyutu ve 10.000 kayıt sınırı bu uç için dokümanda yazmıyor (100'lük sayfalar kullanılır).
+    /// İmleç: "p:{sayfa}".
     /// </summary>
     public async Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
     {
-        const int size = 1000;
-        var page = 0;
-        string? searchAfter = null;
-        if (cursor is not null)
-        {
-            var parts = cursor.Split(':', 3);
-            page = int.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
-            searchAfter = parts[0] == "s" && parts.Length == 3 ? parts[2] : null;
-        }
+        const int size = 100;
+        var page = cursor is not null && cursor.StartsWith("p:", StringComparison.Ordinal)
+            ? int.Parse(cursor[2..], System.Globalization.CultureInfo.InvariantCulture)
+            : 0;
 
         var creds = await CredentialsAsync(ct);
-        var query = searchAfter is null ? $"?size={size}&page={page}" : $"?size={size}&searchAfter={Uri.EscapeDataString(searchAfter)}";
-        using var doc = await SendAsync(creds, HttpMethod.Get, "/products/price-stock/search" + query, null, ct);
+        using var doc = await SendAsync(creds, HttpMethod.Get, $"/products?size={size}&page={page}", null, ct);
         if (doc is null)
         {
             return new ChannelCatalogPage([], null);
         }
         var items = Items(doc.RootElement).ToList();
-        var entries = items
-            .Select(i => (Id: Str(i, "id"), Barcode: Str(i, "barcode")))
-            .Where(x => x.Id is not null)
-            .Select(x => new ChannelCatalogEntry(x.Id!.Trim(), x.Barcode?.Trim(), null, null, null, null, null, null, null, null, false))
-            .ToList();
-
+        var entries = items.Select(MapCatalogItem).OfType<ChannelCatalogEntry>().ToList();
         var pageCount = Int(doc.RootElement, "pageCount");
-        var nextSearchAfter = (page + 1) * size >= 10_000 ? Str(doc.RootElement, "searchAfter") : null;
-        var last = items.Count < size || (nextSearchAfter is null && ((page + 1) * size >= 10_000 || (pageCount is { } pc && page + 1 >= pc)));
-        var nextPage = (page + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var next = last ? null : nextSearchAfter is not null ? $"s:{nextPage}:{nextSearchAfter}" : $"p:{nextPage}";
-        return new ChannelCatalogPage(entries, next);
+        var last = items.Count < size || (pageCount is { } pc && pc > 0 && page + 1 >= pc);
+        return new ChannelCatalogPage(entries, last ? null : "p:" + (page + 1).ToString(System.Globalization.CultureInfo.InvariantCulture));
     }
+
+    internal static ChannelCatalogEntry? MapCatalogItem(JsonElement i)
+    {
+        var id = Str(i, "id")?.Trim();
+        if (id is null)
+        {
+            return null;
+        }
+        var color = Named(i, "platformColor") ?? Str(i, "merchantColorCode");
+        var size = Named(i, "size");
+        var status = i.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
+            ? Str(st, "localizedDescription") ?? Str(st, "status")
+            : null;
+        var attrs = new[] { color is null ? null : $"Renk: {color}", size is null ? null : $"Beden: {size}" }.OfType<string>().ToList();
+        return new ChannelCatalogEntry(
+            ChannelProductCode: id,
+            Barcode: Str(i, "barcode")?.Trim(),
+            StockCode: Str(i, "stockCode")?.Trim(),
+            ModelCode: Str(i, "modelCode")?.Trim(),
+            Color: color?.Trim(),
+            Size: size?.Trim(),
+            Name: Str(i, "name")?.Trim(),
+            Brand: Named(i, "brand"),
+            Category: Named(i, "category"),
+            ChannelStatus: status,
+            Passive: false,
+            VariantKey: "p" + id,
+            VariantAttributes: attrs.Count > 0 ? string.Join("; ", attrs) : null,
+            ProductUrl: null,
+            SalePrice: PriceValue(i, "platformSalesPrice"),
+            ListPrice: PriceValue(i, "salesPrice"));
+    }
+
+    private static string? Named(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var o) && o.ValueKind == JsonValueKind.Object ? Str(o, "name") : null;
+
+    private static decimal? PriceValue(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var o) && o.ValueKind == JsonValueKind.Object && o.TryGetProperty("value", out var v)
+            && v.ValueKind == JsonValueKind.Number && v.TryGetDecimal(out var d) && d > 0 ? d : null;
 
     /// <summary>
     /// Kanal stoğu (mutabakat): <c>GET /products/price-stock/search</c> (size ≤1000; 10.000 kayıttan sonra searchAfter).

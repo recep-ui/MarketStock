@@ -227,7 +227,7 @@ public sealed class HepsiburadaAdapterContractTests
     {
         var (adapter, http) = Create();
         http.Respond = _ => (HttpStatusCode.OK, """
-            {"listings":[{"HepsiburadaSku":"HBV0000106NM0","MerchantSku":"SC-1","AvailableStock":14,"IsSalable":true},
+            {"listings":[{"HepsiburadaSku":"HBV0000106NM0","MerchantSku":"SC-1","ProductName":"Chain Havlu","Price":349.9,"AvailableStock":14,"IsSalable":true},
                          {"HepsiburadaSku":"HBV0000106NM1","MerchantSku":null,"AvailableStock":0,"IsSalable":false}]}
             """);
 
@@ -236,7 +236,7 @@ public sealed class HepsiburadaAdapterContractTests
         http.Requests.Single().Uri.ToString().Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}?offset=200&limit=100");
         page.NextCursor.Should().BeNull("100'den az kayıt → son sayfa");
         page.Items.Should().Equal(
-            new ChannelCatalogEntry("HBV0000106NM0", null, "SC-1", null, null, null, null, null, null, "Satışta", false),
-            new ChannelCatalogEntry("HBV0000106NM1", null, null, null, null, null, null, null, null, "Satışta değil", false));
+            new ChannelCatalogEntry("HBV0000106NM0", null, "SC-1", null, null, null, "Chain Havlu", null, null, "Satışta", false, "hHBV0000106NM0", SalePrice: 349.9m),
+            new ChannelCatalogEntry("HBV0000106NM1", null, null, null, null, null, null, null, null, "Satışta değil", false, "hHBV0000106NM1"));
     }
 }
