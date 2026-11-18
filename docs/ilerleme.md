@@ -7,6 +7,19 @@
 
 ---
 
+## Test hijyeni: kullanıcının kanal yapılandırması korunur (2026-11-18): TAMAM
+
+- **Sorun:** `ChannelCredentialsTests`, test veritabanındaki Trendyol API bilgisini her çalışmada sahte değerle değiştirip siliyordu. Deneme modunda girilen gerçek anahtar bu yüzden kayboldu. Ayrıca bazı sipariş testleri Trendyol'u aktif yapıp pasife çekiyordu (önceki durumu geri koymadan).
+- **Risk:** Gerçek anahtar varken "API bilgisi yok" testi gerçek Trendyol'a sipariş isteği atabilirdi.
+- **Düzeltme:**
+  - `TestDatabase` fikstürü testlerden önce kanal aktifliği, pay, ayarlar, şifreli API bilgileri, yazma yetenekleri ve AppSetting değerlerini kaydeder; testler bitince geri yazar.
+  - İki kimlik testi değeri ayrıca kendi içinde saklayıp geri koyar.
+  - "API bilgisi yok" testi gerçek anahtarı geçici olarak kaldırır; böylece dışarı istek çıkmaz.
+- **Doğrulama:** Trendyol'a geçici sahte şifreli değer, Aktif=1 ve SORU_CEVAP=DENEME verildi. 133/133 test sonrası üçü de aynen kaldı. Sonra geçici değer kaldırıldı.
+- **Not:** Entegrasyon testleri `PazaryeriHub_Test`'e yine test ürünü, sipariş vb. ekler (testlerin doğası). Temiz başlangıç gerekirse test sonrası temizlik ayrıca yapılır.
+
+---
+
 ## Sipariş çekme aralığı (2026-11-18): TAMAM
 
 - `Siparis:ChannelFetchCron`: Trendyol ve Hepsiburada 1 dk, Beymen ve softcotton 2 dk. Hız limitleri resmi dokümandan doğrulandı (ADR-030).

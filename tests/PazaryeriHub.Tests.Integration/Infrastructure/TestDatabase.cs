@@ -20,6 +20,11 @@ namespace PazaryeriHub.Tests.Integration.Infrastructure;
 /// Bağlantı yoksa testler ATLANIR (geçti sayılmaz). Güvenlik: veritabanı adı "Test" içermiyorsa testler çalışmaz;
 /// testler veri ekler ve gerçek veritabanını kirletmemelidir.
 /// Her test kendi benzersiz SKU'sunu oluşturduğu için testler arasında temizlik gerekmez.
+/// <para>
+/// Kullanıcının test veritabanındaki kanal yapılandırması korunur: testler başlamadan kanalların aktifliği, payı, ayarları,
+/// şifreli API bilgileri (KimlikSifreli), yazma yetenekleri ve genel ayarlar (AppSetting) kaydedilir; testler bitince geri yazılır.
+/// Böylece testler deneme modunda girilen gerçek API anahtarını silmez veya kanalı pasife çekmez.
+/// </para>
 /// </summary>
 public sealed class TestDatabase : IAsyncLifetime
 {
@@ -38,6 +43,15 @@ public sealed class TestDatabase : IAsyncLifetime
 
     private ApiFactory? _api;
     private HttpClient? _client;
+    private ConfigSnapshot? _snapshot;
+
+    private sealed record ChannelRow(int Id, bool Aktif, decimal PayYuzde, string? Ayarlar, byte[]? KimlikSifreli);
+
+    private sealed record CapabilityRow(int ChannelId, string Yetenek, string Durum, string? Degistiren, DateTime DegisimTarihi);
+
+    private sealed record SettingRow(string Anahtar, string Deger);
+
+    private sealed record ConfigSnapshot(IReadOnlyList<ChannelRow> Channels, IReadOnlyList<CapabilityRow> Capabilities, IReadOnlyList<SettingRow> Settings);
 
     /// <summary>Test veritabanına bağlı, testler arasında paylaşılan bellek içi API.</summary>
     public ApiFactory ApiHost => _api ??= new ApiFactory(ConnectionString!);
@@ -71,6 +85,10 @@ public sealed class TestDatabase : IAsyncLifetime
 
         await using var connection = Open();
         DefaultWarehouseId = await connection.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Warehouse WHERE Ad = N'Ana Depo'");
+        _snapshot = new ConfigSnapshot(
+            (await connection.QueryAsync<ChannelRow>("SELECT Id, Aktif, PayYuzde, Ayarlar, KimlikSifreli FROM dbo.Channel")).ToList(),
+            (await connection.QueryAsync<CapabilityRow>("SELECT ChannelId, Yetenek, Durum, Degistiren, DegisimTarihi FROM dbo.ChannelCapability")).ToList(),
+            (await connection.QueryAsync<SettingRow>("SELECT Anahtar, Deger FROM dbo.AppSetting")).ToList());
 
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:PazaryeriHub"] = ConnectionString })
@@ -85,6 +103,34 @@ public sealed class TestDatabase : IAsyncLifetime
         {
             await _api.DisposeAsync();
         }
+        await RestoreConfigurationAsync();
+    }
+
+    /// <summary>Testlerden önceki kanal yapılandırmasını (API bilgileri dahil), yetenekleri ve genel ayarları geri yazar.</summary>
+    private async Task RestoreConfigurationAsync()
+    {
+        if (_snapshot is null || ConnectionString is null)
+        {
+            return;
+        }
+        await using var connection = Open();
+        await using var tx = connection.BeginTransaction();
+        foreach (var c in _snapshot.Channels)
+        {
+            await connection.ExecuteAsync(
+                "UPDATE dbo.Channel SET Aktif = @Aktif, PayYuzde = @PayYuzde, Ayarlar = @Ayarlar, KimlikSifreli = @KimlikSifreli WHERE Id = @Id", c, tx);
+        }
+        foreach (var cap in _snapshot.Capabilities)
+        {
+            await connection.ExecuteAsync(
+                "UPDATE dbo.ChannelCapability SET Durum = @Durum, Degistiren = @Degistiren, DegisimTarihi = @DegisimTarihi WHERE ChannelId = @ChannelId AND Yetenek = @Yetenek",
+                cap, tx);
+        }
+        foreach (var s in _snapshot.Settings)
+        {
+            await connection.ExecuteAsync("UPDATE dbo.AppSetting SET Deger = @Deger WHERE Anahtar = @Anahtar", s, tx);
+        }
+        await tx.CommitAsync();
     }
 
     /// <summary>Veritabanı yoksa testi gerekçesiyle atlar.</summary>

@@ -17,6 +17,19 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>Kullanıcının test veritabanına girdiği gerçek API bilgisi testten önce saklanır, sonra aynen geri yazılır.</summary>
+    private async Task<byte[]?> SaveCredentialsAsync(string code)
+    {
+        await using var c = db.Open();
+        return await c.ExecuteScalarAsync<byte[]?>("SELECT KimlikSifreli FROM dbo.Channel WHERE Kod = @code", new { code });
+    }
+
+    private async Task RestoreCredentialsAsync(string code, byte[]? value)
+    {
+        await using var c = db.Open();
+        await c.ExecuteAsync("UPDATE dbo.Channel SET KimlikSifreli = @value WHERE Kod = @code", new { code, value });
+    }
+
     [Fact]
     public async Task Kimlik_bilgisi_sifreli_saklanir_ve_hicbir_yanitta_donmez()
     {
@@ -24,6 +37,7 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
         var channels = await db.Api.GetFromJsonAsync<List<ChannelDto>>("/api/channels", ExcelImportApiTests.Json, Ct);
         var trendyol = channels!.Single(c => c.Code == "TRENDYOL");
         const string secret = "cok-gizli-api-secret-123";
+        var original = await SaveCredentialsAsync("TRENDYOL");
 
         try
         {
@@ -58,7 +72,14 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
         }
         finally
         {
-            (await db.Api.DeleteAsync($"/api/channels/{trendyol.Id}/credentials", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+            try
+            {
+                (await db.Api.DeleteAsync($"/api/channels/{trendyol.Id}/credentials", Ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+            }
+            finally
+            {
+                await RestoreCredentialsAsync("TRENDYOL", original);
+            }
         }
     }
 
@@ -87,8 +108,18 @@ public sealed class ChannelCredentialsTests(TestDatabase db)
             .Which.Inner.Should().BeOfType<PazaryeriHub.Adapters.Beymen.BeymenAdapter>();
         by.Services.GetServices<IChannelAdapter>().Single(a => a.ChannelCode == "SOFTCOTTON").Should().BeOfType<MockChannelAdapter>();
 
-        // Kimlik bilgisi yokken gerçek adaptör dış çağrı yapmadan sade hata verir
-        var act = () => adapters.Single(a => a.ChannelCode == "TRENDYOL").FetchOrdersAsync(DateTime.UtcNow.AddHours(-1), Ct);
-        (await act.Should().ThrowAsync<ChannelApiException>()).Which.Message.Should().Contain("girilmemiş");
+        // Kimlik bilgisi yokken gerçek adaptör dış çağrı yapmadan sade hata verir. Kullanıcının girdiği gerçek anahtar varsa
+        // geçici olarak kaldırılır (gerçek Trendyol'a istek ÇIKMASIN) ve test sonunda aynen geri yazılır.
+        var original = await SaveCredentialsAsync("TRENDYOL");
+        try
+        {
+            await RestoreCredentialsAsync("TRENDYOL", null);
+            var act = () => adapters.Single(a => a.ChannelCode == "TRENDYOL").FetchOrdersAsync(DateTime.UtcNow.AddHours(-1), Ct);
+            (await act.Should().ThrowAsync<ChannelApiException>()).Which.Message.Should().Contain("girilmemiş");
+        }
+        finally
+        {
+            await RestoreCredentialsAsync("TRENDYOL", original);
+        }
     }
 }
