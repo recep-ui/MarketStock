@@ -8,7 +8,11 @@ using PazaryeriHub.Application.Excel;
 namespace PazaryeriHub.Api.Endpoints;
 
 /// <param name="JobType">SIPARIS_CEK | IADE_CEK | SORU_CEK | KATALOG_CEK | MUTABAKAT | REFERANS_CEK</param>
-public sealed record ChannelJobStateDto(string JobType, DateTime? LastSuccessUtc, DateTime? LastAttemptUtc, string? LastError, int ConsecutiveFailures);
+public sealed record ChannelJobStateDto(string JobType, DateTime? LastSuccessUtc, DateTime? LastAttemptUtc, string? LastError, int ConsecutiveFailures)
+{
+    /// <summary>Hatanın türü ve ne yapılacağı (ADR-033); iş son çalışmada başarılıysa null.</summary>
+    public ChannelErrorInfo? ErrorInfo => ConsecutiveFailures > 0 ? ChannelErrorExplainer.Explain(LastError) : null;
+}
 
 /// <summary>
 /// Kanal, eşleştirme ve Excel uç noktaları.
@@ -23,6 +27,8 @@ public static class ChannelEndpoints
     {
         var channels = app.MapGroup("/api/channels").WithTags("Kanallar").RequireAuthorization(Policies.Read);
         channels.MapGet("/", (IChannelService s, CancellationToken ct) => s.GetChannelsAsync(ct));
+        // Kanal durum kartları (ADR-033): mod, ortam, yazma kilidi, yetenekler, iş durumları ve genel durum. Gizli bilgi dönmez.
+        channels.MapGet("/status", (PazaryeriHub.Api.Channels.ChannelStatusQuery q, CancellationToken ct) => q.GetAsync(ct));
         channels.MapPut("/{id:int}", (IChannelService s, int id, ChannelUpdate update, CancellationToken ct) => s.UpdateChannelAsync(id, update, ct))
             .RequireAuthorization(Policies.Admin);
 

@@ -18,8 +18,11 @@ const outcomeLabels: Record<string, string> = {
  * Satıcı Bilgileri (ADR-025): kanalın kargo firması ve iade red gerekçesi listeleri. Salt okuma; "Kanaldan yenile"
  * Hangfire job'ı olarak kuyruğa alınır (yalnızca Yönetici). Kaynak "Doküman" ise liste kanal dokümanındaki sabit tablodur.
  */
-export function ChannelReferences({ channels, canRefresh, onNotice }: { channels: Channel[]; canRefresh: boolean; onNotice: (m: string) => void }) {
-  const [channelId, setChannelId] = useState('');
+export function ChannelReferences({ channels, canRefresh, onNotice, channelId: controlled }: {
+  channels: Channel[]; canRefresh: boolean; onNotice: (m: string) => void; channelId?: string;
+}) {
+  const [own, setChannelId] = useState('');
+  const channelId = controlled ?? own;
   const [type, setType] = useState('KARGO_FIRMASI');
   const [includeInactive, setIncludeInactive] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -46,9 +49,11 @@ export function ChannelReferences({ channels, canRefresh, onNotice }: { channels
         Sipariş/teslimat ve iade kararı ekranlarında kullanılan listeler. Kanalda artık bulunmayan kayıt silinmez, pasif olur.
       </p>
       <div className="filters">
-        <select aria-label="Referans kanalı" value={selected} onChange={e => setChannelId(e.target.value)}>
-          {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}{c.active ? '' : ' (pasif)'}</option>)}
-        </select>
+        {controlled === undefined && (
+          <select aria-label="Referans kanalı" value={selected} onChange={e => setChannelId(e.target.value)}>
+            {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}{c.active ? '' : ' (pasif)'}</option>)}
+          </select>
+        )}
         <select aria-label="Referans tipi" value={type} onChange={e => setType(e.target.value)}>
           {Object.entries(typeLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -60,7 +65,7 @@ export function ChannelReferences({ channels, canRefresh, onNotice }: { channels
       {status && (
         <p className="muted small" data-testid="reference-status">
           Son çekme: {formatDateTime(status.lastAttemptUtc)} · son başarılı: {formatDateTime(status.lastSuccessUtc)}
-          {status.lastError && <span style={{ color: "var(--danger)" }}> · Hata: {status.lastError}</span>}
+          {status.lastError && <span className="text-danger"> · Hata: {status.lastError}</span>}
           {status.results.map(r => (
             <span key={r.type}> · {typeLabels[r.type] ?? r.type}: {outcomeLabels[r.outcome] ?? r.outcome}
               {r.outcome === 'GUNCELLENDI' ? ` (${r.count})` : ''}{r.message ? ` — ${r.message}` : ''}</span>

@@ -101,7 +101,11 @@ public sealed record ChannelCommandCreateResult(long Id, string Outcome, string 
 public sealed record ChannelCommandDto(
     long Id, int ChannelId, string ChannelCode, string Type, string TargetKey, string PayloadJson, string State, int Attempts,
     DateTime? NextAttemptUtc, string? Error, string? ChannelOperationNo, string? CreatedBy, DateTime CreatedAtUtc,
-    string? ApprovedBy, DateTime? ApprovedAtUtc, DateTime? SentAtUtc);
+    string? ApprovedBy, DateTime? ApprovedAtUtc, DateTime? SentAtUtc)
+{
+    /// <summary>Hatanın türü ve ne yapılacağı (ADR-033).</summary>
+    public ChannelErrorInfo? ErrorInfo => ChannelErrorExplainer.Explain(Error);
+}
 
 public sealed record ChannelCommandQuery(int? ChannelId, string? Type, string? State, string? TargetKey, int? Page, int? PageSize);
 

@@ -149,7 +149,7 @@ export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME'
 export type ChannelCommand = {
   id: number; channelId: number; channelCode: string; type: string; targetKey: string; payloadJson: string; state: string; attempts: number;
   nextAttemptUtc: string | null; error: string | null; channelOperationNo: string | null; createdBy: string | null; createdAtUtc: string;
-  approvedBy: string | null; approvedAtUtc: string | null; sentAtUtc: string | null;
+  approvedBy: string | null; approvedAtUtc: string | null; sentAtUtc: string | null; errorInfo?: ChannelErrorInfo | null;
 };
 export type OrderNotificationRow = {
   orderId: number; channelId: number; channelCode: string; channelOrderNo: string; status: OrderStatus; orderDateUtc: string; statusSource: string;
@@ -195,7 +195,7 @@ export type Movement = {
 export type SyncItem = {
   id: number; listingId: number; skuCode: string; channelCode: string; type: string; status: 'BEKLIYOR' | 'GONDERILDI' | 'HATA';
   attempts: number; error: string | null; batchId: string | null; sentValue: number | null; sentPrice?: number | null; createdUtc: string;
-  lastAttemptUtc: string | null; nextAttemptUtc: string | null;
+  lastAttemptUtc: string | null; nextAttemptUtc: string | null; errorInfo?: ChannelErrorInfo | null;
 };
 export type SyncSummary = { channelCode: string; pending: number; inFlight: number; sent: number; error: number; lastSentUtc: string | null };
 export type Reconciliation = {
@@ -264,6 +264,19 @@ export type Dashboard = {
   insufficientStockOrders: number; criticalStockThreshold: number;
   criticalStock: { skuId: number; skuCode: string; productName: string; physical: number; reserved: number; available: number }[];
   syncErrors: number; syncPending: number;
-  jobs: { channelCode: string; jobType: string; lastSuccessUtc: string | null; lastAttemptUtc: string | null; consecutiveFailures: number; lastError: string | null }[];
+  jobs: { channelCode: string; jobType: string; lastSuccessUtc: string | null; lastAttemptUtc: string | null; consecutiveFailures: number; lastError: string | null; errorInfo?: ChannelErrorInfo | null }[];
 };
 export type User = { id: number; userName: string; fullName: string; role: string; active: boolean; lastLoginUtc: string | null };
+
+/** ADR-033: kayıtlı hata metninin türü ve ne yapılacağı (sunucu sınıflandırır). */
+export type ChannelErrorInfo = { kind: string; title: string; advice: string; transient: boolean; problems: string[]; moreCount: number };
+export type ChannelJobStatus = {
+  jobType: string; lastSuccessUtc: string | null; lastAttemptUtc: string | null; consecutiveFailures: number; lastError: string | null;
+  errorInfo: ChannelErrorInfo | null;
+};
+/** ADR-033: kanal durum kartı. Gizli bilgi içermez. */
+export type ChannelStatus = {
+  id: number; code: string; name: string; active: boolean; hasCredentials: boolean; mode: 'MOCK' | 'GERCEK'; realAdapterAvailable: boolean;
+  environment: string | null; writeLocked: boolean; capabilities: ChannelCapability[]; jobs: ChannelJobStatus[];
+  health: 'CALISIYOR' | 'DIKKAT' | 'HATA' | 'SAHTE' | 'KAPALI'; healthReason: string;
+};

@@ -42,6 +42,7 @@ try
 
     // Kanal adaptörleri: "Kanallar:{KOD}:Mod" = Mock (varsayılan) | Gercek. Şimdilik yalnızca Trendyol'un gerçek adaptörü var.
     builder.Services.AddChannelAdapters(builder.Configuration);
+    builder.Services.AddScoped<PazaryeriHub.Api.Channels.ChannelStatusQuery>();
 
     // Kanal API kimlik bilgileri IDataProtector ile şifrelenir (ADR-016). Anahtar halkası varsayılan olarak kullanıcı profilinde;
     // sunucu/konteyner için "DataProtection:KeysPath" ile kalıcı bir klasör verilmelidir.

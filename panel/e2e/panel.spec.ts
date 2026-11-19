@@ -81,7 +81,13 @@ test('3) Hatalı senkron sadeleştirilmiş hatayla görünür ve "Yeniden dene" 
 
   const row = page.getByTestId('sync-row').filter({ hasText: d.skuCodes[0] });
   await expect(row).toHaveCount(1);
-  await expect(row.getByTestId('sync-error')).toHaveText('Kanal hata döndü (HTTP 503): Servis geçici olarak kullanılamıyor');
+  // ADR-033: ham metin yerine "ne oldu + ne yapmalı"; ham metin "Teknik ayrıntı"da
+  const explain = row.getByTestId('error-explain');
+  await expect(explain).toHaveAttribute('data-kind', 'KANAL_ERISILEMIYOR');
+  await expect(explain).toContainText('Kanala şu an ulaşılamıyor');
+  await expect(explain).toContainText('sistem yeniden dener');
+  await explain.getByText('Teknik ayrıntı').click();
+  await expect(explain).toContainText('Kanal hata döndü (HTTP 503): Servis geçici olarak kullanılamıyor');
   await expect(row).toHaveClass(/row-danger/);
 
   await row.getByRole('button', { name: 'Yeniden dene' }).click();
@@ -111,6 +117,39 @@ test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   }
   await page.getByRole('navigation').getByRole('link', { name: 'Genel Bakış' }).click();
   await expect(page.getByTestId('stat-today-orders')).not.toContainText(/^0/);
+});
+
+test('Kanal durumu: kartlar mod ve durumu metinle gösterir, kart seçilince kanal ayarları açılır (ADR-033)', async ({ page }) => {
+  await login(page);
+  const statuses: { code: string; mode: string; health: string }[] = await (await page.request.get('/api/channels/status')).json();
+  expect(statuses.map(s => s.code).sort()).toEqual(['BEYMEN', 'HEPSIBURADA', 'SOFTCOTTON', 'TRENDYOL']);
+  expect(statuses.every(s => s.mode === 'MOCK')).toBe(true); // e2e'de tüm kanallar mock
+
+  await page.getByRole('navigation').getByRole('link', { name: 'Ayarlar' }).click();
+  const softcotton = page.getByTestId('channel-status-SOFTCOTTON');
+  await expect(softcotton).toContainText('Sahte (mock) — gerçek entegrasyon yok');
+  await expect(softcotton.getByTestId('health-badge')).not.toHaveText('');
+  for (const code of ['TRENDYOL', 'HEPSIBURADA', 'BEYMEN']) {
+    await expect(page.getByTestId(`channel-status-${code}`).getByTestId('health-badge')).toBeVisible();
+  }
+  await expect(page.getByTestId('capability-matrix')).toContainText('Stok gönderimi');
+
+  await page.getByTestId('channel-status-TRENDYOL').getByRole('button', { name: 'Ayarlar' }).click();
+  const detail = page.getByTestId('channel-detail');
+  await expect(detail).toContainText('sahte (mock) modda');
+  await expect(detail.getByTestId('channel-save')).toBeDisabled(); // değişiklik yokken
+  await detail.getByLabel(/pay$/).fill('99');
+  await expect(detail).toContainText('Kaydedilmemiş değişiklik var');
+  await page.getByRole('button', { name: 'Kapat', exact: true }).click();
+  await expect(page.getByTestId('channel-detail')).toHaveCount(0);
+
+  await page.getByRole('tab', { name: 'Stok kuralları' }).click();
+  await expect(page.getByRole('heading', { name: 'Uyarı eşikleri' })).toBeVisible();
+
+  await page.getByRole('navigation').getByRole('link', { name: 'Genel Bakış' }).click();
+  // e2e'de kanallar pasif ve API bilgisi yok: boş durum açıklaması görünür
+  await expect(page.getByRole('heading', { name: 'Kanal durumu' })).toBeVisible();
+  await expect(page.getByTestId('no-active-channel').or(page.getByTestId('channel-status-grid'))).toBeVisible();
 });
 
 test('Destek rolü müşteri bilgisini maskeli görür ve yazma işlemlerini göremez', async ({ page }) => {
@@ -180,7 +219,8 @@ test('Sipariş durumu kanala bildirilir: deneme yeteneğinde Yönetici onayıyla
   try {
     // Ayarlar: sipariş durumu yeteneği → Deneme
     await page.getByRole('navigation').getByRole('link', { name: 'Ayarlar' }).click();
-    await page.getByLabel('Yetenek kanalı').selectOption(String(hb.id));
+    await page.getByTestId('channel-status-HEPSIBURADA').getByRole('button', { name: 'Ayarlar' }).click();
+    await expect(page.getByTestId('channel-detail')).toBeVisible();
     page.once('dialog', dialog => dialog.accept());
     await page.getByLabel('Yetenek SIPARIS_DURUM').selectOption('DENEME');
     await expect(page.getByLabel('Yetenek SIPARIS_DURUM')).toHaveValue('DENEME');

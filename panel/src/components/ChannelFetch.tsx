@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { get, post, type Channel } from '../api';
+import { get, post, type Channel, type ChannelErrorInfo } from '../api';
 import { useAuth } from '../auth';
 import { channelNames, formatDateTime } from '../format';
-import { ErrorBox } from './ui';
+import { ErrorBox, ErrorExplain } from './ui';
 
-type JobState = { jobType: string; lastSuccessUtc: string | null; lastAttemptUtc: string | null; lastError: string | null; consecutiveFailures: number };
+type JobState = {
+  jobType: string; lastSuccessUtc: string | null; lastAttemptUtc: string | null; lastError: string | null; consecutiveFailures: number;
+  errorInfo?: ChannelErrorInfo | null;
+};
 
 /**
  * Kanaldan elle çekme (yalnızca okuma; kanala yazmaz): kanal seçimi, "Kanaldan … çek" (Yönetici) ve son çekim durumu.
@@ -69,17 +72,20 @@ export function ChannelFetch({ channels, endpoint, jobType, label, onDone, chann
       )}
       {can('admin') && (
         <button disabled={!channel || running} onClick={start} title={channel ? undefined : 'Önce kanal seçin'}>
-          {running ? 'Çekiliyor…' : label}
+          {running ? <span aria-live="polite">Çekiliyor…</span> : label}
         </button>
       )}
       {channel && !channel.active && <span className="muted small">Kanal pasif: çekim yapılmaz (Ayarlar → Kanallar).</span>}
       {channel && state && (
-        <span className="muted small" data-testid="fetch-state">
+        <span className="muted small" data-testid="fetch-state" aria-live="polite">
           Son çekim: {formatDateTime(state.lastAttemptUtc)}
-          {state.lastError
-            ? <span className="text-danger"> · hata: {state.lastError}</span>
+          {state.lastError && state.consecutiveFailures > 0
+            ? <span className="text-danger"> · başarısız</span>
             : state.lastSuccessUtc ? ' · başarılı' : ''}
         </span>
+      )}
+      {channel && state && state.lastError && state.consecutiveFailures > 0 && (
+        <ErrorExplain compact info={state.errorInfo} raw={state.lastError} />
       )}
       {channel && !state && <span className="muted small">Bu kanaldan henüz çekim yapılmadı.</span>}
       <ErrorBox error={error} />

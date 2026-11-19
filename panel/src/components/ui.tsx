@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiError } from '../api';
 import { channelNames, statusLabels, syncStatusLabels } from '../format';
-import type { OrderStatus } from '../api';
+import type { ChannelErrorInfo, ChannelStatus, OrderStatus } from '../api';
 
 /** Ürünün kanaldaki sayfası (yalnızca kanal API'sinin verdiği https adresi; ADR-031). Yeni sekmede, referrer gönderilmeden açılır. */
 export function ChannelLink({ code, url, label }: { code: string; url: string | null | undefined; label?: string }) {
@@ -49,10 +49,16 @@ export function Stat({ label, value, tone, testId }: { label: string; value: Rea
   );
 }
 
-export function ErrorBox({ error }: { error: unknown }) {
+export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   if (!error) return null;
   const message = error instanceof ApiError ? error.message : 'Beklenmeyen bir hata oluştu.';
-  return <div className="alert alert-error" role="alert">{message}</div>;
+  const retryable = !(error instanceof ApiError) || error.status >= 500 || error.status === 0;
+  return (
+    <div className="alert alert-error alert-row" role="alert">
+      <span>{message}</span>
+      {onRetry && retryable && <button className="small inline" onClick={onRetry}>Tekrar dene</button>}
+    </div>
+  );
 }
 
 export function Notice({ text, onClose }: { text: string | null; onClose: () => void }) {
@@ -92,4 +98,48 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
   return { data, error, loading, reload: () => setTick(t => t + 1) };
+}
+
+/**
+ * Kanal hatasının anlaşılır gösterimi (ADR-033): ne oldu (başlık) + ne yapmalı + düğme; ham metin "Teknik ayrıntı"da.
+ * Geçici hatalar uyarı (sarı), kalıcılar hata (kırmızı) tonunda; durum her zaman metinle de yazılır (yalnızca renk değil).
+ */
+export function ErrorExplain({ info, raw, compact, action }: { info?: ChannelErrorInfo | null; raw?: string | null; compact?: boolean; action?: ReactNode }) {
+  if (!info && !raw) return null;
+  if (!info) return <span className="wrap">{raw}</span>;
+  const tone = info.transient ? 'warn' : 'error';
+  return (
+    <div className={`error-explain ${tone}${compact ? ' compact' : ''}`} data-testid="error-explain" data-kind={info.kind}>
+      <div className="error-explain-title">
+        <span aria-hidden="true">{info.transient ? '⏳' : '⚠'}</span> {info.title}
+      </div>
+      <div className="error-explain-advice">{info.advice}</div>
+      {action && <div className="error-explain-action">{action}</div>}
+      <details>
+        <summary>Teknik ayrıntı</summary>
+        <ul>
+          {info.problems.map((p, i) => <li key={i}>{p}</li>)}
+          {info.moreCount > 0 && <li className="muted">+{info.moreCount} sorun daha</li>}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+const healthText: Record<ChannelStatus['health'], { icon: string; label: string }> = {
+  CALISIYOR: { icon: '●', label: 'Çalışıyor' },
+  DIKKAT: { icon: '▲', label: 'Dikkat' },
+  HATA: { icon: '✕', label: 'Hata' },
+  SAHTE: { icon: '◌', label: 'Sahte veri' },
+  KAPALI: { icon: '○', label: 'Kapalı' }
+};
+
+/** Kanal genel durumu: simge + metin + renk. */
+export function HealthBadge({ health }: { health: ChannelStatus['health'] }) {
+  const h = healthText[health];
+  return (
+    <span className={`badge health health-${health.toLowerCase()}`} data-testid="health-badge">
+      <span aria-hidden="true">{h.icon}</span> {h.label}
+    </span>
+  );
 }

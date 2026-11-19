@@ -1,29 +1,127 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, get, post, put, type Channel, type User, type Warehouse } from '../api';
+import { useSearchParams } from 'react-router-dom';
+import { api, get, post, put, type Channel, type ChannelStatus, type User, type Warehouse } from '../api';
 import { roleLabels, useAuth, type Role } from '../auth';
-import { Card, ChannelBadge, ErrorBox, Field, Notice, useLoad } from '../components/ui';
-import { formatDateTime } from '../format';
+import { ChannelStatusGrid } from '../components/ChannelStatus';
+import { Card, ErrorBox, Field, Notice, useLoad } from '../components/ui';
+import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ChannelReferences } from './ChannelReferences';
-import { ChannelWriteSettings } from './ChannelWrite';
+import { capabilityLabels, ChannelWriteSettings } from './ChannelWrite';
 
-/** Ekran 8: Ayarlar (kanal payı, güvenlik stoğu, uyarı eşikleri, kullanıcı rolleri). */
+type Tab = 'kanallar' | 'stok' | 'kullanicilar';
+
+/**
+ * Ekran 8: Ayarlar (ADR-033). Sekmeler: Kanallar (durum kartları + seçili kanalın ayarları), Stok kuralları (eşikler,
+ * güvenlik stoğu), Kullanıcılar. Sekme ve seçili kanal adres çubuğunda tutulur (?sekme=…&kanal=…).
+ */
 export function SettingsPage() {
   const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [notice, setNotice] = useState<string | null>(null);
-  const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
+  const tab = (params.get('sekme') as Tab | null) ?? 'kanallar';
+  const tabs: [Tab, string][] = [['kanallar', 'Kanallar'], ['stok', 'Stok kuralları']];
+  if (can('admin')) tabs.push(['kullanicilar', 'Kullanıcılar']);
+
+  function setTab(t: Tab) {
+    const next = new URLSearchParams(params);
+    next.set('sekme', t);
+    setParams(next, { replace: true });
+  }
+
   return (
     <>
       <h1>Ayarlar</h1>
-      <Notice text={notice} onClose={() => setNotice(null)} />
-      <ChannelSettings editable={can('admin')} onSaved={setNotice} />
-      {channels.data && <ChannelWriteSettings channels={channels.data} editable={can('admin')} onNotice={setNotice} />}
-      {channels.data && <ChannelReferences channels={channels.data} canRefresh={can('admin')} onNotice={setNotice} />}
-      <div className="grid-2">
-        <ThresholdSettings editable={can('admin')} onSaved={setNotice} />
-        {can('stockWrite') && <SafetyStockForm onSaved={setNotice} />}
+      <div className="tabs" role="tablist" aria-label="Ayar bölümleri">
+        {tabs.map(([t, label]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'active' : undefined} onClick={() => setTab(t)}>{label}</button>
+        ))}
       </div>
-      {can('admin') && <UserSettings onSaved={setNotice} />}
+      <Notice text={notice} onClose={() => setNotice(null)} />
+      {tab === 'kanallar' && <ChannelsTab onNotice={setNotice} />}
+      {tab === 'stok' && (
+        <div className="grid-2">
+          <ThresholdSettings editable={can('admin')} onSaved={setNotice} />
+          {can('stockWrite') && <SafetyStockForm onSaved={setNotice} />}
+        </div>
+      )}
+      {tab === 'kullanicilar' && can('admin') && <UserSettings onSaved={setNotice} />}
+    </>
+  );
+}
+
+const stateShort: Record<string, string> = { KAPALI: 'Kapalı', DENEME: 'Onaylı', ACIK: 'Açık' };
+
+/** Kanallar sekmesi: tüm kanalların durum kartları, seçili kanalın ayrıntılı ayarları ve yetenek özeti. */
+function ChannelsTab({ onNotice }: { onNotice: (m: string) => void }) {
+  const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const statuses = useLoad(() => get<ChannelStatus[]>('/api/channels/status'), []);
+  const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
+  const list = statuses.data ?? [];
+  const selectedId = Number(params.get('kanal')) || null;
+  const selected = list.find(s => s.id === selectedId) ?? null;
+  const channel = channels.data?.find(c => c.id === selectedId) ?? null;
+
+  function select(id: number | null) {
+    const next = new URLSearchParams(params);
+    if (id === null) next.delete('kanal'); else next.set('kanal', String(id));
+    setParams(next, { replace: true });
+  }
+
+  function changed(message?: string) {
+    if (message) onNotice(message);
+    statuses.reload();
+    channels.reload();
+  }
+
+  const locked = list.some(s => s.writeLocked);
+
+  return (
+    <>
+      {locked && (
+        <div className="alert alert-warn" role="status" data-testid="write-lock-banner">
+          <strong>Kanala yazma kilitli (deneme modu).</strong> Siparişler ve ürünler kanallardan okunabilir; stok, fiyat, sipariş durumu ve
+          cevaplar hiçbir pazaryerine gönderilmez. Yetenekler "Açık" görünse bile kilit önce gelir.
+        </div>
+      )}
+      <ErrorBox error={statuses.error ?? channels.error} onRetry={() => { statuses.reload(); channels.reload(); }} />
+      {statuses.loading && !statuses.data && <div className="loading">Kanal durumu yükleniyor…</div>}
+      <ChannelStatusGrid statuses={list} selectedId={selectedId} onSelect={s => select(selectedId === s.id ? null : s.id)} />
+
+      {selected && channel ? (
+        <ChannelDetail key={channel.id} status={selected} channel={channel} channels={channels.data ?? []} editable={can('admin')}
+          onChanged={changed} onClose={() => select(null)} />
+      ) : (
+        list.length > 0 && <p className="muted">Ayarlarını değiştirmek için bir kanal kartında "Ayarlar"a tıklayın.</p>
+      )}
+
+      {list.length > 0 && (
+        <Card title="Kanala yazma yetenekleri (özet)">
+          <table className="table" data-testid="capability-matrix">
+            <thead>
+              <tr><th>Yetenek</th>{list.map(s => <th key={s.id}>{channelNames[s.code] ?? s.name}</th>)}</tr>
+            </thead>
+            <tbody>
+              {Object.keys(capabilityLabels).map(cap => (
+                <tr key={cap}>
+                  <td>{capabilityLabels[cap]}</td>
+                  {list.map(s => {
+                    const state = s.capabilities.find(c => c.capability === cap)?.state ?? 'KAPALI';
+                    const lockedHere = s.writeLocked && s.mode === 'GERCEK' && state !== 'KAPALI';
+                    return (
+                      <td key={s.id} className={state === 'KAPALI' ? 'muted' : undefined}>
+                        {stateShort[state] ?? state}{lockedHere && <span className="warn-text small"> · kilitli</span>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="muted small">"Onaylı": her kayıt Senkron Merkezi → Kanal işlemleri'nden Yönetici onayıyla tek tek gider. Değiştirmek için kanalı seçin.</p>
+        </Card>
+      )}
     </>
   );
 }
@@ -37,75 +135,78 @@ function readCap(settingsJson: string | null): string {
   }
 }
 
-function ChannelSettings({ editable, onSaved }: { editable: boolean; onSaved: (m: string) => void }) {
-  const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
-  const [rows, setRows] = useState<Record<number, { share: string; active: boolean; cap: string }>>({});
+/** Seçili kanalın ayarları: genel (pay, üst limit, aktif), API bilgisi, yazma yetenekleri, referans verisi. */
+function ChannelDetail({ status, channel, channels, editable, onChanged, onClose }: {
+  status: ChannelStatus; channel: Channel; channels: Channel[]; editable: boolean; onChanged: (m?: string) => void; onClose: () => void;
+}) {
+  const initial = { share: String(channel.sharePercent), active: channel.active, cap: readCap(channel.settingsJson) };
+  const [form, setForm] = useState(initial);
   const [error, setError] = useState<unknown>(null);
-  const [credentialsFor, setCredentialsFor] = useState<number | null>(null);
+  const [showCredentials, setShowCredentials] = useState(!channel.hasCredentials && status.realAdapterAvailable);
+  const dirty = form.share !== initial.share || form.active !== initial.active || form.cap !== initial.cap;
+  const name = channelNames[channel.code] ?? channel.name;
 
-  useEffect(() => {
-    if (channels.data) {
-      setRows(Object.fromEntries(channels.data.map(c => [c.id, { share: String(c.sharePercent), active: c.active, cap: readCap(c.settingsJson) }])));
-    }
-  }, [channels.data]);
-
-  async function save(c: Channel) {
+  async function save(e: FormEvent) {
+    e.preventDefault();
     setError(null);
-    const r = rows[c.id];
     let settings: Record<string, unknown> = {};
     try {
-      settings = c.settingsJson ? JSON.parse(c.settingsJson) : {};
+      settings = channel.settingsJson ? JSON.parse(channel.settingsJson) : {};
     } catch {
       settings = {};
     }
-    if (r.cap === '') delete settings.stokUstLimit;
-    else settings.stokUstLimit = Number(r.cap);
+    if (form.cap === '') delete settings.stokUstLimit;
+    else settings.stokUstLimit = Number(form.cap);
     try {
-      await put(`/api/channels/${c.id}`, {
-        name: c.name, sharePercent: Number(r.share.replace(',', '.')), active: r.active,
+      await put(`/api/channels/${channel.id}`, {
+        name: channel.name, sharePercent: Number(form.share.replace(',', '.')), active: form.active,
         settingsJson: Object.keys(settings).length ? JSON.stringify(settings) : null
       });
-      onSaved(`${c.name} kaydedildi; kanalın stokları yeniden hesaplanıp gönderilecek.`);
-      channels.reload();
+      onChanged(`${name} kaydedildi; kanalın stokları yeniden hesaplanıp gönderilecek.`);
     } catch (err) {
       setError(err);
     }
   }
 
   return (
-    <Card title="Kanallar">
-      <p className="muted small">Kanala gidecek stok = MIN( ⌊satılabilir × pay % / 100⌋, üst limit ). Pay %100: tam ortak havuz.</p>
-      <ErrorBox error={error ?? channels.error} />
-      <table className="table">
-        <thead><tr><th>Kanal</th><th>Pay %</th><th>Üst limit</th><th>Aktif</th><th>API bilgisi</th><th /></tr></thead>
-        <tbody>
-          {(channels.data ?? []).map(c => {
-            const r = rows[c.id];
-            if (!r) return null;
-            return (
-              <tr key={c.id}>
-                <td><ChannelBadge code={c.code} /> {c.name}</td>
-                <td><input className="narrow" aria-label={`${c.name} pay`} disabled={!editable} value={r.share} onChange={e => setRows({ ...rows, [c.id]: { ...r, share: e.target.value } })} /></td>
-                <td><input className="narrow" aria-label={`${c.name} üst limit`} disabled={!editable} placeholder="yok" value={r.cap} onChange={e => setRows({ ...rows, [c.id]: { ...r, cap: e.target.value } })} /></td>
-                <td><input type="checkbox" aria-label={`${c.name} aktif`} disabled={!editable} checked={r.active} onChange={e => setRows({ ...rows, [c.id]: { ...r, active: e.target.checked } })} /></td>
-                <td>
-                  {c.hasCredentials ? 'Girildi' : <span className="muted">Yok</span>}
-                  {editable && c.code in credentialSpecs && (
-                    <button className="small" onClick={() => setCredentialsFor(credentialsFor === c.id ? null : c.id)}>API bilgisi</button>
-                  )}
-                </td>
-                <td>{editable && <button onClick={() => save(c)}>Kaydet</button>}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {credentialsFor !== null && (
-        <CredentialsForm
-          channel={channels.data!.find(c => c.id === credentialsFor)!}
-          onDone={message => { setCredentialsFor(null); onSaved(message); channels.reload(); }}
-        />
-      )}
+    <Card title={`${name} ayarları`} actions={<button className="small inline" onClick={onClose}>Kapat</button>}>
+      <div data-testid="channel-detail">
+        <h3>Genel</h3>
+        <p className="muted small">Kanala gidecek stok = MIN( ⌊satılabilir × pay % / 100⌋, üst limit ). Pay %100: tam ortak havuz.</p>
+        <ErrorBox error={error} />
+        <form className="filters" onSubmit={save}>
+          <Field label="Pay %"><input className="narrow" aria-label={`${channel.name} pay`} disabled={!editable} value={form.share} onChange={e => setForm({ ...form, share: e.target.value })} /></Field>
+          <Field label="Üst limit"><input className="narrow" aria-label={`${channel.name} üst limit`} disabled={!editable} placeholder="yok" value={form.cap} onChange={e => setForm({ ...form, cap: e.target.value })} /></Field>
+          <label className="check"><input type="checkbox" aria-label={`${channel.name} aktif`} disabled={!editable} checked={form.active} onChange={e => setForm({ ...form, active: e.target.checked })} /> Aktif</label>
+          {editable && <button className="primary" type="submit" disabled={!dirty} data-testid="channel-save">Kaydet</button>}
+          {dirty && <span className="warn-text small" role="status">Kaydedilmemiş değişiklik var</span>}
+        </form>
+
+        <h3>API bilgisi</h3>
+        {!status.realAdapterAvailable ? (
+          <p className="muted">Bu kanalın gerçek entegrasyonu henüz yok (altyapı teyit bekliyor); sahte veriyle çalışır.</p>
+        ) : (
+          <>
+            <p>
+              {channel.hasCredentials ? <><span aria-hidden="true" className="ok-text">✓</span> Girildi</> : <><span aria-hidden="true" className="text-danger">✕</span> Girilmedi</>}
+              {status.environment && <span className="muted"> · ortam: {status.environment === 'Prod' ? 'Canlı' : 'Test'}</span>}
+              <span className="muted"> · sunucu modu: {status.mode === 'GERCEK' ? 'Gerçek' : 'Sahte (mock)'}</span>
+              {editable && <> <button className="small inline" onClick={() => setShowCredentials(v => !v)}>{showCredentials ? 'Formu kapat' : channel.hasCredentials ? 'API bilgisini değiştir' : 'API bilgisi gir'}</button></>}
+            </p>
+            {status.mode === 'MOCK' && (
+              <div className="alert alert-warn">
+                Sunucu bu kanalı sahte (mock) modda çalıştırıyor: API bilgisi girilse de gerçek pazaryerine bağlanılmaz.
+                Gerçek bağlantı için sunucuda "Kanallar:{channel.code}:Mod" = Gercek olmalıdır (deneme modunda: -GercekKanal {channel.code}).
+              </div>
+            )}
+            {editable && showCredentials && channel.code in credentialSpecs && (
+              <CredentialsForm channel={channel} onDone={message => { setShowCredentials(false); onChanged(message); }} />
+            )}
+          </>
+        )}
+      </div>
+      <ChannelWriteSettings channels={channels} editable={editable} onNotice={m => onChanged(m)} channelId={String(channel.id)} onChanged={() => onChanged()} />
+      <ChannelReferences channels={channels} canRefresh={editable} onNotice={m => onChanged(m)} channelId={String(channel.id)} />
     </Card>
   );
 }

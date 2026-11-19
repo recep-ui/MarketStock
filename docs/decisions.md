@@ -685,3 +685,28 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **Fikstür geri yükleme** (kanal ayarları, API bilgileri, yetenekler, AppSetting, ChannelJobState) ek güvenlik olarak kalır.
 
 **Doğrulama:** `PazaryeriHub_Test`'in 13 tablosunun satır sayısı ve CHECKSUM özeti testlerden önce, entegrasyon testlerinden sonra (135/135) ve Playwright'tan sonra (11/11) birebir aynı.
+
+## ADR-033: Kanal durum kartları ve anlaşılır hata gösterimi
+**Tarih:** 2026-11-19 (ürün sahibi onayı; UI/UX Pro Max kontrol listesiyle inceleme)
+**Bağlam:**
+- Bir kanalın çalışıp çalışmadığı dört ayrı yerdeydi. Kanalın Mock mu Gerçek mi çalıştığı ve seçilen ortam panelde hiç görünmüyordu (Beymen "veri çekmiyor" vakasının nedeni).
+- Deneme modunda yetenekler "Açık" görünürken global yazma kilidi her şeyi engelliyordu; bu yalnızca küçük bir açıklama metnindeydi.
+- Hata metinleri ham gösteriliyordu ("Kanal hata döndü (HTTP 503): …"); kullanıcıya ne yapacağı söylenmiyordu. Durum yalnızca kırmızı satır rengiyle ayrılıyordu.
+
+**Karar:**
+- **`GET /api/channels/status`** (okuma, tüm roller): kanal başına mod (`Kanallar:{KOD}:Mod`), API bilgisi var mı, **yalnızca** seçilen ortam (Prod/Stage/Test), global yazma kilidi, yetenekler, iş durumları ve genel durum.
+  - API bilgisinin başka hiçbir alanı yanıta girmez (entegrasyon testi gizli değerin yanıtta olmadığını doğrular).
+  - Genel durum saf fonksiyon `ChannelHealth.Evaluate`: KAPALI (pasif) → SAHTE (mock) → HATA (API bilgisi yok / kalıcı hata) → DIKKAT (yalnızca geçici hata veya hiç çekim yok) → CALISIYOR.
+- **Hata sınıflandırma:** saf fonksiyon `ChannelErrorExplainer.Explain`. Adaptörlerin zaten sadeleştirdiği metni türe ayırır: KIMLIK, ERISIM_REDDI, HIZ_LIMITI, KANAL_ERISILEMIYOR, YAZMA_KILITLI, DESTEKLENMIYOR, TEKRAR_ENGELI, GECERSIZ_VERI, BILINMEYEN.
+  - Her tür için başlık ("ne oldu"), öneri ("ne yapmalı") ve geçici mi bilgisi. " | " ile birleşik sorunlar listeye ayrılır (en fazla 3 + "N sorun daha").
+  - `SyncQueueItem`, `JobStateItem`, `ChannelCommandDto`, `ChannelJobStateDto` yanıtlarına hesaplanan `errorInfo` eklendi; kayıtlı metin değişmedi.
+  - **Teklif edilen migration (0015, hata türü sütunu) yapılmadı:** tür, saklanan metinden okuma anında hesaplanıyor. Şema değişmeden eski kayıtlar da sınıflanıyor; yeni adaptör mesajı eklenirse sınıflandırıcı ve birim testi güncellenmeli.
+- **Panel:**
+  - Ayarlar sekmelere ayrıldı (Kanallar / Stok kuralları / Kullanıcılar; `?sekme=`, `?kanal=`). Kanallar sekmesinde durum kartları, seçili kanalın ayarları (genel, API bilgisi, yetenekler, referanslar) ve tüm kanallar için yetenek özeti var.
+  - Deneme modunda üstte "Kanala yazma kilitli" bandı görünür; yetenek özetinde "Açık · kilitli" yazar.
+  - Genel Bakış'ın üstünde aktif kanalların kompakt kartları var. "Kanal işleri" Türkçe iş adlarıyla, "x dk önce" biçiminde, hatalılar önde ve sorunsuzlar isteğe bağlı gösteriliyor.
+  - `ErrorExplain` bileşeni: başlık, öneri ve katlanır "Teknik ayrıntı". Senkron Merkezi, kanal işlemleri, elle çekme satırı ve Genel Bakış'ta kullanılıyor. `ErrorBox` sunucu hatalarında "Tekrar dene" sunar.
+  - Durum her yerde simge + metin + renkle gösterilir. `:focus-visible` odak halkası, `prefers-reduced-motion`, sayısal sütunlarda `tabular-nums` ve çekim durumunda `aria-live` eklendi.
+- Mevcut bileşenler (`Card`, `badge`, `alert`, `tabs`, `stats`, `kv`) ve renk değişkenleri korundu; yeni renk eklenmedi.
+
+**Doğrulama:** birim (ChannelStatusTests 24), entegrasyon (ChannelStatusEndpointTests), Playwright (kanal durumu senaryosu; senkron hata senaryosu yeni gösterime göre güncellendi). Deneme modunda kullanıcının verisiyle elle kontrol edildi.

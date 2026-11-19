@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ApiError, get, post, put, qs, type Channel, type ChannelCapability, type ChannelCommand, type OrderNotificationRow, type OrderNotifyResult, type Paged, type PricePreview } from '../api';
 import { useAuth } from '../auth';
-import { Card, ChannelBadge, ErrorBox, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ErrorBox, ErrorExplain, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, statusLabels } from '../format';
 
 /* Kanala yazma (ADR-026): yetenekler, sipariş bildirimi ve kanal işlemleri kuyruğu. Gerçek kanala yazma yalnızca
@@ -36,10 +36,12 @@ const outcomeLabels: Record<string, string> = {
 
 // ------------------------------------------------------------------ Ayarlar: yetenekler + bildirim modu
 
-export function ChannelWriteSettings({ channels, editable, onNotice }: { channels: Channel[]; editable: boolean; onNotice: (m: string) => void }) {
-  const [channelId, setChannelId] = useState('');
+export function ChannelWriteSettings({ channels, editable, onNotice, channelId: controlled, onChanged }: {
+  channels: Channel[]; editable: boolean; onNotice: (m: string) => void; channelId?: string; onChanged?: () => void;
+}) {
+  const [own, setChannelId] = useState('');
   const [error, setError] = useState<unknown>(null);
-  const selected = channelId || String(channels[0]?.id ?? '');
+  const selected = controlled ?? (own || String(channels[0]?.id ?? ''));
   const caps = useLoad(() => selected ? get<ChannelCapability[]>(`/api/channels/${selected}/capabilities`) : Promise.resolve(null), [selected]);
   const mode = useLoad(() => selected ? get<{ mode: string }>(`/api/channels/${selected}/notification-mode`) : Promise.resolve(null), [selected]);
 
@@ -63,6 +65,7 @@ Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); ret
       await put(`/api/channels/${selected}/capabilities/${capability}`, { state });
       onNotice(`${capabilityLabels[capability] ?? capability} → ${stateLabels[state]}`);
       caps.reload();
+      onChanged?.();
     } catch (err) {
       setError(err);
     }
@@ -86,9 +89,11 @@ Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); ret
         Deneme modunda (scripts/deneme-modu.ps1) global yazma kilidi açıktır: gerçek kanala hiçbir yazma gitmez.
       </p>
       <div className="filters">
-        <select aria-label="Yetenek kanalı" value={selected} onChange={e => setChannelId(e.target.value)}>
-          {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}{c.active ? '' : ' (pasif)'}</option>)}
-        </select>
+        {controlled === undefined && (
+          <select aria-label="Yetenek kanalı" value={selected} onChange={e => setChannelId(e.target.value)}>
+            {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}{c.active ? '' : ' (pasif)'}</option>)}
+          </select>
+        )}
         <label>
           Sipariş bildirim modu{' '}
           <select aria-label="Bildirim modu" value={mode.data?.mode ?? 'ONAYLA_GONDER'} disabled={!editable} onChange={e => setMode(e.target.value)}>
@@ -301,7 +306,7 @@ export function ChannelCommands({ channelId, onNotice }: { channelId: string; on
               <td><code title={c.payloadJson}>{c.targetKey}</code></td>
               <td>{commandStateLabels[c.state] ?? c.state}</td>
               <td>{c.attempts}</td>
-              <td className="wrap">{c.error ?? ''}</td>
+              <td>{c.error ? <ErrorExplain compact info={c.errorInfo} raw={c.error} /> : ''}</td>
               <td className="muted">{c.createdBy ?? ''} · {formatDateTime(c.createdAtUtc)}</td>
               {can('admin') && (
                 <td>

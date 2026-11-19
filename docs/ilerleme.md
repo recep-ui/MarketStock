@@ -7,6 +7,15 @@
 
 ---
 
+## Kanal durum kartları ve anlaşılır hata gösterimi (2026-11-19): TAMAM
+
+- **Ayarlar:** Kanallar / Stok kuralları / Kullanıcılar sekmeleri. Her kanal için durum kartı var: Gerçek/Mock, ortam, API bilgisi, yazma durumu, son çekimler. Seçilen kanalın ayarları tek yerde; yetenekler tüm kanallar için tek tabloda.
+- **Genel Bakış:** Üstte kanal durumu var. Kanal işleri Türkçe adlarla gösteriliyor, hatalılar önde.
+- **Hatalar:** Ham metin yerine "ne oldu + ne yapmalı" gösteriliyor; ham metin "Teknik ayrıntı"da (`GET /api/channels/status`, `errorInfo`; ADR-033).
+- **Doğrulama:** Unit 313/313, Integration 136/136, Playwright 12/12 (1. senaryo bilinen soğuk başlangıç kararsızlığıyla bir kez düştü, tekrarında geçti). Deneme modunda Trendyol ve Beymen "Gerçek API · Canlı · Kilitli (deneme modu)" olarak görünüyor.
+
+---
+
 ## Otomatik testler ayrı veritabanında (2026-11-18): TAMAM
 
 - Entegrasyon testleri ve Playwright artık `PazaryeriHub_OtoTest` kullanıyor (yoksa oluşturuluyor). Deneme modu kullanıcının verisiyle `PazaryeriHub_Test`'te (ADR-032).

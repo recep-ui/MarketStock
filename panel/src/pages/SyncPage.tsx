@@ -4,7 +4,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { get, post, qs, type Channel, type Paged, type PushListingsResult, type Reconciliation, type SyncItem, type SyncSummary } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
-import { Card, ChannelBadge, ErrorBox, Notice, SyncBadge, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ErrorBox, ErrorExplain, Notice, SyncBadge, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney, syncStatusLabels } from '../format';
 import { ChannelCommands } from './ChannelWrite';
 
@@ -90,7 +90,9 @@ export function SyncPage() {
     { header: 'Durum', cell: ({ row }) => <SyncBadge status={row.original.batchId && row.original.status === 'BEKLIYOR' ? 'GONDERILIYOR' : row.original.status} /> },
     { header: 'Deneme', accessorKey: 'attempts' },
     { header: 'Gönderilen', cell: ({ row }) => row.original.sentPrice != null ? formatMoney(row.original.sentPrice) : row.original.sentValue ?? '—' },
-    { header: 'Hata', cell: ({ row }) => <span className="wrap" data-testid="sync-error">{row.original.error ?? '—'}</span> },
+    { header: 'Hata', cell: ({ row }) => row.original.error
+        ? <div data-testid="sync-error"><ErrorExplain compact info={row.original.errorInfo} raw={row.original.error} /></div>
+        : <span className="muted">—</span> },
     { header: 'Son deneme', cell: ({ row }) => formatDateTime(row.original.lastAttemptUtc) },
     { header: 'Sonraki deneme', cell: ({ row }) => formatDateTime(row.original.nextAttemptUtc) },
     {

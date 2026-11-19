@@ -145,3 +145,45 @@ blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--prim
 .answer-form { display: grid; gap: 6px; margin: 12px 0; }
 .channel-link { font-size: 12px; margin-right: 6px; white-space: nowrap; }
 .channel-fetch { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 8px; }
+
+/* Kanal durum kartları ve anlaşılır hata (ADR-033) */
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.status-card { background: var(--surface); border: 1px solid var(--border); border-top-width: 4px; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.status-card.selected { box-shadow: 0 0 0 2px var(--primary); }
+.status-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.status-reason { margin: 0; font-weight: 500; }
+.status-kv { grid-template-columns: 100px 1fr; margin: 0; }
+.status-card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 4px; }
+.health-border-calisiyor { border-top-color: var(--ok); }
+.health-border-dikkat { border-top-color: var(--warn); }
+.health-border-hata { border-top-color: var(--danger); }
+.health-border-sahte { border-top-color: #8a94a6; }
+.health-border-kapali { border-top-color: var(--border); }
+.badge.health { font-weight: 600; margin-right: 0; }
+.health-calisiyor { background: var(--ok-bg); color: var(--ok); }
+.health-dikkat { background: var(--warn-bg); color: var(--warn); }
+.health-hata { background: var(--danger-bg); color: var(--danger); }
+.health-sahte { background: #eef0f3; color: #4b5563; }
+.health-kapali { background: #f3f4f6; color: var(--muted); }
+.job-list { list-style: none; margin: 0; padding: 0; }
+.job-list li { padding: 1px 0; }
+.ok-text { color: var(--ok); }
+.warn-text { color: var(--warn); }
+.error-explain { border-left: 3px solid var(--danger); background: var(--danger-bg); border-radius: 6px; padding: 8px 10px; white-space: normal; max-width: 520px; }
+.error-explain.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.error-explain-title { font-weight: 600; color: var(--danger); }
+.error-explain.warn .error-explain-title { color: var(--warn); }
+.error-explain-advice { margin-top: 2px; color: var(--text); }
+.error-explain-action { margin-top: 6px; }
+.error-explain details { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.error-explain summary { cursor: pointer; }
+.error-explain ul { margin: 4px 0 0; padding-left: 18px; word-break: break-word; }
+.error-explain.compact { font-size: 13px; }
+.alert-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+button.inline { margin-top: 0; }
+
+/* Erişilebilirlik: klavye odağı görünür (UI/UX Pro Max: odak halkası asla kaldırılmaz) */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.table th.num, .table td.num { text-align: right; font-variant-numeric: tabular-nums; }

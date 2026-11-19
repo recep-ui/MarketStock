@@ -6,7 +6,12 @@ public sealed record ChannelRevenue(string ChannelCode, int Orders, decimal Reve
 
 public sealed record CriticalStockItem(int SkuId, string SkuCode, string ProductName, int Physical, int Reserved, int Available);
 
-public sealed record JobStateItem(string ChannelCode, string JobType, DateTime? LastSuccessUtc, DateTime? LastAttemptUtc, int ConsecutiveFailures, string? LastError);
+public sealed record JobStateItem(string ChannelCode, string JobType, DateTime? LastSuccessUtc, DateTime? LastAttemptUtc, int ConsecutiveFailures, string? LastError)
+{
+    /// <summary>Hatanın türü ve ne yapılacağı (ADR-033); iş son çalışmada başarılıysa null.</summary>
+    public PazaryeriHub.Application.Channels.ChannelErrorInfo? ErrorInfo =>
+        ConsecutiveFailures > 0 ? PazaryeriHub.Application.Channels.ChannelErrorExplainer.Explain(LastError) : null;
+}
 
 /// <summary>Genel Bakış: bugünkü siparişler (Türkiye günü), kanal bazlı ciro, kritik stok, hatalı senkronlar.</summary>
 public sealed record DashboardDto(

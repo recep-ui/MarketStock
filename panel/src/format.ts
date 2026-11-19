@@ -49,3 +49,30 @@ export const channelNames: Record<string, string> = {
   BEYMEN: 'Beymen',
   SOFTCOTTON: 'softcotton'
 };
+
+/** Kanal iş türlerinin Türkçe adları (sunucudaki ChannelHealth.JobLabel ile aynı). */
+export const jobLabels: Record<string, string> = {
+  SIPARIS_CEK: 'Sipariş çekme',
+  IADE_CEK: 'İade çekme',
+  SORU_CEK: 'Soru çekme',
+  KATALOG_CEK: 'Ürün çekme',
+  MUTABAKAT: 'Stok mutabakatı',
+  REFERANS_CEK: 'Satıcı bilgileri'
+};
+
+const relative = new Intl.RelativeTimeFormat('tr-TR', { numeric: 'auto' });
+
+/** "3 dakika önce" biçimi; 7 günden eskiyse tarih. */
+export function formatRelative(utc: string | null | undefined, now: number = Date.now()): string {
+  if (!utc) return '—';
+  const diff = (new Date(utc).getTime() - now) / 1000;
+  const abs = Math.abs(diff);
+  if (abs < 60) return 'az önce';
+  if (abs < 3600) return relative.format(Math.round(diff / 60), 'minute');
+  if (abs < 86_400) return relative.format(Math.round(diff / 3600), 'hour');
+  if (abs < 7 * 86_400) return relative.format(Math.round(diff / 86_400), 'day');
+  return formatDateTime(utc);
+}
+
+/** API bilgisindeki ortam değeri → panel etiketi. */
+export const environmentLabel = (env: string | null) => (env == null ? null : env === 'Prod' ? 'Canlı' : 'Test');

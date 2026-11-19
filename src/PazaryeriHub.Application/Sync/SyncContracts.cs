@@ -110,7 +110,11 @@ public static class StockSettingKeys
 public sealed record SyncQueueItem(
     long Id, int ListingId, string SkuCode, string ChannelCode, string Type, string Status, int Attempts,
     string? Error, string? BatchId, int? SentValue, DateTime CreatedUtc, DateTime? LastAttemptUtc, DateTime? NextAttemptUtc,
-    decimal? SentPrice = null);
+    decimal? SentPrice = null)
+{
+    /// <summary>Hatanın türü ve ne yapılacağı (ADR-033).</summary>
+    public PazaryeriHub.Application.Channels.ChannelErrorInfo? ErrorInfo => PazaryeriHub.Application.Channels.ChannelErrorExplainer.Explain(Error);
+}
 
 public sealed record SyncSummaryRow(string ChannelCode, int Pending, int InFlight, int Sent, int Error, DateTime? LastSentUtc);
 
