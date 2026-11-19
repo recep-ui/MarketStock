@@ -741,3 +741,28 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **Kapsam dışı:** muhasebe raporu, KDV ayrımı, kâr/maliyet (maliyet verisi yok). Stok tükenme tahmini (öneri 2) ayrı iş.
 
 **Doğrulama:** birim (SalesReportMathTests 13, SearchTermTests 4), entegrasyon (SearchDetailReportTests 7; rapor testi geçmişte rastgele bir günde önce/sonra farkıyla, başka testlerin verisinden yalıtılmış), Playwright (2 yeni senaryo + ekran turuna Raporlar).
+
+## ADR-035: Stok Listesi'nde kanal bazlı görünüm ve yanlış eşleştirme uyarıları
+**Tarih:** 2026-11-19 (ürün sahibi isteği: "eşleştirme korunsun; yanlış eşleştirmelere karşı her pazaryerinin çekilen stok listesini ayrı ayrı görebileyim")
+**Bağlam:**
+- Kanallar arası eşleştirme (bir SKU'nun birden fazla kanal ilanına bağlanması, ortak stok havuzu) korunacak.
+- Stok Listesi yalnızca defter merkezliydi: her SKU satırında kanal hücreleri vardı. Bir kanal ilanının *kanalda neye karşılık geldiği* (kanalın verdiği ad, renk/beden, stok kodu) görünmüyordu; yanlış bağlanmış bir ilan fark edilmiyordu.
+- Kanalın verdiği ürün adı ve marka ilan verisine (`KanalVerisi`) yazılmıyordu; yalnızca eşleşmeyenler tablosunda vardı.
+
+**Karar:**
+- **`GET /api/stock-overview/channels/{channelId}`** (okuma, tüm roller; `search`, `onlyDeviations`, `onlyReview`, sayfalama). Kanalın tüm ilanları; her satırda kanalın bildirdiği (barkod, kanal ürün kodu, stok kodu, ad, marka, renk/beden, varyant, son mutabakatta çekilen stok ve zamanı, ürün linki) ↔ bağlandığı SKU (kod, barkod, ad, renk/beden) ve gitmesi gereken stok (Stok Listesi'yle aynı `ComputeTargetsAsync`).
+  - Özet sayılar (ilan, kontrol et, sapma, hiç çekilmemiş, kanalda olup bekleyen eşleşmeyen, son çekim) aramadan bağımsız, **kanalın tamamı** içindir.
+  - Uyarı ve kanal adı bellekte hesaplandığı için kanalın tüm ilanları okunur (bugün ~800 ilan; çok büyürse SQL tarafına taşınmalı).
+- **Yanlış eşleştirme kontrolü** saf fonksiyon `ListingMatchCheck.Evaluate` (birim testli). **Yalnızca uyarı üretir; eşleştirmeyi değiştirmez.** Bir alan için uyarı ancak iki tarafta da değer varsa:
+  - `BARKOD_FARKLI` — stok kodu eşleşmeyi doğruluyorsa uyarılmaz (ör. çoklanan ilan, ADR-023).
+  - `STOK_KODU_FARKLI` — barkod doğruluyorsa uyarılmaz (kanalın kendi kodu). Karşılaştırma büyük/küçük harf ve baş/son boşluk duyarsız.
+  - `RENK_FARKLI`, `BEDEN_FARKLI` — `CatalogText.Normalize` ile (Türkçe büyük harf; bulanık değil).
+  - `AD_BENZEMIYOR` — trigram Dice benzerliği < 0,30 (`ChannelCatalogMatcher.NameSimilarity`; öneriyle aynı ölçü, eşik bilinçli olarak öneri eşiği 0,60'tan düşük: kanal adları marka/renk/ölçü ekleri taşır).
+  - Dayanak: `BARKOD` / `STOK_KODU` / `DIGER` (kodla doğrulanamadı: elle bağlama, model eşleşmesi veya kod bilinmiyor). `DIGER` tek başına uyarı değildir.
+- **Kanal adı ve markası:** katalog çekimi, kanal ürün Excel'i ve eşleşmeyenden elle bağlamada `KanalVerisi`'ne `urunAdi` (300) ve `marka` (100) da yazılır (ürün verisi; kişisel veri yok). Migration yok.
+  - Eski ilanlarda ad yoksa aynı kanalda barkod/kanal ürün koduyla eşleşen **bağlanmış** (`BAGLANDI`) eşleşmeyen kaydından okunur. İkisi de yoksa "kanal adı bilinmiyor".
+  - Yan etki: alan eklendiği için bir sonraki katalog çekiminde mevcut ilanlar bir kez "güncellendi" sayılır (stok/eşleştirme değişmez).
+- **Panel:** Stok Listesi'nde sekmeler: "Defter (tüm kanallar)" (önceki görünüm, değişmedi) + her kanal (`?kanal=KOD`). Kanal sekmesinde özet kutuları (kontrol et / sapma tıklanınca süzer), arama, "Yalnızca kontrol gerekenler", "Yalnızca stok sapmaları"; kontrol gereken satır sarı, sapmalı satır kırmızı; bağlı SKU'dan detay ekranına, eşleşmeyen sayısından Eşleştirme ekranına bağlantı.
+- **Kapsam dışı / sonraki adım:** uyarıyı "doğru eşleşme" diye kalıcı onaylama (yeni tablo gerekir) ve kanal sekmesinden doğrudan eşleşme kaldırma/değiştirme. Düzeltme bugün Eşleştirme ekranından yapılır.
+
+**Doğrulama:** birim (ListingMatchCheckTests 15), entegrasyon (ChannelStockListTests 3: yan yana görünüm + uyarılar + eski ilan adı; filtreler + eşleşmeyen sayısı + yetki + 404; elle bağlamada ad/marka yazılır ve eşleştirme korunur), Playwright (kanal sekmeleri senaryosu: Trendyol'da çoklanan ilan "Barkod farklı", Hepsiburada'da sapma, SKU detayına geçiş, Defter sekmesi değişmedi).

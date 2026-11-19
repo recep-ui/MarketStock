@@ -101,6 +101,51 @@ test('3) Hatalı senkron sadeleştirilmiş hatayla görünür ve "Yeniden dene" 
   await expect(pending.getByRole('button', { name: 'Yeniden dene' })).toHaveCount(0);
 });
 
+test('Stok Listesi kanal sekmeleri: her pazaryerinin listesi ayrı; olası yanlış eşleşme ve sapma ayrı süzülür (ADR-035)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Stok Listesi', exact: true }).click();
+  await expect(page.getByRole('tab', { name: 'Defter (tüm kanallar)' })).toHaveAttribute('aria-selected', 'true');
+
+  // Trendyol: demo SKU'ların 4 ilanı + çoklanan ilan; çoklanan ilanın barkodu farklı ve kodla doğrulanamıyor → Kontrol et
+  await page.getByRole('tab', { name: 'Trendyol' }).click();
+  await expect(page).toHaveURL(/kanal=TRENDYOL/);
+  const rows = page.getByTestId('channel-stock-row');
+  await page.getByLabel('Kanal ilanlarında bul').fill(`DEMO-${d.tag}`);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await expect(rows).toHaveCount(5);
+  await page.getByLabel('Yalnızca kontrol gerekenler').check();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText(d.multiListingSkuCode);
+  await expect(rows.first()).toContainText('Barkod farklı');
+  await expect(rows.first()).toHaveClass(/row-review/);
+
+  // Hepsiburada: sapmalı ilan, kanalın bildirdiği stokla
+  await page.getByRole('tab', { name: 'Hepsiburada' }).click();
+  await expect(page).toHaveURL(/kanal=HEPSIBURADA/);
+  await page.getByLabel('Kanal ilanlarında bul').fill(`DEMO-${d.tag}`);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await expect(rows).toHaveCount(4);
+  // Yalnızca okur; demo sapmasını kapatan senaryolardan (Kanala gönder / deftere al) önce çalışır. Süzülen her satır sapmalı olmalı
+  await page.getByLabel('Yalnızca stok sapmaları').check();
+  const deviating = rows.filter({ hasText: d.deviationSkuCode });
+  await expect(deviating).toHaveCount(1);
+  await expect(deviating).toContainText(`sapma: kanalda ${d.deviationChannelStock}`);
+  await expect(deviating.getByText('✓ Barkod')).toBeVisible();
+  await expect(rows.filter({ hasNotText: 'sapma: kanalda' })).toHaveCount(0);
+
+  // Bağlı SKU'dan detaya
+  await deviating.getByRole('link', { name: d.deviationSkuCode }).click();
+  await expect(page.getByTestId('sku-detail').getByRole('heading', { level: 1 })).toContainText(d.deviationSkuCode);
+
+  // Defter sekmesi önceki gibi
+  await page.goBack();
+  await page.getByRole('tab', { name: 'Defter (tüm kanallar)' }).click();
+  await expect(page).not.toHaveURL(/kanal=/);
+  await expect(page.getByRole('button', { name: 'Ara' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   await login(page);
   const screens: [string, string][] = [

@@ -214,3 +214,11 @@ button.inline { margin-top: 0; }
   .topbar { flex-wrap: wrap; }
   .global-search { width: 100%; }
 }
+
+/* kanal bazlı stok listesi (ADR-035) */
+.row-review { background: var(--warn-bg); }
+.channel-stock-table td.wrap-cell { white-space: normal; min-width: 180px; max-width: 320px; }
+.match-warnings { list-style: none; margin: 6px 0 0; padding: 0; color: var(--warn); }
+.match-warnings li { margin-top: 2px; }
+button.link.stat-link { font-size: inherit; font-weight: inherit; padding: 0; text-decoration: underline; }
+.tabs button.active small, .tabs button.active .muted { color: inherit; opacity: 0.85; }

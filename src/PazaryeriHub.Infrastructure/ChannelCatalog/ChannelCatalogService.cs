@@ -576,14 +576,16 @@ public sealed class ChannelCatalogService(
 
     /// <summary>
     /// ChannelListing.KanalVerisi: yalnızca beyaz listedeki ürün alanları (kişisel veri yok). urunLinki, kanalSatisFiyati ve
-    /// kanalListeFiyati kanalın kendi verisidir (salt okuma; ADR-031).
+    /// kanalListeFiyati kanalın kendi verisidir (salt okuma; ADR-031). urunAdi ve marka kanalın bildirdiği addır; yanlış
+    /// eşleştirme kontrolünde kullanılır (ADR-035).
     /// </summary>
     private static string ChannelData(ChannelCatalogItem item, string source) =>
         JsonSerializer.Serialize(new
         {
             kaynak = source, kanalDurumu = item.ChannelStatus, modelKodu = item.ModelCode, stokKodu = item.StockCode,
             renk = item.Color, beden = item.Size, varyant = item.VariantAttributes, urunLinki = item.ProductUrl,
-            kanalSatisFiyati = item.SalePrice, kanalListeFiyati = item.ListPrice
+            kanalSatisFiyati = item.SalePrice, kanalListeFiyati = item.ListPrice,
+            urunAdi = Truncate(item.Name, 300), marka = Truncate(item.Brand, 100)
         });
 
     private static string ProductKey(string? modelCode, string? name, string? brand) =>

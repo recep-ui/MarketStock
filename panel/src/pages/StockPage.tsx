@@ -1,13 +1,44 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs, type Channel, type Paged, type StockRow } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelLink, ErrorBox, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
+import { ChannelStockTab } from './ChannelStockTab';
 
-/** Ekran 2: Stok Listesi. Fiziksel/rezerve/satılabilir + her kanalda görünen stok; sapma satırları kırmızı. */
+/**
+ * Ekran 2: Stok Listesi. "Defter" sekmesi: fiziksel/rezerve/satılabilir + her kanalda görünen stok; sapma satırları kırmızı.
+ * Kanal sekmeleri (ADR-035): her pazaryerinin çekilen stok listesi ayrı ayrı, bağlandığı SKU ve yanlış eşleştirme uyarılarıyla.
+ * Seçili sekme ?kanal=KOD ile adreste tutulur.
+ */
 export function StockPage() {
+  const [params, setParams] = useSearchParams();
+  const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
+  const selected = (channels.data ?? []).find(c => c.code === params.get('kanal')) ?? null;
+  const select = (code: string | null) =>
+    setParams(p => { if (code) p.set('kanal', code); else p.delete('kanal'); return p; }, { replace: true });
+
+  return (
+    <>
+      <h1>Stok Listesi</h1>
+      <div className="tabs" role="tablist" aria-label="Stok listesi görünümü">
+        <button role="tab" aria-selected={!selected} className={!selected ? 'active' : undefined} onClick={() => select(null)}>
+          Defter (tüm kanallar)
+        </button>
+        {(channels.data ?? []).map(c => (
+          <button key={c.id} role="tab" aria-selected={selected?.id === c.id} className={selected?.id === c.id ? 'active' : undefined} onClick={() => select(c.code)}>
+            {channelNames[c.code] ?? c.name}{!c.active && <small className="muted"> (pasif)</small>}
+          </button>
+        ))}
+      </div>
+      {selected ? <ChannelStockTab key={selected.id} channel={selected} /> : <LedgerStockView />}
+    </>
+  );
+}
+
+/** Defter görünümü (önceki Stok Listesi; değişmedi). */
+function LedgerStockView() {
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState('');
   const [onlyDeviations, setOnlyDeviations] = useState(false);
@@ -87,7 +118,6 @@ export function StockPage() {
 
   return (
     <>
-      <h1>Stok Listesi</h1>
       <Card>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied(search); }}>
           <input placeholder="SKU, barkod veya ürün adı" value={search} onChange={e => setSearch(e.target.value)} aria-label="Ara" />

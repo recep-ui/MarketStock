@@ -7,6 +7,16 @@
 
 ---
 
+## Stok Listesi: kanal bazlı görünüm ve yanlış eşleştirme uyarıları (2026-11-19): TAMAM
+
+- **Eşleştirme korundu:** kurallar ve kanallar arası ortak havuz değişmedi; yeni görünüm yalnızca okur ve uyarır.
+- **Stok Listesi sekmeleri:** "Defter (tüm kanallar)" (önceki görünüm) + her pazaryeri ayrı (`?kanal=KOD`). Kanal sekmesinde her ilan için kanalın bildirdiği (barkod, kod, stok kodu, ad, renk/beden, çekilen stok ve zamanı) ile bağlı SKU ve gitmesi gereken stok yan yana.
+- **"Kontrol et" uyarıları:** barkod farklı, stok kodu farklı, renk farklı, beden farklı, ad benzemiyor; eşleşme dayanağı (barkod / stok kodu / kodla doğrulanamadı). Ayrıntı ve kurallar ADR-035.
+- **Kanal adı/markası** artık ilan verisine yazılıyor (katalog çekimi, kanal Excel'i, elle bağlama). Mevcut ilanlarda ad bir sonraki katalog çekiminde gelir; o zamana kadar bağlanmış eşleşmeyen kaydından okunur, yoksa "kanal adı bilinmiyor" yazar (demo ilanları bu durumda).
+- **Testler:** Unit 347/347 (yeni 14), Integration 146/146 (yeni 3), Playwright 15/15 (yeni 1), art arda üç tam çalıştırmada 15/15. Senaryo demo sapmasını okuduğu için sapmayı kapatan senaryolardan önceye konuldu. Bir ara çalıştırmada 1. senaryo bilinen filtre-yenileme yarışıyla bir kez düştü (değişiklikle ilgisiz).
+
+---
+
 ## Genel arama, SKU detay, raporlar ve sipariş Excel'i (2026-11-19): TAMAM
 
 - **Genel arama:** üst çubukta "Hızlı bul" (`/` veya Ctrl+K). SKU kodu (büyük/küçük harf duyarsız önek), barkod, ürün adı, kanal barkodu/kodu ve sipariş no ile bulur; Enter ile SKU detayına ya da sipariş detayına gider.

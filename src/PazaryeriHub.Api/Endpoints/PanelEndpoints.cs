@@ -17,6 +17,10 @@ public static class PanelEndpoints
         panel.MapGet("/stock-movements", (IPanelQueryService s, string? sku, string? type, int? warehouseId, DateTime? from, DateTime? to,
                 string? sourceType, int? page, int? pageSize, CancellationToken ct) =>
             s.GetMovementsAsync(new MovementQuery(sku, type, warehouseId, from, to, sourceType, page, pageSize), ct));
+        // ADR-035: bir kanalın stok listesi (kanalın bildirdiği ↔ bağlandığı SKU, yanlış eşleştirme uyarıları)
+        panel.MapGet("/stock-overview/channels/{channelId:int}", (IPanelQueryService s, int channelId, string? search, bool? onlyDeviations,
+                bool? onlyReview, int? page, int? pageSize, CancellationToken ct) =>
+            s.GetChannelStockListAsync(channelId, search, onlyDeviations ?? false, onlyReview ?? false, page, pageSize, ct));
         // ADR-034: genel arama, SKU detay ve satış raporu (müşteri bilgisi içermez; tüm rollere açık)
         panel.MapGet("/search", (ISearchService s, string? q, int? limit, CancellationToken ct) => s.SearchAsync(q, limit ?? 8, ct));
         panel.MapGet("/skus/{skuId:int}/detail", (IPanelQueryService s, int skuId, CancellationToken ct) => s.GetSkuDetailAsync(skuId, ct));

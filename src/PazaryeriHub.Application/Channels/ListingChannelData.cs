@@ -5,8 +5,11 @@ namespace PazaryeriHub.Application.Channels;
 /// <summary>
 /// ChannelListing.KanalVerisi JSON'undan panelde gösterilen kanal bilgileri (ADR-031): ürün linki, kanalda görünen fiyat, varyant.
 /// Yalnızca kanalın kendi API'sinden gelen değerler; link https değilse gösterilmez.
+/// Ad, marka, stok kodu, renk ve beden kanalın bildirdiğidir; yanlış eşleştirme kontrolünde kullanılır (ADR-035).
 /// </summary>
-public sealed record ListingChannelData(string? ProductUrl, decimal? SalePrice, decimal? ListPrice, string? Variant)
+public sealed record ListingChannelData(
+    string? ProductUrl, decimal? SalePrice, decimal? ListPrice, string? Variant,
+    string? Name = null, string? Brand = null, string? StockCode = null, string? Color = null, string? Size = null)
 {
     public static ListingChannelData Empty { get; } = new(null, null, null, null);
 
@@ -29,7 +32,8 @@ public sealed record ListingChannelData(string? ProductUrl, decimal? SalePrice, 
             {
                 url = null;
             }
-            return new ListingChannelData(url, Dec(r, "kanalSatisFiyati"), Dec(r, "kanalListeFiyati"), Str(r, "varyant"));
+            return new ListingChannelData(url, Dec(r, "kanalSatisFiyati"), Dec(r, "kanalListeFiyati"), Str(r, "varyant"),
+                Str(r, "urunAdi"), Str(r, "marka"), Str(r, "stokKodu"), Str(r, "renk"), Str(r, "beden"));
         }
         catch (JsonException)
         {

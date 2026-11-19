@@ -69,6 +69,13 @@ public interface IPanelQueryService
 
     Task<PagedResult<StockMovementItem>> GetMovementsAsync(MovementQuery query, CancellationToken ct);
 
+    /// <summary>
+    /// Bir kanalın stok listesi (ADR-035): kanalın bildirdiği kod/ad/stok ↔ bağlandığı SKU, yanlış eşleştirme uyarılarıyla.
+    /// Kanal yoksa <see cref="NotFoundException"/>.
+    /// </summary>
+    Task<ChannelStockList> GetChannelStockListAsync(
+        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct);
+
     /// <summary>SKU detay ekranı (ADR-034). SKU yoksa <see cref="NotFoundException"/>.</summary>
     Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct);
 

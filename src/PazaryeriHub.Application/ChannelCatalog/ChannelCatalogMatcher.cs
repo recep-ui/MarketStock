@@ -88,6 +88,14 @@ public static class ChannelCatalogMatcher
     /// <summary>Öneri için en düşük ad benzerliği (trigram Dice, 0–1).</summary>
     public const decimal SuggestionThreshold = 0.60m;
 
+    /// <summary>İki ürün adının benzerliği (normalize + trigram Dice, 0–1); biri boşsa 0. Öneriyle aynı ölçü (ADR-035).</summary>
+    public static decimal NameSimilarity(string? a, string? b)
+    {
+        var x = Trigrams(CatalogText.Normalize(a));
+        var y = Trigrams(CatalogText.Normalize(b));
+        return x.Count == 0 || y.Count == 0 ? 0m : Dice(x, y);
+    }
+
     public static IReadOnlyList<CatalogMatch> Match(
         IReadOnlyList<ChannelCatalogItem> items,
         IReadOnlyList<CatalogSkuRef> skus,

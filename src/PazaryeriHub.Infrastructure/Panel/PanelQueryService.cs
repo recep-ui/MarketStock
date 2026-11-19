@@ -147,6 +147,80 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         return new PagedResult<StockMovementItem>(items, total, p, size);
     }
 
+    public async Task<ChannelStockList> GetChannelStockListAsync(
+        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct)
+    {
+        var (p, size) = Paging.Normalize(page, pageSize);
+        await using var connection = await OpenAsync(ct);
+        var channelCode = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT Kod FROM dbo.Channel WHERE Id = @channelId", new { channelId }, cancellationToken: ct))
+            ?? throw new PazaryeriHub.Application.Common.NotFoundException($"Kanal bulunamadı (Id={channelId}).");
+
+        // Uyarılar ve kanal adı (ilan verisi → yoksa bağlanmış eşleşmeyen kaydı) bellekte hesaplandığı için kanalın tüm ilanları okunur.
+        var listings = (await connection.QueryAsync<ChannelListingRow>(new CommandDefinition("""
+            SELECT l.Id AS ListingId, l.Durum AS Status, l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
+                   l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
+                   s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
+                   s.Renk AS Color, s.Beden AS Size,
+                   snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc,
+                   u.UrunAdi AS FallbackName, u.Marka AS FallbackBrand, u.KanalStokKodu AS FallbackStockCode,
+                   u.Renk AS FallbackColor, u.Beden AS FallbackSize
+              FROM dbo.ChannelListing l
+              JOIN dbo.Sku s ON s.Id = l.SkuId
+              JOIN dbo.Product p ON p.Id = s.ProductId
+              OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
+                            WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
+              OUTER APPLY (SELECT TOP (1) i.UrunAdi, i.Marka, i.KanalStokKodu, i.Renk, i.Beden FROM dbo.UnmatchedChannelItem i
+                            WHERE i.ChannelId = l.ChannelId AND i.Durum = 'BAGLANDI'
+                              AND ((l.KanalBarkod IS NOT NULL AND i.KanalBarkod = l.KanalBarkod)
+                                OR (l.KanalUrunKodu IS NOT NULL AND i.KanalUrunKodu = l.KanalUrunKodu))
+                            ORDER BY i.SonGorulme DESC, i.Id DESC) AS u
+             WHERE l.ChannelId = @channelId
+             ORDER BY s.SkuKodu, l.Id
+            """, new { channelId }, cancellationToken: ct))).ToList();
+
+        var unmatched = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM dbo.UnmatchedChannelItem WHERE ChannelId = @channelId AND Durum = 'BEKLIYOR'", new { channelId }, cancellationToken: ct));
+        var targets = listings.Count == 0
+            ? new Dictionary<int, int>()
+            : (await syncStore.ComputeTargetsAsync(connection, null, listings.Select(l => l.ListingId).ToList(), ct)).ToDictionary(t => t.ListingId, t => t.Target);
+
+        var rows = listings.Select(l =>
+        {
+            var data = PazaryeriHub.Application.Channels.ListingChannelData.Parse(l.ChannelData);
+            var side = new ChannelSide(l.ChannelBarcode, l.ChannelProductCode,
+                data.StockCode ?? l.FallbackStockCode, data.Name ?? l.FallbackName, data.Brand ?? l.FallbackBrand,
+                data.Color ?? l.FallbackColor, data.Size ?? l.FallbackSize, data.Variant);
+            var check = ListingMatchCheck.Evaluate(side, new LedgerSide(l.SkuCode, l.SkuBarcode, l.ProductName, l.Brand, l.Color, l.Size));
+            return new ChannelStockListRow(l.ListingId, l.Status, side, data.ProductUrl, l.ChannelStock, Utc(l.FetchedAtUtc),
+                l.SkuId, l.SkuCode, l.SkuBarcode, l.ProductName, l.Color, l.Size,
+                targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings);
+        }).ToList();
+
+        var term = Text.Clean(search);
+        IEnumerable<ChannelStockListRow> filtered = rows;
+        if (term is not null)
+        {
+            bool Has(string? v) => v is not null && v.Contains(term, StringComparison.CurrentCultureIgnoreCase);
+            filtered = filtered.Where(r => Has(r.SkuCode) || Has(r.SkuBarcode) || Has(r.ProductName) || Has(r.Channel.Barcode)
+                || Has(r.Channel.ProductCode) || Has(r.Channel.StockCode) || Has(r.Channel.Name));
+        }
+        if (onlyDeviations)
+        {
+            filtered = filtered.Where(r => r.HasDeviation);
+        }
+        if (onlyReview)
+        {
+            filtered = filtered.Where(r => r.NeedsReview);
+        }
+        var matching = filtered.ToList();
+
+        return new ChannelStockList(channelId, channelCode,
+            new PagedResult<ChannelStockListRow>(matching.Skip((p - 1) * size).Take(size).ToList(), matching.Count, p, size),
+            rows.Count, rows.Count(r => r.HasDeviation), rows.Count(r => r.NeedsReview), rows.Count(r => r.ChannelStock is null), unmatched,
+            rows.Max(r => r.FetchedAtUtc));
+    }
+
     public async Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct)
     {
         var nowUtc = clock.GetUtcNow().UtcDateTime;
@@ -313,6 +387,30 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public int Reserved { get; init; }
         public int SafetyStock { get; init; }
         public int Available { get; init; }
+    }
+
+    private sealed class ChannelListingRow
+    {
+        public int ListingId { get; init; }
+        public string Status { get; init; } = "";
+        public string? ChannelBarcode { get; init; }
+        public string? ChannelProductCode { get; init; }
+        public string? ChannelData { get; init; }
+        public int? LastSent { get; init; }
+        public int SkuId { get; init; }
+        public string SkuCode { get; init; } = "";
+        public string? SkuBarcode { get; init; }
+        public string ProductName { get; init; } = "";
+        public string? Brand { get; init; }
+        public string? Color { get; init; }
+        public string? Size { get; init; }
+        public int? ChannelStock { get; init; }
+        public DateTime? FetchedAtUtc { get; init; }
+        public string? FallbackName { get; init; }
+        public string? FallbackBrand { get; init; }
+        public string? FallbackStockCode { get; init; }
+        public string? FallbackColor { get; init; }
+        public string? FallbackSize { get; init; }
     }
 
     private sealed class SkuInfoRow

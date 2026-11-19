@@ -320,3 +320,19 @@ export type SalesReport = {
   slowMovers: { skuId: number; skuCode: string; productName: string; physical: number; available: number; lastSoldUtc: string | null }[];
   unmatchedUnits: number;
 };
+
+// ----------------------------------------------------------------- ADR-035: kanal bazlı stok listesi
+
+export type MatchWarning = { code: 'BARKOD_FARKLI' | 'STOK_KODU_FARKLI' | 'RENK_FARKLI' | 'BEDEN_FARKLI' | 'AD_BENZEMIYOR'; message: string };
+export type ChannelStockListRow = {
+  listingId: number; status: string;
+  channel: { barcode: string | null; productCode: string | null; stockCode: string | null; name: string | null; brand: string | null; color: string | null; size: string | null; variant: string | null };
+  productUrl: string | null; channelStock: number | null; fetchedAtUtc: string | null;
+  skuId: number; skuCode: string; skuBarcode: string | null; productName: string; color: string | null; size: string | null;
+  expected: number; lastSent: number | null; matchBasis: 'BARKOD' | 'STOK_KODU' | 'DIGER'; warnings: MatchWarning[];
+  hasDeviation: boolean; needsReview: boolean;
+};
+export type ChannelStockList = {
+  channelId: number; channelCode: string; rows: Paged<ChannelStockListRow>;
+  totalListings: number; deviationCount: number; reviewCount: number; notFetchedCount: number; unmatchedCount: number; lastFetchedUtc: string | null;
+};
