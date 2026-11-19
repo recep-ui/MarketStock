@@ -17,9 +17,9 @@
 - **Testler:**
   - Unit 333/333 (yeni 20: dönem çözümü, UTC aralığı, gün doldurma, oranlar, arama terimi).
   - Integration 143/143 (yeni 7: arama 2, SKU detay 2, rapor 2, Excel 1).
-  - Playwright 14 senaryo (yeni 2: genel arama → SKU detay → sipariş; Raporlar → Excel indirme → SKU detay; ekran turuna Raporlar eklendi). Tam çalıştırmalarda 13/14 geçti; düşen senaryo her seferinde tek başına tekrarlandığında geçti:
-    - İki çalıştırmada iade senaryosu, testin tüm adımları geçtikten sonra temizlikte `ENOSPC` (disk dolu) ile düştü. Ölçüm: çalıştırma sırasında C: boş alanı ~1 GB'tan 110 MB'a iniyor. Kod sorunu değil; makinede yer açılmalı.
-    - Bir çalıştırmada 1. senaryo bilinen soğuk başlangıç zaman aşımıyla düştü.
+  - Playwright 14 senaryo (yeni 2: genel arama → SKU detay → sipariş; Raporlar → Excel indirme → SKU detay; ekran turuna Raporlar eklendi).
+    - Disk dolu iken (C: boş alanı çalıştırma sırasında 110 MB'a iniyordu) iade senaryosu temizlikte `ENOSPC` ile düşüyordu.
+    - Kullanıcı yer açtıktan sonra (22,5 GB boş): ilk tam çalıştırmada ekran turu bir kez 10 sn beklemede zaman aşımına uğradı (tek başına geçti; ayrıntı yakalanamadı). Sonraki iki tam çalıştırma **14/14**.
 - **Ortam notu:** Playwright artık kurulu Chrome ile çalışıyor (önceki denetimde Chrome yoktu; Edge 157 Playwright 1.48'in `--headless=old` bayrağını desteklemiyor).
 
 ---
