@@ -59,7 +59,7 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var creds = await CredentialsAsync(ct);
         using var doc = await SendAsync(creds, HttpMethod.Post, $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}/stock-uploads", body, ct);
 
-        // TODO: doğrulanmalı — POST yanıt şeması dokümanda gösterilmiyor; sonuç sorgusundaki "id" alanının döndüğü varsayılır.
+        // Doğrulandı (SIT, 2026-11-19; ADR-037): POST yanıtı {"id":"<guid>"}; sonuç sorgusu aynı id ile.
         var id = doc is not null && doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("id", out var idElement)
             ? idElement.ToString()
             : null;
@@ -85,7 +85,8 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
 
     /// <summary>
     /// Dokümandaki örnek yanıt: <c>{"id","status":"Done","createdAt","total","errors":null, ...}</c>.
-    /// "Done" dışındaki durumlar beklemede sayılır. // TODO: doğrulanmalı (diğer durum değerleri ve errors[] öğe şeması).
+    /// "Done" dışındaki durumlar beklemede sayılır. SIT'te görülen: "Ready" → "Done" (2026-11-19; ADR-037).
+    /// // TODO: doğrulanmalı (hata durum değeri ve errors[] öğe şeması — hatalı gönderimle henüz görülmedi).
     /// </summary>
     internal static BatchStatus MapUploadStatus(string batchId, JsonElement? root)
     {
@@ -170,7 +171,7 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var items = Items(doc?.RootElement, "listings").ToList();
         // ADR-031: her HBSKU ayrı varyanttır (model/renk/beden bu uçta yok → ürün oluştururken birleşmez).
         // Fiyat: "Price" = listingin fiyatı (alan açıklamaları tablosu); ürün sayfası adresi dokümanda yok → link yok.
-        // TODO: doğrulanmalı — JSON yanıtında "price" ve "productName" adları (dokümanda yalnızca alan tablosu ve XML örneği var).
+        // SIT yanıtıyla görüldü (2026-11-19; ADR-037): JSON'da "price" var, "productName" YOK (ad bu uçtan gelmez; kanal adı boş kalır).
         var entries = items
             .Select(i => (HbSku: Str(i, "hepsiburadaSku"), MerchantSku: Str(i, "merchantSku"), Salable: Prop(i, "isSalable"),
                 Name: Str(i, "productName"), Price: Prop(i, "price")))
@@ -342,7 +343,7 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
     /// Uç doğrulandı: <c>POST {listing}/listings/merchantid/{merchantId}/price-uploads</c> gövde <c>[{hepsiburadaSku, price}]</c>,
     /// sonuç <c>GET …/price-uploads/id/{id}</c>. Tek fiyat alanı (liste fiyatı yok). Kategori eşiği dışındaki fiyat listingi kilitler.
     /// TODO: doğrulanmalı — fiyatın KDV dahil olup olmadığı dokümanda YAZMIYOR → VatIncluded = null, yetenek açılamaz.
-    /// TODO: doğrulanmalı — POST yanıtındaki takip numarası alanı (stokta olduğu gibi "id" varsayılır).
+    /// Doğrulandı (SIT, 2026-11-19; ADR-037): POST yanıtı {"id":"<guid>"}; price-uploads/id/{id} "Ready" → "Done".
     /// </summary>
     public PriceUpdateRule DescribePriceUpdate() => new(
         Supported: true, VatIncluded: null, SendsListPrice: false, SamePriceForProductVariants: false,

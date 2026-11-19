@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Hepsiburada test ortamı (SIT) doğrulama aracı (ADR-037). Tek seferlik: canlı API bilgisi almak için Hepsiburada'nın istediği
+    katalog / listeleme / sipariş test adımlarını çalıştırır ve rapor üretir. Uygulamanın parçası değildir (Api'ye girmez).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PazaryeriHub.Tools.HbSit</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PazaryeriHub.Infrastructure\PazaryeriHub.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\PazaryeriHub.Adapters.Hepsiburada\PazaryeriHub.Adapters.Hepsiburada.csproj" />
+  </ItemGroup>
+</Project>

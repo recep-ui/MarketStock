@@ -7,6 +7,20 @@
 
 ---
 
+## Hepsiburada test ortamı (SIT) doğrulama aracı (2026-11-19): KISMEN (Hepsiburada'dan iki yanıt bekleniyor)
+
+- Hepsiburada canlı API için test ortamında katalog, listeleme ve sipariş adımlarını istiyor. Tek seferlik araç: `dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|siparis|hepsi>`. Yalnızca `*-sit.hepsiburada.com`'a gider, panel bilgisini okur, veritabanına yazmaz (ADR-037).
+- **Sonuçlar:**
+  - ✅ Katalog: trackingId alındı.
+  - ✅ Stok ve fiyat gönderimi + sorgulama (Done), activate/deactivate, listing sorgulama.
+  - ⚠️ Toplu kilit kaldırma: uç çalışıyor.
+  - ❌ Envanter güncelleme: 400 "deserializing input data".
+  - ❌ Test siparişi: "ShippingMethodId cannot be empty"; dokümanda bu alan yok. Sipariş listeleme ve paketleme bu yüzden çalıştırılamadı.
+- **Yan bulgu:** Hepsiburada listing yanıtında `productName` yok; kanal sekmesinde Hepsiburada ürün adı bu yüzden boş.
+- **Testler:** Unit 367/367 (yeni 14). Entegrasyon çalıştırılmadı: deneme modu açıktı ve API dosyalarını kilitliyordu; uygulama davranışı değişmedi (adaptörde yalnızca yorum, yeni istemciyi API kullanmıyor).
+
+---
+
 ## "Doğru eşleşme" onayı (2026-11-19): TAMAM
 
 - Kanal sekmesinde uyarılı ilan Yönetici tarafından "Doğru eşleşme, onayla" ile kapatılabilir; "Kontrol et" sayısı ve filtresinden çıkar. Uyarılar ve onaylayan/zaman satırda görünür kalır; "Onayı geri al" ile geri döner.

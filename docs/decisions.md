@@ -792,3 +792,34 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **Panel:** kanal sekmesinde "Doğru eşleşme, onayla" ve "Onayı geri al" (onay penceresiyle). Geçersizleşmiş onay satırda ayrıca belirtilir.
 
 **Doğrulama:** birim (ListingMatchSignatureTests 6; EmbeddedScriptsTests 0015'i içerir), entegrasyon (ListingMatchApprovalTests 3: onay listeden çıkarır, uyarılar kalır, tekrar onay tek kayıt, uyarısız 409, eşleştirme değişmez; bilgi değişince geçersiz, yeniden onay ve geri alma geçmişi korur, ikinci geri alma 404; roller 403, Destek görür, ilan silinince geçmiş silinir), Playwright (onayla → Kontrol et'ten çıkar → onaylayan görünür → geri al → döner; Destek onaylayamaz).
+
+## ADR-037: Hepsiburada test ortamı (SIT) doğrulama aracı
+**Tarih:** 2026-11-19 (ürün sahibi kararı: tek seferlik araç, yalnızca test ortamına yazma izni)
+**Bağlam:** Hepsiburada canlı API bilgisini, test ortamında şu adımlar tamamlanınca veriyor: (1) ürün gönderimi ve trackingId, (2) envanterdeki ürünlerle stok ve fiyat gönderimi, (3) test siparişi oluşturup API ile listeleme ve paketleme. Uygulamada ürün oluşturma yoktu (kapsam dışı) ve deneme modunda kanala yazma kilitli.
+
+**Karar:**
+- **Uygulamaya özellik eklenmedi.** Tek seferlik komut satırı aracı `tools/PazaryeriHub.Tools.HbSit` yazıldı (`kontrol | katalog | listeleme | siparis | hepsi`, `--evet`, `--hbsku`).
+  - Kimlik bilgisi panelde girilenden okunur: `PazaryeriHub_Test` veritabanı, aynı `IDataProtector` anahtarları. Veritabanına yazılmaz.
+  - Her yazma adımı ne göndereceğini gösterip onay ister.
+  - Rapor `hb-sit-rapor/<zaman>-<adım>/` klasörüne yazılır (`rapor.md` + ham `cagrilar.json`; Authorization yok). Klasör `.gitignore`'da.
+- **Yeni test uçları:** `HepsiburadaSitClient` (adaptör projesinde). Uçlar ve alan adları resmi dokümandan; ayrıntılar `docs/kanal-api-notlari.md`.
+  - **Prod kimlik bilgisiyle oluşturulamaz.** Her isteğin adresi `https://*-sit.hepsiburada.com` olmalı.
+  - Yanıt şemaları dokümanda olmadığı için yanıtı yorumlamadan (`SitCall`) döndürür.
+- **Mevcut adaptör yeniden kullanılır:** Stok/fiyat gönderimi + sonuç, listing sorgulama, sipariş çekme ve paketleme mevcut `HepsiburadaAdapter` ile yapılır; Hepsiburada'nın denetleyeceği kod budur.
+  - Araçtaki `SitRecorder` handler'ı tüm istekleri kaydeder ve SIT dışı adresi gönderilmeden reddeder. Adaptör bu araçta canlıya gidemez.
+- **Müşteri verisi:** Test siparişinde açıkça "PazaryeriHub Test" değerleri gönderilir; telefon ve e-posta gönderilmez.
+- **SIT'te doğrulananlar** (adaptör yorumları güncellendi): stok ve fiyat POST'u `{"id"}` döndürüyor, sorgu `Ready → Done`. Listing yanıtında `productName` yok; Hepsiburada'dan kanal ürün adı gelmemesinin nedeni bu.
+- **Test siparişinde servisin kendi hata mesajına göre:**
+  - `OrderNumber` verilebilir; 10 haneli sayısal numara kabul edildi.
+  - "ShippingMethodId" için tek deneme yapıldı (DeliveryOptionId = 1). Etkisiz kaldı ve araçtan kaldırıldı.
+  - Alan tahmini yapılmadı (CLAUDE.md §10).
+
+**Sonuç (2026-11-19):**
+- ✅ Katalog: trackingId alındı. Ancak dokümanın test barkodları fastlisting'de "HB product not found by barcode".
+- ✅ Stok ve fiyat gönderimi (Done), activate/deactivate, listing sorgulama.
+- ⚠️ Toplu kilit kaldırma uç olarak çalışıyor (kilitsiz ürün için 1163).
+- ❌ Envanter güncelleme 400 (deserialize).
+- ❌ Test siparişi: "ShippingMethodId cannot be empty".
+- Bu iki açık soru Hepsiburada'ya traceId'leriyle iletilecek.
+
+**Doğrulama:** birim (HepsiburadaSitClientContractTests 14: adresler, gövde alanları, Basic Auth/User-Agent, Prod reddi, opsiyonel alanların yalnızca verilince gitmesi, hata gövdesinin rapora dönmesi), SIT'te gerçek çalıştırma raporları.

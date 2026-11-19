@@ -170,3 +170,20 @@ Altyapı hâlâ bilinmiyor → mock adaptör devam ediyor (sorulacak).
 - Trendyol ve Beymen'de **aynı isteğin 15 dk tekrar gönderilememesi** var: yeniden denemede istek içeriği değişmezse 400 alınabilir → bu hata "zaten gönderildi" olarak ele alınmalı (doğrulanmalı).
 - Eşleştirme anahtarları: Trendyol **barkod**, Hepsiburada **merchantSku** (veya HBSKU), Beymen **productId (GUID)**.
 - Kimlik bilgileri `Channel.KimlikSifreli` alanında `IDataProtector` ile şifreli saklanacak.
+
+## Hepsiburada test ortamı (SIT) doğrulama — canlıya geçiş adımları (2026-11-19, ADR-037)
+
+Kaynak: developers.hepsiburada.com, uygulama içi tarayıcıyla okundu (otomatik istekler 403 alıyor). Sayfalar: "Katalog Ürün Entegrasyonu Test Süreci Adımları", "Listeleme Entegrasyonu Test Süreci Adımları", "Sipariş Entegrasyonu Test Süreci Adımları" ve ilgili uç sayfaları. Kimlik: Basic Auth + User-Agent. Canlı bilgi: test adımları bitince canlı Merchant Panel → Yardım Merkezi → Talepler → API Entegrasyon Teknik Destek ticket'ı (katalog için trackingId iletilir).
+
+| Alan | Uç (SIT) | Dokümandan | SIT'te görülen |
+|---|---|---|---|
+| Katalog — Hızlı Ürün Yükleme | `POST https://mpop-sit.hepsiburada.com/product/api/products/fastlisting` | ✅ gövde dizi `[{merchant*, merchantSku*, productName*, barcode, hbSku, stock(string), price(string), itemOrderID}]`; yalnızca HB katalogunda olan barkodlar yüklenir | ✅ `{"trackingId":"<guid>"}` |
+| Katalog — Ürün Durumu Sorgulama | `GET …/product/api/products/status/{trackingId}?version=1&page=0&size=1000` | ✅ | ✅ `{success, totalElements, data[]{merchantSku, importStatus (PROCESSING / FAILED…), importMessages[]{severity, message}, hbSku, productStatus…}}`. Dokümandaki test barkodları (7541828790114, 7541828790155, 7541828790080) fastlisting'de "HB product not found by barcode" → FAILED |
+| Katalog — Yeni ürün (tam akış) | kategori → özellik → değer → `uploadProductViaFile` → durum → eşleşen onay/red | ✅ adım listesi | ⏳ uygulanmadı (gerekirse) |
+| Listeleme — Listing sorgulama | `GET listing-external-sit…/listings/merchantid/{id}?offset&limit` | ✅ | ✅ `{listings[]{listingId, hepsiburadaSku, merchantSku, price, availableStock, dispatchTime, cargoCompany1-3, shippingAddressLabel, claimAddressLabel, isSalable, isLocked, lockReasons, productId, …}}` — **`productName` YOK** |
+| Listeleme — Envanter güncelleme | `POST …/inventory-uploads` (+ `GET …/inventory-uploads/id/{inventoryUploadId}`) | ✅ gövde dizi `[{hepsiburadaSku veya merchantSku, price*, availableStock*, …}]` | ❌ 400 "An error occurred while deserializing input data" (hem asgari hem dokümandaki tam alan setiyle) — Hepsiburada'ya sorulacak |
+| Listeleme — Stok / Fiyat | `POST …/stock-uploads`, `…/price-uploads` (+ `/id/{id}`) | ✅ | ✅ POST `{"id":"<guid>"}`; sorgu `{id, status: Ready → Done, createdAt, total, errors, priceValidations}` |
+| Listeleme — Activate / Deactivate | `POST …/sku/{sku}/activate`, `…/deactivate` (gövde `{}`) | ✅ (`{sku}` türü yazmıyor) | ✅ HBSKU ile 200 |
+| Listeleme — Toplu kilit kaldırma | `POST …/bulk-unlock` `{hbSkuList:[…]}` | ✅ | ✅ uç çalışıyor; kilitsiz listing için 400 code 1163 "Unlocked listings can not unlock." |
+| Sipariş — Test siparişi | `POST https://oms-stub-external-sit.hepsiburada.com/orders/merchantId/{merchantId}` (yalnızca TEST) | ✅ `LineItems[]{MerchantId*, Sku*, MerchantSku, Quantity, Price{Amount, Currency}, …}`; OrderNumber "opsiyonel" | ⚠️ servis `OrderNumber` istiyor (10 haneli sayısal kabul edildi) ve "OrderLines[0]: ShippingMethodId cannot be empty" diyor — dokümanda bu alan yok; `DeliveryOptionId` karşılığı değil → Hepsiburada'ya sorulacak |
+| Sipariş — sonraki adımlar | ödemesi tamamlanmışlar `GET oms-external-sit…/orders/merchantid/{id}`; `GET …/lineitems/merchantid/{id}/packageablewith/lineitemid/{lineItemId}`; paketleme `POST …/packages/merchantid/{id}`; paketler `GET …/packages/merchantid/{id}` | ✅ | ⏳ test siparişi oluşmadığı için çalıştırılamadı. HB otomatik paketleme (SIT panel → Ayarlarım) açıksa sipariş doğrudan paketlenmiş gelir |

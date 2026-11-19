@@ -489,3 +489,6 @@ $RECYCLE.BIN/
 
 # TypeScript artımlı derleme çıktısı
 *.tsbuildinfo
+
+# Hepsiburada SIT doğrulama raporları (ADR-037): hesap kimliği ve ham yanıtlar içerir, repoya girmez
+hb-sit-rapor/
