@@ -222,3 +222,5 @@ button.inline { margin-top: 0; }
 .match-warnings li { margin-top: 2px; }
 button.link.stat-link { font-size: inherit; font-weight: inherit; padding: 0; text-decoration: underline; }
 .tabs button.active small, .tabs button.active .muted { color: inherit; opacity: 0.85; }
+.match-warnings.approved { color: var(--muted); }
+.warn-text { color: var(--warn); margin-top: 4px; }

@@ -29,7 +29,8 @@ public sealed class EmbeddedScriptsTests
             "PazaryeriHub.Infrastructure.Database.Migrations.0011_siparis_kanal_kimlikleri.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0012_iade_talepleri.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0013_fiyat.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0014_soru_cevap.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0014_soru_cevap.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0015_eslesme_onayi.sql");
     }
 
     [Fact]

@@ -85,7 +85,10 @@ public static class DependencyInjection
         services.AddOptions<PazaryeriHub.Application.Auth.IdentityOptions>().BindConfiguration(PazaryeriHub.Application.Auth.IdentityOptions.SectionName);
         services.AddSingleton<UserService>();
         services.AddSingleton<IUserService>(sp => sp.GetRequiredService<UserService>());
-        services.AddScoped<IPanelQueryService, PanelQueryService>();
+        services.AddScoped<PanelQueryService>();
+        services.AddScoped<IPanelQueryService>(sp => sp.GetRequiredService<PanelQueryService>());
+        // "Doğru eşleşme" onayı (ADR-036)
+        services.AddScoped<IListingMatchApprovalService, ListingMatchApprovalService>();
         // Genel arama, satış raporu ve sipariş Excel'i (ADR-034)
         services.AddScoped<ISearchService, SearchService>();
         services.AddScoped<PazaryeriHub.Application.Reports.ISalesReportService, PazaryeriHub.Infrastructure.Reports.SalesReportService>();

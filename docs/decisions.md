@@ -766,3 +766,29 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **Kapsam dışı / sonraki adım:** uyarıyı "doğru eşleşme" diye kalıcı onaylama (yeni tablo gerekir) ve kanal sekmesinden doğrudan eşleşme kaldırma/değiştirme. Düzeltme bugün Eşleştirme ekranından yapılır.
 
 **Doğrulama:** birim (ListingMatchCheckTests 14), entegrasyon (ChannelStockListTests 3: yan yana görünüm + uyarılar + eski ilan adı; filtreler + eşleşmeyen sayısı + yetki + 404; elle bağlamada ad/marka yazılır ve eşleştirme korunur), Playwright (kanal sekmeleri senaryosu: Trendyol'da çoklanan ilan "Barkod farklı", Hepsiburada'da sapma, SKU detayına geçiş, Defter sekmesi değişmedi).
+
+## ADR-036: Yanlış eşleştirme uyarısını "doğru eşleşme" olarak kalıcı onaylama
+**Tarih:** 2026-11-19 (ürün sahibi isteği; ADR-035'in "sonraki adım" maddesi)
+**Bağlam:** ADR-035 uyarıları her açılışta yeniden hesaplanıyordu. Doğru olduğu bilinen bir eşleşme (ör. farklı barkodlu çoklanan ilan) her seferinde "Kontrol et" listesinde kalıyor, gerçek sorunları gölgeliyordu.
+
+**Karar:**
+- **Tablo `ListingMatchApproval` (migration 0015):** ilan, onaylandığı andaki SKU, imza, uyarı kodları, onaylayan ve zaman.
+  - **Kayıt silinmez:** geri alma (`GERI_ALINDI`) ya da yeniden onay (`YENILENDI`) `GeriAlan` / `GeriAlmaTarihi` / `KapanisNedeni` ile kapanır.
+  - İlan başına en fazla bir açık onay (filtreli unique index). İlan silinirse geçmişi de silinir (`ON DELETE CASCADE`; ilan silmeyi engellemez).
+- **Onay bir imzaya bağlı:** saf `ListingMatchCheck.Signature` (SHA-256). İmza şunlardan hesaplanır:
+  - SKU Id;
+  - iki taraftaki barkod, kod, stok kodu, ad, renk ve beden;
+  - uyarı kodları (sırasız).
+
+  Metinler `CatalogText.Normalize`'dan, kodlar kırpılarak geçer; yalnızca biçim farkı onayı bozmaz.
+  - İmza **sunucuda**, ilanın bugünkü bilgisinden hesaplanır; istemciden alınmaz.
+  - Bilgi sonradan değişirse onay **geçersiz** sayılır: ilan başka SKU'ya bağlanır, kanal adı değişir, yeni uyarı çıkar vb. Uyarı "önceki onay geçersiz" notuyla geri gelir. Bir onay sessizce başka bir eşleşmeyi örtmez.
+- **Etki:** `NeedsReview = uyarı var VE geçerli onay yok`. "Kontrol et" sayısı ve filtresi onaylıları dışarıda bırakır; özete "doğru eşleşme olarak onaylı" sayısı eklendi.
+  - Uyarılar silinmez; onaylı satırda soluk gösterilir, yanında "✓ Doğru eşleşme · kullanıcı · zaman" yazar.
+  - **Eşleştirme (`ChannelListing.SkuId`) değişmez.**
+- **Uçlar:** `POST` / `DELETE /api/listings/{id}/match-approval`, yetki `CatalogWrite` (Yönetici; eşleştirme yetkisiyle aynı). Diğer roller onayı görür.
+  - Uyarısız ilan onaylanamaz (409). Aynı bilgi zaten onaylıysa yeni kayıt açılmaz. Eşzamanlı iki onay tek kayıt bırakır (`UPDLOCK` + unique index → 409).
+  - Açık onay yoksa geri alma 404. Onay ve geri alma Serilog'a yazılır.
+- **Panel:** kanal sekmesinde "Doğru eşleşme, onayla" ve "Onayı geri al" (onay penceresiyle). Geçersizleşmiş onay satırda ayrıca belirtilir.
+
+**Doğrulama:** birim (ListingMatchSignatureTests 6; EmbeddedScriptsTests 0015'i içerir), entegrasyon (ListingMatchApprovalTests 3: onay listeden çıkarır, uyarılar kalır, tekrar onay tek kayıt, uyarısız 409, eşleştirme değişmez; bilgi değişince geçersiz, yeniden onay ve geri alma geçmişi korur, ikinci geri alma 404; roller 403, Destek görür, ilan silinince geçmiş silinir), Playwright (onayla → Kontrol et'ten çıkar → onaylayan görünür → geri al → döner; Destek onaylayamaz).

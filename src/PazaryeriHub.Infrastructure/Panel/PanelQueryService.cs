@@ -156,46 +156,10 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
             "SELECT Kod FROM dbo.Channel WHERE Id = @channelId", new { channelId }, cancellationToken: ct))
             ?? throw new PazaryeriHub.Application.Common.NotFoundException($"Kanal bulunamadı (Id={channelId}).");
 
-        // Uyarılar ve kanal adı (ilan verisi → yoksa bağlanmış eşleşmeyen kaydı) bellekte hesaplandığı için kanalın tüm ilanları okunur.
-        var listings = (await connection.QueryAsync<ChannelListingRow>(new CommandDefinition("""
-            SELECT l.Id AS ListingId, l.Durum AS Status, l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
-                   l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
-                   s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
-                   s.Renk AS Color, s.Beden AS Size,
-                   snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc,
-                   u.UrunAdi AS FallbackName, u.Marka AS FallbackBrand, u.KanalStokKodu AS FallbackStockCode,
-                   u.Renk AS FallbackColor, u.Beden AS FallbackSize
-              FROM dbo.ChannelListing l
-              JOIN dbo.Sku s ON s.Id = l.SkuId
-              JOIN dbo.Product p ON p.Id = s.ProductId
-              OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
-                            WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
-              OUTER APPLY (SELECT TOP (1) i.UrunAdi, i.Marka, i.KanalStokKodu, i.Renk, i.Beden FROM dbo.UnmatchedChannelItem i
-                            WHERE i.ChannelId = l.ChannelId AND i.Durum = 'BAGLANDI'
-                              AND ((l.KanalBarkod IS NOT NULL AND i.KanalBarkod = l.KanalBarkod)
-                                OR (l.KanalUrunKodu IS NOT NULL AND i.KanalUrunKodu = l.KanalUrunKodu))
-                            ORDER BY i.SonGorulme DESC, i.Id DESC) AS u
-             WHERE l.ChannelId = @channelId
-             ORDER BY s.SkuKodu, l.Id
-            """, new { channelId }, cancellationToken: ct))).ToList();
-
         var unmatched = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             "SELECT COUNT(*) FROM dbo.UnmatchedChannelItem WHERE ChannelId = @channelId AND Durum = 'BEKLIYOR'", new { channelId }, cancellationToken: ct));
-        var targets = listings.Count == 0
-            ? new Dictionary<int, int>()
-            : (await syncStore.ComputeTargetsAsync(connection, null, listings.Select(l => l.ListingId).ToList(), ct)).ToDictionary(t => t.ListingId, t => t.Target);
-
-        var rows = listings.Select(l =>
-        {
-            var data = PazaryeriHub.Application.Channels.ListingChannelData.Parse(l.ChannelData);
-            var side = new ChannelSide(l.ChannelBarcode, l.ChannelProductCode,
-                data.StockCode ?? l.FallbackStockCode, data.Name ?? l.FallbackName, data.Brand ?? l.FallbackBrand,
-                data.Color ?? l.FallbackColor, data.Size ?? l.FallbackSize, data.Variant);
-            var check = ListingMatchCheck.Evaluate(side, new LedgerSide(l.SkuCode, l.SkuBarcode, l.ProductName, l.Brand, l.Color, l.Size));
-            return new ChannelStockListRow(l.ListingId, l.Status, side, data.ProductUrl, l.ChannelStock, Utc(l.FetchedAtUtc),
-                l.SkuId, l.SkuCode, l.SkuBarcode, l.ProductName, l.Color, l.Size,
-                targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings);
-        }).ToList();
+        // Uyarılar ve kanal adı bellekte hesaplandığı için kanalın tüm ilanları okunur.
+        var rows = await ReadChannelRowsAsync(connection, channelId, null, ct);
 
         var term = Text.Clean(search);
         IEnumerable<ChannelStockListRow> filtered = rows;
@@ -218,7 +182,64 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         return new ChannelStockList(channelId, channelCode,
             new PagedResult<ChannelStockListRow>(matching.Skip((p - 1) * size).Take(size).ToList(), matching.Count, p, size),
             rows.Count, rows.Count(r => r.HasDeviation), rows.Count(r => r.NeedsReview), rows.Count(r => r.ChannelStock is null), unmatched,
-            rows.Max(r => r.FetchedAtUtc));
+            rows.Max(r => r.FetchedAtUtc), rows.Count(r => r.Approval is { Valid: true }));
+    }
+
+    /// <summary>
+    /// Kanal stok listesi satırları (ADR-035/036): kanal tarafı (ilan verisi → yoksa bağlanmış eşleşmeyen kaydı), bağlı SKU,
+    /// gitmesi gereken stok, uyarılar ve açık onay (imza bugünkü bilgiyle karşılaştırılır). <paramref name="listingId"/> verilirse yalnızca o ilan.
+    /// </summary>
+    internal async Task<List<ChannelStockListRow>> ReadChannelRowsAsync(SqlConnection connection, int channelId, int? listingId, CancellationToken ct,
+        SqlTransaction? tx = null)
+    {
+        var listings = (await connection.QueryAsync<ChannelListingRow>(new CommandDefinition("""
+            SELECT l.Id AS ListingId, l.Durum AS Status, l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
+                   l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
+                   s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
+                   s.Renk AS Color, s.Beden AS Size,
+                   snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc,
+                   u.UrunAdi AS FallbackName, u.Marka AS FallbackBrand, u.KanalStokKodu AS FallbackStockCode,
+                   u.Renk AS FallbackColor, u.Beden AS FallbackSize,
+                   a.Imza AS ApprovalSignature, a.Uyarilar AS ApprovalWarnings, a.Onaylayan AS ApprovedBy, a.OnayTarihi AS ApprovedAtUtc
+              FROM dbo.ChannelListing l
+              JOIN dbo.Sku s ON s.Id = l.SkuId
+              JOIN dbo.Product p ON p.Id = s.ProductId
+              OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
+                            WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
+              OUTER APPLY (SELECT TOP (1) i.UrunAdi, i.Marka, i.KanalStokKodu, i.Renk, i.Beden FROM dbo.UnmatchedChannelItem i
+                            WHERE i.ChannelId = l.ChannelId AND i.Durum = 'BAGLANDI'
+                              AND ((l.KanalBarkod IS NOT NULL AND i.KanalBarkod = l.KanalBarkod)
+                                OR (l.KanalUrunKodu IS NOT NULL AND i.KanalUrunKodu = l.KanalUrunKodu))
+                            ORDER BY i.SonGorulme DESC, i.Id DESC) AS u
+              LEFT JOIN dbo.ListingMatchApproval a ON a.ListingId = l.Id AND a.GeriAlmaTarihi IS NULL
+             WHERE l.ChannelId = @channelId AND (@listingId IS NULL OR l.Id = @listingId)
+             ORDER BY s.SkuKodu, l.Id
+            """, new { channelId, listingId }, tx, cancellationToken: ct))).ToList();
+
+        var targets = listings.Count == 0
+            ? new Dictionary<int, int>()
+            : (await syncStore.ComputeTargetsAsync(connection, tx, listings.Select(l => l.ListingId).ToList(), ct)).ToDictionary(t => t.ListingId, t => t.Target);
+
+        return listings.Select(l =>
+        {
+            var data = PazaryeriHub.Application.Channels.ListingChannelData.Parse(l.ChannelData);
+            var side = new ChannelSide(l.ChannelBarcode, l.ChannelProductCode,
+                data.StockCode ?? l.FallbackStockCode, data.Name ?? l.FallbackName, data.Brand ?? l.FallbackBrand,
+                data.Color ?? l.FallbackColor, data.Size ?? l.FallbackSize, data.Variant);
+            var ledger = new LedgerSide(l.SkuCode, l.SkuBarcode, l.ProductName, l.Brand, l.Color, l.Size);
+            var check = ListingMatchCheck.Evaluate(side, ledger);
+            MatchApproval? approval = null;
+            if (l.ApprovalSignature is { } signature && l.ApprovedAtUtc is { } approvedAt)
+            {
+                // Onay yalnızca bugün de aynı bilgiler ve aynı uyarılar varsa geçerlidir (ADR-036)
+                var valid = check.Warnings.Count > 0 && signature == ListingMatchCheck.Signature(l.SkuId, side, ledger, check.Warnings);
+                approval = new MatchApproval(l.ApprovedBy, DateTime.SpecifyKind(approvedAt, DateTimeKind.Utc), valid,
+                    (l.ApprovalWarnings ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries));
+            }
+            return new ChannelStockListRow(l.ListingId, l.Status, side, data.ProductUrl, l.ChannelStock, Utc(l.FetchedAtUtc),
+                l.SkuId, l.SkuCode, l.SkuBarcode, l.ProductName, l.Color, l.Size,
+                targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings, approval);
+        }).ToList();
     }
 
     public async Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct)
@@ -411,6 +432,10 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public string? FallbackStockCode { get; init; }
         public string? FallbackColor { get; init; }
         public string? FallbackSize { get; init; }
+        public string? ApprovalSignature { get; init; }
+        public string? ApprovalWarnings { get; init; }
+        public string? ApprovedBy { get; init; }
+        public DateTime? ApprovedAtUtc { get; init; }
     }
 
     private sealed class SkuInfoRow

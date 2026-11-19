@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, qs, type Channel, type ChannelStockList, type ChannelStockListRow } from '../api';
+import { api, get, qs, type Channel, type ChannelStockList, type ChannelStockListRow } from '../api';
+import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
 import { Card, ChannelLink, ErrorBox, Stat, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatRelative } from '../format';
@@ -26,6 +27,9 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
   const [form, setForm] = useState({ search: '', onlyDeviations: false, onlyReview: false });
   const [applied, setApplied] = useState(form);
   const [page, setPage] = useState(1);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<unknown>(null);
+  const { can } = useAuth();
   const name = channelNames[channel.code] ?? channel.name;
 
   const data = useLoad(
@@ -35,6 +39,25 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
     [channel.id, applied, page]
   );
   const d = data.data;
+  // "Doğru eşleşme" onayı (ADR-036): yalnızca uyarıyı kapatır; eşleşme bilgisi değişirse uyarı geri gelir
+  const setApproval = async (row: ChannelStockListRow, approve: boolean) => {
+    const question = approve
+      ? `${row.skuCode} ↔ ${row.channel.barcode ?? row.channel.productCode ?? 'kanal ilanı'} eşleşmesi doğru mu?\n\n` +
+        'Uyarı "doğru eşleşme" olarak kapanır. Eşleştirme değişmez; barkod, ad, renk/beden veya bağlı SKU sonradan değişirse uyarı yeniden gösterilir.'
+      : `${row.skuCode} için "doğru eşleşme" onayı geri alınsın mı? Uyarı yeniden "Kontrol et" listesine girer.`;
+    if (!window.confirm(question)) return;
+    setBusy(row.listingId);
+    setActionError(null);
+    try {
+      await api<ChannelStockListRow>(approve ? 'POST' : 'DELETE', `/api/listings/${row.listingId}/match-approval`);
+      data.reload();
+    } catch (e) {
+      setActionError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const quick = (patch: Partial<typeof form>) => {
     const next = { ...form, ...patch };
     setForm(next);
@@ -58,6 +81,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
             value={<button className="link stat-link" onClick={() => quick({ onlyDeviations: true, onlyReview: false })}>{d.deviationCount}</button>}
             tone={d.deviationCount > 0 ? 'danger' : undefined}
           />
+          <Stat label="Doğru eşleşme olarak onaylı" value={d.approvedCount} testId="channel-approved-count" />
           <Stat label="Kanal stoğu hiç çekilmemiş" value={d.notFetchedCount} />
           <Stat label="Kanalda var, eşleşmemiş" value={<Link to="/eslestirme">{d.unmatchedCount}</Link>} tone={d.unmatchedCount > 0 ? 'warn' : undefined} />
           <Stat
@@ -86,9 +110,10 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
         <p className="muted small">
           Sol: {name}'in bildirdiği (son katalog çekimi / mutabakat). Sağ: bağlı olduğu SKU ve deftere göre gitmesi gereken stok.
           <strong> Kontrol et</strong>: kanalın bilgisi SKU ile uyuşmuyor, yanlış eşleşme olabilir; düzeltmek için <Link to="/eslestirme">Eşleştirme</Link>.
-          Çoklanan ilanlarda barkod farklı olabilir. Bu ekran eşleştirmeyi değiştirmez.
+          Çoklanan ilanlarda barkod farklı olabilir. Doğru olduğunu bildiğiniz eşleşmeyi "Doğru eşleşme, onayla" ile kapatabilirsiniz
+          (Yönetici); bilgiler sonradan değişirse uyarı geri gelir. Bu ekran eşleştirmeyi değiştirmez.
         </p>
-        <ErrorBox error={data.error} onRetry={data.reload} />
+        <ErrorBox error={data.error ?? actionError} onRetry={data.reload} />
         {data.loading && !d && <div className="loading">Yükleniyor…</div>}
         {d && (
           <div className="table-wrap">
@@ -144,8 +169,21 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                       <span className={`badge${basisLabels[r.matchBasis].tone ? ' ' + basisLabels[r.matchBasis].tone : ''}`} title={basisLabels[r.matchBasis].title}>
                         {basisLabels[r.matchBasis].text}
                       </span>
+                      {r.approval?.valid && (
+                        <div className="small" data-testid="match-approved">
+                          <span className="badge ok">✓ Doğru eşleşme</span>{' '}
+                          <span className="muted" title={formatDateTime(r.approval.approvedAtUtc)}>
+                            {r.approval.approvedBy ?? '—'} · {formatRelative(r.approval.approvedAtUtc)}
+                          </span>
+                        </div>
+                      )}
+                      {r.approval && !r.approval.valid && (
+                        <div className="small warn-text" data-testid="match-approval-outdated">
+                          Önceki onay geçersiz: eşleşme bilgisi onaydan sonra değişti ({r.approval.approvedBy ?? '—'}, {formatDateTime(r.approval.approvedAtUtc)}).
+                        </div>
+                      )}
                       {r.warnings.length > 0 && (
-                        <ul className="match-warnings" aria-label="Kontrol et">
+                        <ul className={`match-warnings${r.approval?.valid ? ' approved' : ''}`} aria-label={r.approval?.valid ? 'Onaylanmış uyarılar' : 'Kontrol et'}>
                           {r.warnings.map(w => (
                             <li key={w.code} title={w.message}>
                               <span aria-hidden="true">⚠ </span><strong>{warningLabels[w.code] ?? w.code}</strong>
@@ -153,6 +191,16 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {can('catalogWrite') && r.needsReview && (
+                        <button className="small inline" disabled={busy === r.listingId} onClick={() => setApproval(r, true)}>
+                          Doğru eşleşme, onayla
+                        </button>
+                      )}
+                      {can('catalogWrite') && r.approval?.valid && (
+                        <button className="link small" disabled={busy === r.listingId} onClick={() => setApproval(r, false)}>
+                          Onayı geri al
+                        </button>
                       )}
                     </td>
                   </tr>

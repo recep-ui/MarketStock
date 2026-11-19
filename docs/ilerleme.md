@@ -7,6 +7,14 @@
 
 ---
 
+## "Doğru eşleşme" onayı (2026-11-19): TAMAM
+
+- Kanal sekmesinde uyarılı ilan Yönetici tarafından "Doğru eşleşme, onayla" ile kapatılabilir; "Kontrol et" sayısı ve filtresinden çıkar. Uyarılar ve onaylayan/zaman satırda görünür kalır; "Onayı geri al" ile geri döner.
+- Onay, eşleşme bilgisinin imzasına bağlı: bağlı SKU, barkod/kod/ad/renk/beden veya uyarılar değişirse onay kendiliğinden geçersiz olur ve uyarı geri gelir. Eşleştirme değişmez; onay geçmişi silinmez (migration 0015, ADR-036).
+- **Testler:** Unit 353/353 (yeni 6), Integration 149/149 (yeni 3), Playwright 16/16 (yeni 1); iki tam çalıştırmada 16/16.
+
+---
+
 ## Stok Listesi: kanal bazlı görünüm ve yanlış eşleştirme uyarıları (2026-11-19): TAMAM
 
 - **Eşleştirme korundu:** kurallar ve kanallar arası ortak havuz değişmedi; yeni görünüm yalnızca okur ve uyarır.

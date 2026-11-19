@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using PazaryeriHub.Application.ChannelCatalog;
 using PazaryeriHub.Application.Common;
 
@@ -80,11 +82,38 @@ public static class ListingMatchCheck
         return new ListingMatchResult(basis, warnings);
     }
 
+    /// <summary>
+    /// Onay imzası (ADR-036): SKU, iki taraftaki barkod/kod/ad/renk/beden ve uyarı kodları (sırasız). Metinler
+    /// <see cref="CatalogText.Normalize"/>, kodlar kırpılarak girer; yalnızca biçim farkı imzayı bozmaz. SHA-256, küçük harf hex.
+    /// </summary>
+    public static string Signature(int skuId, ChannelSide channel, LedgerSide ledger, IReadOnlyList<MatchWarning> warnings)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(warnings);
+        static string Code(string? v) => v?.Trim() ?? "";
+        var parts = new[]
+        {
+            "v1", skuId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Code(ledger.SkuCode).ToUpperInvariant(), Code(ledger.Barcode), CatalogText.Normalize(ledger.ProductName),
+            CatalogText.Normalize(ledger.Color), CatalogText.Normalize(ledger.Size),
+            Code(channel.Barcode), Code(channel.ProductCode), Code(channel.StockCode).ToUpperInvariant(), CatalogText.Normalize(channel.Name),
+            CatalogText.Normalize(channel.Color), CatalogText.Normalize(channel.Size),
+            string.Join(',', warnings.Select(w => w.Code).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        };
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001F', parts))));
+    }
+
     private static bool Has(string? value) => !string.IsNullOrWhiteSpace(value);
 
     private static bool Differs(string? channel, string? ledger) =>
         Has(channel) && Has(ledger) && CatalogText.Normalize(channel) != CatalogText.Normalize(ledger);
 }
+
+/// <summary>"Doğru eşleşme" onayı (ADR-036).</summary>
+/// <param name="Valid">Onay bugünkü eşleşme bilgisini kapsıyor mu (imza aynı). false: bilgi onaydan sonra değişti, yeniden kontrol gerekir.</param>
+/// <param name="ApprovedWarnings">Onaylandığı andaki uyarı kodları.</param>
+public sealed record MatchApproval(string? ApprovedBy, DateTime ApprovedAtUtc, bool Valid, IReadOnlyList<string> ApprovedWarnings);
 
 /// <summary>Kanal bazlı stok listesinde bir ilan: kanalın bildirdiği ↔ bağlandığı SKU (ADR-035).</summary>
 /// <param name="ChannelStock">Son mutabakatta kanaldan çekilen stok (hiç çekilmediyse null).</param>
@@ -92,13 +121,32 @@ public static class ListingMatchCheck
 public sealed record ChannelStockListRow(
     int ListingId, string Status, ChannelSide Channel, string? ProductUrl, int? ChannelStock, DateTime? FetchedAtUtc,
     int SkuId, string SkuCode, string? SkuBarcode, string ProductName, string? Color, string? Size,
-    int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings)
+    int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings, MatchApproval? Approval = null)
 {
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
-    public bool NeedsReview => Warnings.Count > 0;
+
+    /// <summary>Uyarı var ve geçerli bir "doğru eşleşme" onayı yok (ADR-036).</summary>
+    public bool NeedsReview => Warnings.Count > 0 && Approval is not { Valid: true };
+
+    /// <summary>Onay imzası için defter tarafı (satırdaki değerlerden).</summary>
+    public LedgerSide Ledger => new(SkuCode, SkuBarcode, ProductName, null, Color, Size);
 }
 
 /// <param name="UnmatchedCount">Kanalda görülen ama hiçbir SKU'ya bağlanmamış (bekleyen) ürün sayısı.</param>
 public sealed record ChannelStockList(
     int ChannelId, string ChannelCode, PagedResult<ChannelStockListRow> Rows,
-    int TotalListings, int DeviationCount, int ReviewCount, int NotFetchedCount, int UnmatchedCount, DateTime? LastFetchedUtc);
+    int TotalListings, int DeviationCount, int ReviewCount, int NotFetchedCount, int UnmatchedCount, DateTime? LastFetchedUtc,
+    int ApprovedCount = 0);
+
+/// <summary>"Doğru eşleşme" onayı (ADR-036). Eşleştirmeyi değiştirmez; yalnızca uyarıyı kapatır.</summary>
+public interface IListingMatchApprovalService
+{
+    /// <summary>
+    /// İlanın bugünkü uyarılarını onaylar ve güncel satırı döndürür. İlan yoksa <see cref="NotFoundException"/>; uyarı yoksa
+    /// <see cref="ConflictException"/>. Aynı bilgi zaten onaylıysa yeni kayıt açılmaz; eski (geçersiz) onay "YENILENDI" ile kapanır.
+    /// </summary>
+    Task<ChannelStockListRow> ApproveAsync(int listingId, string? user, CancellationToken ct);
+
+    /// <summary>Açık onayı geri alır (kayıt kapanır, silinmez). Açık onay yoksa <see cref="NotFoundException"/>.</summary>
+    Task<ChannelStockListRow> RevokeAsync(int listingId, string? user, CancellationToken ct);
+}

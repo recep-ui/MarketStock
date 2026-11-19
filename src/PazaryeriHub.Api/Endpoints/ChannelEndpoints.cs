@@ -145,6 +145,13 @@ public static class ChannelEndpoints
             s.SearchListingsAsync(channelId, search, page, pageSize, ct));
         listings.MapPut("/", (IChannelService s, ListingInput input, CancellationToken ct) => s.UpsertListingAsync(input, ct))
             .RequireAuthorization(Policies.CatalogWrite);
+        // "Doğru eşleşme" onayı (ADR-036): yalnızca uyarıyı kapatır, eşleştirmeyi değiştirmez. Eşleştirme yetkisiyle aynı (Yönetici).
+        listings.MapPost("/{id:int}/match-approval", (PazaryeriHub.Application.Panel.IListingMatchApprovalService s, ClaimsPrincipal user, int id,
+                CancellationToken ct) => s.ApproveAsync(id, user.UserName(), ct))
+            .RequireAuthorization(Policies.CatalogWrite);
+        listings.MapDelete("/{id:int}/match-approval", (PazaryeriHub.Application.Panel.IListingMatchApprovalService s, ClaimsPrincipal user, int id,
+                CancellationToken ct) => s.RevokeAsync(id, user.UserName(), ct))
+            .RequireAuthorization(Policies.CatalogWrite);
         listings.MapDelete("/{id:int}", async (IChannelService s, int id, CancellationToken ct) =>
         {
             await s.DeleteListingAsync(id, ct);

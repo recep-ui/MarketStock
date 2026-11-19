@@ -330,9 +330,12 @@ export type ChannelStockListRow = {
   productUrl: string | null; channelStock: number | null; fetchedAtUtc: string | null;
   skuId: number; skuCode: string; skuBarcode: string | null; productName: string; color: string | null; size: string | null;
   expected: number; lastSent: number | null; matchBasis: 'BARKOD' | 'STOK_KODU' | 'DIGER'; warnings: MatchWarning[];
+  /** ADR-036: "doğru eşleşme" onayı; valid=false ise bilgi onaydan sonra değişti. */
+  approval: { approvedBy: string | null; approvedAtUtc: string; valid: boolean; approvedWarnings: string[] } | null;
   hasDeviation: boolean; needsReview: boolean;
 };
 export type ChannelStockList = {
   channelId: number; channelCode: string; rows: Paged<ChannelStockListRow>;
   totalListings: number; deviationCount: number; reviewCount: number; notFetchedCount: number; unmatchedCount: number; lastFetchedUtc: string | null;
+  approvedCount: number;
 };

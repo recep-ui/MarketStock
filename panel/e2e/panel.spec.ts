@@ -146,6 +146,50 @@ test('Stok Listesi kanal sekmeleri: her pazaryerinin listesi ayrı; olası yanl�
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
+test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan görünür, geri alınınca döner; Destek onaylayamaz (ADR-036)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.goto('/stok?kanal=TRENDYOL');
+  const rows = page.getByTestId('channel-stock-row');
+  await page.getByLabel('Kanal ilanlarında bul').fill(`DEMO-${d.tag}`);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await page.getByLabel('Yalnızca kontrol gerekenler').check();
+  await expect(rows).toHaveCount(1);
+  const suspect = rows.first();
+  await expect(suspect).toContainText(d.multiListingSkuCode);
+
+  page.once('dialog', dialog => dialog.accept());
+  await suspect.getByRole('button', { name: 'Doğru eşleşme, onayla' }).click();
+  await expect(rows).toHaveCount(0);
+
+  await page.getByLabel('Yalnızca kontrol gerekenler').uncheck();
+  const approved = rows.filter({ has: page.getByTestId('match-approved') });
+  await expect(approved).toHaveCount(1);
+  await expect(approved).toContainText(d.multiListingSkuCode);
+  await expect(approved.getByTestId('match-approved')).toContainText('e2e-yonetici');
+  await expect(approved).toContainText('Barkod farklı');
+  await expect(approved).not.toHaveClass(/row-review/);
+
+  page.once('dialog', dialog => dialog.accept());
+  await approved.getByRole('button', { name: 'Onayı geri al' }).click();
+  await expect(page.getByTestId('match-approved')).toHaveCount(0);
+  await page.getByLabel('Yalnızca kontrol gerekenler').check();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first().getByRole('button', { name: 'Doğru eşleşme, onayla' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+
+  // Destek: uyarıyı görür, onaylayamaz
+  await page.getByRole('button', { name: 'Çıkış' }).click();
+  await login(page, 'e2e-destek');
+  await page.goto('/stok?kanal=TRENDYOL');
+  await page.getByLabel('Kanal ilanlarında bul').fill(`DEMO-${d.tag}`);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await page.getByLabel('Yalnızca kontrol gerekenler').check();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('Barkod farklı');
+  await expect(page.getByRole('button', { name: 'Doğru eşleşme, onayla' })).toHaveCount(0);
+});
+
 test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   await login(page);
   const screens: [string, string][] = [
