@@ -67,7 +67,7 @@ export function OverviewPage() {
                 <tbody>
                   {data.criticalStock.map(s => (
                     <tr key={s.skuId} className={s.available <= 0 ? 'row-danger' : undefined}>
-                      <td>{s.skuCode}</td><td>{s.productName}</td><td className="num">{s.physical}</td>
+                      <td><Link to={`/stok/${s.skuId}`}>{s.skuCode}</Link></td><td>{s.productName}</td><td className="num">{s.physical}</td>
                       <td className="num">{s.available <= 0 ? <><span aria-hidden="true">✕ </span>{s.available} · tükendi</> : s.available}</td>
                     </tr>
                   ))}

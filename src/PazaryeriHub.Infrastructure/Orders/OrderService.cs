@@ -250,29 +250,10 @@ public sealed class OrderService(
     {
         ArgumentNullException.ThrowIfNull(query);
         var (page, pageSize) = Paging.Normalize(query.Page, query.PageSize);
-        var parameters = new
-        {
-            channelId = query.ChannelId,
-            status = query.Status?.ToString(),
-            from = query.FromUtc,
-            to = query.ToUtc,
-            insufficient = query.InsufficientStock,
-            sku = LikePrefix(query.Sku),
-            search = LikePrefix(query.Search),
-            skip = (page - 1) * pageSize,
-            take = pageSize
-        };
-
-        const string where = """
-            WHERE (@channelId IS NULL OR o.ChannelId = @channelId)
-              AND (@status IS NULL OR o.Durum = @status)
-              AND (@from IS NULL OR o.SiparisTarihi >= @from)
-              AND (@to IS NULL OR o.SiparisTarihi < @to)
-              AND (@insufficient IS NULL OR o.StokYetersiz = @insufficient)
-              AND (@search IS NULL OR o.KanalSiparisNo LIKE @search ESCAPE '\')
-              AND (@sku IS NULL OR EXISTS (SELECT 1 FROM dbo.OrderLine l JOIN dbo.Sku s ON s.Id = l.SkuId
-                                           WHERE l.OrderId = o.Id AND s.SkuKodu LIKE @sku ESCAPE '\'))
-            """;
+        var parameters = FilterParameters(query);
+        parameters.Add("skip", (page - 1) * pageSize);
+        parameters.Add("take", pageSize);
+        const string where = FilterSql;
 
         await using var connection = await OpenAsync(ct);
         var total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
@@ -543,6 +524,32 @@ public sealed class OrderService(
     private static T? FromJson<T>(string? json) where T : class => json is null ? null : JsonSerializer.Deserialize<T>(json, JsonOptions);
 
     private static DateTime Utc(DateTime value) => DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    /// <summary>Sipariş listesi filtresi (o = dbo.[Order]). Liste ve Excel dışa aktarma (ADR-034) aynı koşulu kullanır.</summary>
+    internal const string FilterSql = """
+        WHERE (@channelId IS NULL OR o.ChannelId = @channelId)
+          AND (@status IS NULL OR o.Durum = @status)
+          AND (@from IS NULL OR o.SiparisTarihi >= @from)
+          AND (@to IS NULL OR o.SiparisTarihi < @to)
+          AND (@insufficient IS NULL OR o.StokYetersiz = @insufficient)
+          AND (@search IS NULL OR o.KanalSiparisNo LIKE @search ESCAPE '\')
+          AND (@sku IS NULL OR EXISTS (SELECT 1 FROM dbo.OrderLine l JOIN dbo.Sku s ON s.Id = l.SkuId
+                                       WHERE l.OrderId = o.Id AND s.SkuKodu LIKE @sku ESCAPE '\'))
+        """;
+
+    /// <summary><see cref="FilterSql"/> parametreleri.</summary>
+    internal static DynamicParameters FilterParameters(OrderQuery query)
+    {
+        var parameters = new DynamicParameters();
+        parameters.Add("channelId", query.ChannelId);
+        parameters.Add("status", query.Status?.ToString());
+        parameters.Add("from", query.FromUtc);
+        parameters.Add("to", query.ToUtc);
+        parameters.Add("insufficient", query.InsufficientStock);
+        parameters.Add("sku", LikePrefix(query.Sku));
+        parameters.Add("search", LikePrefix(query.Search));
+        return parameters;
+    }
 
     private static string? LikePrefix(string? value) =>
         Text.Clean(value) is { } v ? v.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_").Replace("[", "\\[") + "%" : null;

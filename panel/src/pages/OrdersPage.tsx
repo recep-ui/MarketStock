@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ChannelFetch } from '../components/ChannelFetch';
 import type { ColumnDef } from '@tanstack/react-table';
-import { get, post, qs, type Channel, type OrderDetail, type OrderListItem, type OrderStatus, type Paged } from '../api';
+import { download, get, post, qs, type Channel, type OrderDetail, type OrderListItem, type OrderStatus, type Paged } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, StatusBadge, useLoad } from '../components/ui';
@@ -35,6 +36,35 @@ export function OrdersPage() {
   const [applied, setApplied] = useState<Filters>(emptyFilters);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<unknown>(null);
+
+  // Genel aramadan gelen ?order=ID siparişin detayını açar (ADR-034)
+  const orderParam = params.get('order');
+  useEffect(() => {
+    if (orderParam && Number(orderParam) > 0) setSelected(Number(orderParam));
+  }, [orderParam]);
+  const closeDetail = () => {
+    setSelected(null);
+    if (orderParam) setParams(p => { p.delete('order'); return p; }, { replace: true });
+  };
+
+  // Uygulanmış filtrelerle satır bazlı Excel (müşteri bilgisi yok)
+  const exportExcel = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await download(`/api/orders/export${qs({
+        channelId: applied.channelId, status: applied.status, from: dayStartUtc(applied.from), to: dayEndUtc(applied.to),
+        sku: applied.sku, search: applied.search, insufficientStock: applied.insufficientStock || undefined
+      })}`, 'siparisler.xlsx');
+    } catch (e) {
+      setExportError(e);
+    } finally {
+      setExporting(false);
+    }
+  };
   const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
   const orders = useLoad(
     () => get<Paged<OrderListItem>>(`/api/orders${qs({
@@ -66,8 +96,11 @@ export function OrdersPage() {
           <label className="check"><input type="checkbox" checked={filters.insufficientStock} onChange={e => setFilters({ ...filters, insufficientStock: e.target.checked })} /> Stok yetersiz</label>
           <button type="submit">Filtrele</button>
           <button type="button" className="link" onClick={() => { setFilters(emptyFilters); setApplied(emptyFilters); setPage(1); }}>Temizle</button>
+          <button type="button" onClick={exportExcel} disabled={exporting} title="Uygulanmış filtrelerle, sipariş satırı başına bir satır (müşteri bilgisi içermez)">
+            {exporting ? 'Hazırlanıyor…' : "Excel'e aktar"}
+          </button>
         </form>
-        <ErrorBox error={orders.error} />
+        <ErrorBox error={orders.error ?? exportError} />
         <div className={selected ? 'split' : undefined}>
           <div>
             <DataTable
@@ -80,7 +113,7 @@ export function OrdersPage() {
             />
             {orders.data && <Pager page={page} pageSize={orders.data.pageSize} total={orders.data.total} onPage={setPage} />}
           </div>
-          {selected && <OrderDetailPanel id={selected} onChanged={orders.reload} onClose={() => setSelected(null)} />}
+          {selected && <OrderDetailPanel id={selected} onChanged={orders.reload} onClose={closeDetail} />}
         </div>
       </Card>
       {channels.data && <OrderNotifications channels={channels.data} onChanged={orders.reload} refreshKey={orders.data} />}
@@ -144,7 +177,7 @@ export function OrderDetailPanel({ id, onChanged, onClose, returnMode }: { id: n
             <tbody>
               {d.lines.map(l => (
                 <tr key={l.id}>
-                  <td>{l.skuCode ?? <span className="badge warn">Eşleşmedi</span>}</td>
+                  <td>{l.skuCode && l.skuId ? <Link to={`/stok/${l.skuId}`}>{l.skuCode}</Link> : <span className="badge warn">Eşleşmedi</span>}</td>
                   <td>{l.productName ?? '—'}</td>
                   <td>{l.quantity}</td>
                   <td>{formatMoney(l.unitPrice)}</td>

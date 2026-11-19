@@ -280,3 +280,43 @@ export type ChannelStatus = {
   environment: string | null; writeLocked: boolean; capabilities: ChannelCapability[]; jobs: ChannelJobStatus[];
   health: 'CALISIYOR' | 'DIKKAT' | 'HATA' | 'SAHTE' | 'KAPALI'; healthReason: string;
 };
+
+// ----------------------------------------------------------------- ADR-034: genel arama, SKU detay, satış raporu
+
+export type SkuSearchHit = {
+  skuId: number; skuCode: string; barcode: string | null; productName: string; variant: string | null; available: number;
+  matchedBy: 'SKU' | 'BARKOD' | 'URUN_ADI' | 'KANAL_KODU';
+};
+export type OrderSearchHit = { orderId: number; channelCode: string; channelOrderNo: string; status: OrderStatus; orderDateUtc: string; total: number };
+export type SearchResult = { term: string | null; skus: SkuSearchHit[]; orders: OrderSearchHit[] };
+
+export type SkuDetail = {
+  skuId: number; skuCode: string; barcode: string | null; productId: number; productName: string; brand: string | null; category: string | null;
+  color: string | null; size: string | null; listPrice: number | null; salePrice: number | null;
+  physical: number; reserved: number; safetyStock: number; available: number; hasDeviation: boolean;
+  warehouses: { warehouseId: number; warehouseName: string; physical: number; reserved: number; safetyStock: number; available: number }[];
+  channels: ChannelCell[];
+  sales: { units7Days: number; units30Days: number; orders30Days: number; revenue30Days: number; lastSoldUtc: string | null };
+  recentMovements: Movement[];
+  recentOrders: {
+    orderId: number; channelCode: string; channelOrderNo: string; status: OrderStatus; orderDateUtc: string; quantity: number;
+    unitPrice: number; insufficientStock: boolean;
+  }[];
+};
+
+export type SalesReport = {
+  period: { from: string; to: string; days: number };
+  channelId: number | null;
+  totals: {
+    totalOrders: number; netOrders: number; cancelledOrders: number; returnedOrders: number; netRevenue: number; units: number;
+    averageBasket: number; returnedAmount: number; cancelRate: number; returnRate: number;
+  };
+  daily: { day: string; orders: number; revenue: number; revenueByChannel: Record<string, number> }[];
+  byChannel: {
+    channelCode: string; totalOrders: number; netOrders: number; cancelledOrders: number; returnedOrders: number; netRevenue: number;
+    units: number; returnRate: number;
+  }[];
+  topSkus: { skuId: number; skuCode: string; productName: string; units: number; revenue: number; orders: number; available: number }[];
+  slowMovers: { skuId: number; skuCode: string; productName: string; physical: number; available: number; lastSoldUtc: string | null }[];
+  unmatchedUnits: number;
+};

@@ -710,3 +710,34 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Mevcut bileşenler (`Card`, `badge`, `alert`, `tabs`, `stats`, `kv`) ve renk değişkenleri korundu; yeni renk eklenmedi.
 
 **Doğrulama:** birim (ChannelStatusTests 24), entegrasyon (ChannelStatusEndpointTests), Playwright (kanal durumu senaryosu; senkron hata senaryosu yeni gösterime göre güncellendi). Deneme modunda kullanıcının verisiyle elle kontrol edildi.
+
+## ADR-034: Genel arama, SKU detay ekranı, satış raporları ve sipariş Excel'i
+**Tarih:** 2026-11-19 (ürün sahibi isteği: öneri listesinden 3, 4 ve 7 numaralı maddeler)
+**Bağlam:**
+- Bir ürünün durumu (bakiye, kanal ilanları, satış, hareketler) dört ayrı ekrana dağılmıştı; tek ürüne odaklanan bir görünüm yoktu.
+- SKU, barkod veya sipariş no ile bir kaydı bulmak için önce doğru ekrana gitmek gerekiyordu.
+- Genel Bakış yalnızca bugünün kanal cirosunu gösteriyordu; dönem karşılaştırması, iptal/iade oranı ve en çok satan bilgisi yoktu.
+
+**Karar:**
+- **Genel arama** `GET /api/search?q=&limit=` (okuma, tüm roller; en az 2 karakter, en fazla 100; her grupta en fazla 8, üst sınır 20):
+  - SKU: barkod (birebir) → SKU kodu öneki → kanal barkodu / kanal ürün kodu (birebir) → ürün adı (içerir) sırasıyla.
+  - Sipariş: kanal sipariş no öneki.
+  - SKU kodu ve sipariş no BIN2 collation'lı olduğu için önek hem olduğu gibi hem de `UPPER` ile aranır (Türkçe olmayan kural, i → I); kolon collation'ı değişmedi.
+  - Müşteri bilgisi dönmez. Panelde üst çubuktaki "Hızlı bul" kutusu (`/` veya Ctrl+K, ↑/↓, Enter, Esc). SKU → `/stok/:id`, sipariş → `/siparisler?order=:id`.
+- **SKU detay** `GET /api/skus/{id}/detail` + `/stok/:id` ekranı:
+  - Ürün bilgisi, fiyat, depo bakiyeleri, kanal ilanları (Stok Listesi'yle aynı hesap: `BuildRowsAsync` + `ComputeTargetsAsync`), 7/30 günlük net satış ve son satış zamanı, son 20 hareket ve son 20 sipariş.
+  - Stok Listesi, kritik stok, raporlar, sipariş satırları ve aramadan bağlantı verilir. Hareketler ekranı `?sku=` ile ön filtre alır.
+- **Satış raporu** `GET /api/reports/sales?from=&to=&channelId=` (okuma, tüm roller):
+  - Günler Türkiye saatine göre, iki uç dahil. Varsayılan son 30 gün, en fazla 366 gün; ters dönem 400.
+  - **Net = İptal ve İade dışındaki siparişler.** Ciro `Order.Toplam`'dan (kanalın bildirdiği tutar); SKU cirosu satır tutarından (adet × birim fiyat). İptal oranı = iptal / tüm siparişler; iade oranı = iade / (tüm − iptal).
+  - Genel Bakış'ın "bugünkü ciro"su değişmedi (İade'yi düşmez). Raporla aynı gün için küçük fark olabilir; bilinçli olarak bırakıldı.
+  - Saf kısım `ReportPeriod` ve `SalesReportMath` (dönem çözümü, UTC aralığı, boş günleri 0 ile doldurma, oranlar); birim testli.
+  - En çok satan ilk 10 (adede göre) ve "stoğu var, dönemde satmadı" ilk 10 (fiziksel stoğa göre). Eşleşmemiş satır adedi ayrıca bildirilir.
+- **Sipariş Excel'i** `GET /api/orders/export` (sipariş listesiyle aynı filtreler; okuma, tüm roller):
+  - Sipariş satırı başına bir satır; **müşteri özeti ve kargo bilgisi bilerek seçilmez** (KVKK; bu yüzden Destek dahil tüm rollere açık).
+  - En fazla 50.000 satır; aşılırsa 400 ve "tarih aralığını daraltın".
+  - Filtre koşulu `OrderService.FilterSql` / `FilterParameters` ile liste ve dışa aktarma arasında paylaşılır (davranış değişmedi).
+- **Grafik:** kütüphane eklenmedi. Tek serili SVG çubuk (günlük net ciro): lejant yok, başlık adlandırır; üzerine gelince gün, ciro, sipariş ve kanal kırılımı; aynı veri "Tablo olarak göster"de. Renk mevcut `--primary` değişkeni; yeni renk eklenmedi. Kanal kırılımı renkle değil tabloyla verilir.
+- **Kapsam dışı:** muhasebe raporu, KDV ayrımı, kâr/maliyet (maliyet verisi yok). Stok tükenme tahmini (öneri 2) ayrı iş.
+
+**Doğrulama:** birim (SalesReportMathTests 13, SearchTermTests 4), entegrasyon (SearchDetailReportTests 7; rapor testi geçmişte rastgele bir günde önce/sonra farkıyla, başka testlerin verisinden yalıtılmış), Playwright (2 yeni senaryo + ekran turuna Raporlar).

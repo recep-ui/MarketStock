@@ -86,6 +86,9 @@ public static class DependencyInjection
         services.AddSingleton<UserService>();
         services.AddSingleton<IUserService>(sp => sp.GetRequiredService<UserService>());
         services.AddScoped<IPanelQueryService, PanelQueryService>();
+        // Genel arama, satış raporu ve sipariş Excel'i (ADR-034)
+        services.AddScoped<ISearchService, SearchService>();
+        services.AddScoped<PazaryeriHub.Application.Reports.ISalesReportService, PazaryeriHub.Infrastructure.Reports.SalesReportService>();
 
         AddHangfire(services);
 

@@ -147,6 +147,69 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         return new PagedResult<StockMovementItem>(items, total, p, size);
     }
 
+    public async Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct)
+    {
+        var nowUtc = clock.GetUtcNow().UtcDateTime;
+        await using var connection = await OpenAsync(ct);
+        using var multi = await connection.QueryMultipleAsync(new CommandDefinition("""
+            SELECT s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS Barcode, p.Id AS ProductId, p.Ad AS ProductName, p.Marka AS Brand,
+                   p.Kategori AS Category, s.Renk AS Color, s.Beden AS Size, s.ListeFiyati AS ListPrice, s.SatisFiyati AS SalePrice
+              FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId
+             WHERE s.Id = @skuId;
+
+            SELECT w.Id AS WarehouseId, w.Ad AS WarehouseName, b.Fiziksel AS Physical, b.Rezerve AS Reserved,
+                   b.GuvenlikStogu AS SafetyStock, b.Satilabilir AS Available
+              FROM dbo.StockBalance b JOIN dbo.Warehouse w ON w.Id = b.WarehouseId
+             WHERE b.SkuId = @skuId
+             ORDER BY w.Id;
+
+            -- Net satış (İptal ve İade hariç; ADR-034)
+            SELECT ISNULL(SUM(CASE WHEN o.SiparisTarihi >= @from7 THEN l.Adet END), 0) AS Units7Days,
+                   ISNULL(SUM(CASE WHEN o.SiparisTarihi >= @from30 THEN l.Adet END), 0) AS Units30Days,
+                   COUNT(DISTINCT CASE WHEN o.SiparisTarihi >= @from30 THEN o.Id END) AS Orders30Days,
+                   ISNULL(SUM(CASE WHEN o.SiparisTarihi >= @from30 THEN l.Adet * l.BirimFiyat END), 0) AS Revenue30Days,
+                   MAX(o.SiparisTarihi) AS LastSoldUtc
+              FROM dbo.OrderLine l JOIN dbo.[Order] o ON o.Id = l.OrderId
+             WHERE l.SkuId = @skuId AND o.Durum NOT IN ('Iptal', 'Iade');
+
+            SELECT TOP (20) m.Id, m.Tarih AS AtUtc, m.SkuId, s.SkuKodu AS SkuCode, w.Ad AS WarehouseName, m.Tip AS Type, m.Adet AS Quantity,
+                   m.KaynakTip AS SourceType, m.KaynakId AS SourceId, m.Kullanici AS [User]
+              FROM dbo.StockMovement m JOIN dbo.Sku s ON s.Id = m.SkuId JOIN dbo.Warehouse w ON w.Id = m.WarehouseId
+             WHERE m.SkuId = @skuId
+             ORDER BY m.Tarih DESC, m.Id DESC;
+
+            SELECT TOP (20) o.Id AS OrderId, c.Kod AS ChannelCode, o.KanalSiparisNo AS ChannelOrderNo, o.Durum AS Status,
+                   o.SiparisTarihi AS OrderDateUtc, SUM(l.Adet) AS Quantity, MAX(l.BirimFiyat) AS UnitPrice, o.StokYetersiz AS InsufficientStock
+              FROM dbo.OrderLine l JOIN dbo.[Order] o ON o.Id = l.OrderId JOIN dbo.Channel c ON c.Id = o.ChannelId
+             WHERE l.SkuId = @skuId
+             GROUP BY o.Id, c.Kod, o.KanalSiparisNo, o.Durum, o.SiparisTarihi, o.StokYetersiz
+             ORDER BY o.SiparisTarihi DESC, o.Id DESC;
+            """, new { skuId, from7 = nowUtc.AddDays(-7), from30 = nowUtc.AddDays(-30) }, cancellationToken: ct));
+
+        var sku = await multi.ReadSingleOrDefaultAsync<SkuInfoRow>()
+            ?? throw new PazaryeriHub.Application.Common.NotFoundException($"SKU bulunamadı: {skuId}.");
+        var warehouses = (await multi.ReadAsync<WarehouseBalance>()).ToList();
+        var sales = await multi.ReadSingleAsync<SalesRow>();
+        var movements = (await multi.ReadAsync<StockMovementItem>())
+            .Select(i => i with { AtUtc = DateTime.SpecifyKind(i.AtUtc, DateTimeKind.Utc) }).ToList();
+        var orders = (await multi.ReadAsync<SkuOrderRow>()).Select(r => new SkuOrderItem(
+            r.OrderId, r.ChannelCode, r.ChannelOrderNo, Enum.Parse<PazaryeriHub.Domain.Orders.OrderStatus>(r.Status),
+            DateTime.SpecifyKind(r.OrderDateUtc, DateTimeKind.Utc), r.Quantity, r.UnitPrice, r.InsufficientStock)).ToList();
+
+        var physical = warehouses.Sum(w => w.Physical);
+        var reserved = warehouses.Sum(w => w.Reserved);
+        var safety = warehouses.Sum(w => w.SafetyStock);
+        var available = warehouses.Sum(w => w.Available);
+        var channels = (await BuildRowsAsync(connection,
+            [new SkuRow { SkuId = sku.SkuId, SkuCode = sku.SkuCode, ProductName = sku.ProductName, Physical = physical, Reserved = reserved, SafetyStock = safety, Available = available }],
+            ct)).Single().Channels;
+
+        return new SkuDetail(sku.SkuId, sku.SkuCode, sku.Barcode, sku.ProductId, sku.ProductName, sku.Brand, sku.Category, sku.Color, sku.Size,
+            sku.ListPrice, sku.SalePrice, physical, reserved, safety, available, warehouses, channels,
+            new SkuSalesSummary(sales.Units7Days, sales.Units30Days, sales.Orders30Days, sales.Revenue30Days, Utc(sales.LastSoldUtc)),
+            movements, orders);
+    }
+
     public async Task<AppSettingsDto> GetSettingsAsync(CancellationToken ct)
     {
         await using var connection = await OpenAsync(ct);
@@ -250,6 +313,42 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public int Reserved { get; init; }
         public int SafetyStock { get; init; }
         public int Available { get; init; }
+    }
+
+    private sealed class SkuInfoRow
+    {
+        public int SkuId { get; init; }
+        public string SkuCode { get; init; } = "";
+        public string? Barcode { get; init; }
+        public int ProductId { get; init; }
+        public string ProductName { get; init; } = "";
+        public string? Brand { get; init; }
+        public string? Category { get; init; }
+        public string? Color { get; init; }
+        public string? Size { get; init; }
+        public decimal? ListPrice { get; init; }
+        public decimal? SalePrice { get; init; }
+    }
+
+    private sealed class SalesRow
+    {
+        public int Units7Days { get; init; }
+        public int Units30Days { get; init; }
+        public int Orders30Days { get; init; }
+        public decimal Revenue30Days { get; init; }
+        public DateTime? LastSoldUtc { get; init; }
+    }
+
+    private sealed class SkuOrderRow
+    {
+        public long OrderId { get; init; }
+        public string ChannelCode { get; init; } = "";
+        public string ChannelOrderNo { get; init; } = "";
+        public string Status { get; init; } = "";
+        public DateTime OrderDateUtc { get; init; }
+        public int Quantity { get; init; }
+        public decimal UnitPrice { get; init; }
+        public bool InsufficientStock { get; init; }
     }
 
     private sealed class ListingRow

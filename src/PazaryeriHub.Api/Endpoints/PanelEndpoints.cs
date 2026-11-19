@@ -1,6 +1,7 @@
 using Microsoft.Extensions.FileProviders;
 using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.Panel;
+using PazaryeriHub.Application.Reports;
 
 namespace PazaryeriHub.Api.Endpoints;
 
@@ -16,6 +17,11 @@ public static class PanelEndpoints
         panel.MapGet("/stock-movements", (IPanelQueryService s, string? sku, string? type, int? warehouseId, DateTime? from, DateTime? to,
                 string? sourceType, int? page, int? pageSize, CancellationToken ct) =>
             s.GetMovementsAsync(new MovementQuery(sku, type, warehouseId, from, to, sourceType, page, pageSize), ct));
+        // ADR-034: genel arama, SKU detay ve satış raporu (müşteri bilgisi içermez; tüm rollere açık)
+        panel.MapGet("/search", (ISearchService s, string? q, int? limit, CancellationToken ct) => s.SearchAsync(q, limit ?? 8, ct));
+        panel.MapGet("/skus/{skuId:int}/detail", (IPanelQueryService s, int skuId, CancellationToken ct) => s.GetSkuDetailAsync(skuId, ct));
+        panel.MapGet("/reports/sales", (ISalesReportService s, DateOnly? from, DateOnly? to, int? channelId, CancellationToken ct) =>
+            s.GetSalesAsync(from, to, channelId, ct));
         panel.MapGet("/settings", (IPanelQueryService s, CancellationToken ct) => s.GetSettingsAsync(ct));
         panel.MapPut("/settings", (IPanelQueryService s, AppSettingsDto settings, CancellationToken ct) => s.UpdateSettingsAsync(settings, ct))
             .RequireAuthorization(Policies.Admin);

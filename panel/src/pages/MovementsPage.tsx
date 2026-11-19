@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { ColumnDef } from '@tanstack/react-table';
 import { get, post, qs, type Movement, type Paged, type SkuItem, type Warehouse } from '../api';
 import { useAuth } from '../auth';
@@ -25,7 +26,9 @@ export async function resolveSku(code: string): Promise<SkuItem | null> {
 /** Ekran 3: Stok Hareketleri (filtrelenebilir defter) + stok girişi / sayım. */
 export function MovementsPage() {
   const { can } = useAuth();
-  const [filters, setFilters] = useState({ sku: '', type: '', from: '', to: '' });
+  // SKU detaydan gelen ?sku=KOD filtreyi doldurur (ADR-034)
+  const [params] = useSearchParams();
+  const [filters, setFilters] = useState({ sku: params.get('sku') ?? '', type: '', from: '', to: '' });
   const [applied, setApplied] = useState(filters);
   const [page, setPage] = useState(1);
   const movements = useLoad(

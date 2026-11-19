@@ -23,6 +23,11 @@ public static class OrderEndpoints
         orders.MapGet("/", (IOrderService s, int? channelId, OrderStatus? status, DateTime? from, DateTime? to, string? sku,
                 bool? insufficientStock, string? search, int? page, int? pageSize, CancellationToken ct) =>
             s.SearchAsync(new OrderQuery(channelId, status, from, to, sku, insufficientStock, search, page, pageSize), ct));
+        // Sipariş listesi filtreleriyle satır bazlı Excel (ADR-034). Müşteri bilgisi içermez → tüm rollere açık.
+        orders.MapGet("/export", async (PazaryeriHub.Application.Reports.ISalesReportService s, int? channelId, OrderStatus? status,
+                DateTime? from, DateTime? to, string? sku, bool? insufficientStock, string? search, CancellationToken ct) =>
+            Results.File(await s.ExportOrdersAsync(new OrderQuery(channelId, status, from, to, sku, insufficientStock, search), ct),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"siparisler-{DateTime.UtcNow:yyyyMMdd-HHmm}.xlsx"));
         orders.MapGet("/{id:long}", async (IOrderService s, ClaimsPrincipal user, long id, CancellationToken ct) =>
             MaskFor(user, await s.GetAsync(id, ct)));
         orders.MapPost("/{id:long}/status", async (IOrderService s, IOrderNotificationService notifications, ClaimsPrincipal user, long id,

@@ -69,6 +69,9 @@ public interface IPanelQueryService
 
     Task<PagedResult<StockMovementItem>> GetMovementsAsync(MovementQuery query, CancellationToken ct);
 
+    /// <summary>SKU detay ekranı (ADR-034). SKU yoksa <see cref="NotFoundException"/>.</summary>
+    Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct);
+
     Task<AppSettingsDto> GetSettingsAsync(CancellationToken ct);
     Task<AppSettingsDto> UpdateSettingsAsync(AppSettingsDto settings, CancellationToken ct);
 }

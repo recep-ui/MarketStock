@@ -105,7 +105,7 @@ test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   await login(page);
   const screens: [string, string][] = [
     ['Genel Bakış', 'Genel Bakış'], ['Stok Listesi', 'Stok Listesi'], ['Stok Hareketleri', 'Stok Hareketleri'],
-    ['Siparişler', 'Siparişler'], ['İade / İptal', 'İade / İptal'], ['Eşleştirme', 'Eşleştirme'],
+    ['Siparişler', 'Siparişler'], ['Raporlar', 'Raporlar'], ['İade / İptal', 'İade / İptal'], ['Eşleştirme', 'Eşleştirme'],
     ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Fiyat', 'Fiyat'], ['Soru-Cevap', 'Soru-Cevap'],
     ['Ayarlar', 'Ayarlar']
   ];
@@ -368,4 +368,65 @@ test('Soru-Cevap: Destek onay kutusunu işaretleyip cevap gönderir; cevap kulla
     }
     await page.request.put(`/api/channels/${ty.id}/capabilities/SORU_CEVAP`, { data: { state: 'KAPALI' } });
   }
+});
+
+test('Genel arama: SKU kodu ile SKU detayı açılır, detaydan siparişe; sipariş no ile sipariş detayı (ADR-034)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+
+  // "/" kısayolu arama kutusunu odaklar
+  await page.keyboard.press('/');
+  const search = page.getByRole('combobox', { name: 'Hızlı bul' });
+  await expect(search).toBeFocused();
+  await search.fill(d.skuCodes[0].toLowerCase());
+  const results = page.getByTestId('search-results');
+  await expect(results.getByRole('option').first()).toContainText(d.skuCodes[0]);
+  await search.press('Enter');
+
+  await expect(page).toHaveURL(/\/stok\/\d+$/);
+  const detail = page.getByTestId('sku-detail');
+  await expect(detail.getByRole('heading', { level: 1 })).toContainText(d.skuCodes[0]);
+  await expect(page.getByTestId('sku-available')).toBeVisible();
+  await expect(detail.getByText('Son siparişler')).toBeVisible();
+  const orders = page.getByTestId('sku-order');
+  await expect(orders.first()).toBeVisible();
+  const orderNo = (await orders.first().getByRole('link').textContent())!.trim();
+  await orders.first().getByRole('link').click();
+  await expect(page.getByRole('heading', { name: 'Siparişler' })).toBeVisible();
+  await expect(page.getByTestId('order-detail')).toContainText(orderNo);
+
+  // Sipariş no ile arama → sipariş detayı
+  await search.fill(`DEMO-${d.tag}-S2`);
+  await expect(results.getByRole('option').first()).toContainText(`DEMO-${d.tag}-S2`);
+  await results.getByRole('option').first().click();
+  await expect(page).toHaveURL(/\/siparisler\?order=\d+/);
+  await expect(page.getByTestId('order-detail')).toContainText(`DEMO-${d.tag}-S2`);
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('Raporlar: bugünün satışları, kanal karşılaştırması, en çok satandan SKU detayı ve Excel indirme (ADR-034)', async ({ page }) => {
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Raporlar', exact: true }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Raporlar' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Bugün', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Bugün', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const report = page.getByTestId('sales-report');
+  await expect(report).toBeVisible();
+  await expect(page.getByTestId('report-net-orders')).not.toContainText(/^0$/);
+  await expect(page.getByTestId('daily-chart').locator('path.chart-bar')).toHaveCount(1);
+  await expect(page.getByTestId('report-channels').locator('tbody tr')).toHaveCount(4);
+
+  // Excel: seçili dönemin siparişleri indirilir
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: "Siparişleri Excel'e aktar" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^siparisler-\d{8}-\d{4}\.xlsx$/);
+
+  // En çok satan → SKU detayı
+  const top = page.getByTestId('report-top-skus').locator('tbody tr').first().getByRole('link');
+  const code = (await top.textContent())!.trim();
+  await top.click();
+  await expect(page.getByTestId('sku-detail').getByRole('heading', { level: 1 })).toContainText(code);
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });

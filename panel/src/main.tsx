@@ -14,6 +14,9 @@ import { SyncPage } from './pages/SyncPage';
 import { PricesPage } from './pages/PricesPage';
 import { QuestionsPage } from './pages/QuestionsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SkuDetailPage } from './pages/SkuDetailPage';
+import { ReportsPage } from './pages/ReportsPage';
+import { GlobalSearch } from './components/GlobalSearch';
 import './styles.css';
 
 const nav = [
@@ -22,6 +25,7 @@ const nav = [
   { to: '/hareketler', label: 'Stok Hareketleri' },
   { to: '/kanal-stogu', label: 'Kanal Stoğu → Defter' },
   { to: '/siparisler', label: 'Siparişler' },
+  { to: '/raporlar', label: 'Raporlar' },
   { to: '/iadeler', label: 'İade / İptal' },
   { to: '/eslestirme', label: 'Eşleştirme' },
   { to: '/fiyat', label: 'Fiyat' },
@@ -48,6 +52,7 @@ function Layout() {
       </aside>
       <div className="main">
         <header className="topbar">
+          <GlobalSearch />
           <span data-testid="current-user">
             {me.fullName} <small>({roleLabels[me.role]})</small>
           </span>
@@ -70,6 +75,8 @@ createRoot(document.getElementById('root')!).render(
           <Route element={<Layout />}>
             <Route index element={<OverviewPage />} />
             <Route path="stok" element={<StockPage />} />
+            <Route path="stok/:skuId" element={<SkuDetailPage />} />
+            <Route path="raporlar" element={<ReportsPage />} />
             <Route path="hareketler" element={<MovementsPage />} />
             <Route path="kanal-stogu" element={<ChannelIntakePage />} />
             <Route path="siparisler" element={<OrdersPage />} />

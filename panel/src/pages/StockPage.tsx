@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
+import { Link } from 'react-router-dom';
 import { get, qs, type Channel, type Paged, type StockRow } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelLink, ErrorBox, useLoad } from '../components/ui';
@@ -20,7 +21,7 @@ export function StockPage() {
   );
 
   const columns = useMemo<ColumnDef<StockRow>[]>(() => [
-    { header: 'SKU', accessorKey: 'skuCode' },
+    { header: 'SKU', cell: ({ row }) => <Link to={`/stok/${row.original.skuId}`} title="SKU detayını aç">{row.original.skuCode}</Link> },
     {
       header: 'Ürün',
       cell: ({ row }) => {
