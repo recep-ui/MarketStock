@@ -134,6 +134,11 @@ Rol/yetki: Yönetici, Depo, Muhasebe, Destek (müşteri bilgisi maskeli: SQL Dyn
 - Kapsam dışına çıkma (ör. muhasebe, kargo etiketi üretimi, e-fatura). Gerekirse öneri olarak not düş.
 - Önemli bir mimari karar gerektiğinde (ör. migration aracı seçimi) kısa gerekçeyle karar ver, `docs/decisions.md` dosyasına ADR olarak yaz.
 - Kod yorumları ve dokümantasyon Türkçe; tip/metot isimleri İngilizce, veritabanı kolonları yukarıdaki Türkçe adlarla.
+- **Skill eklentileriyle öncelik** (ör. Superpowers): bu dosyadaki kurallar eklenti skill'lerinden önce gelir. Çakışmada:
+  - Doğrudan `main` üzerinde çalışılır; ayrı dal/worktree açılmaz. Her aşama bitince commit + push.
+  - Mevcut kod silinmez veya "önce test" gerekçesiyle yeniden yazılmaz; yeni kodda önce test yazılır.
+  - Yardımcı ajan (subagent) yalnızca büyük aşamalarda kullanılır; küçük düzeltmeler doğrudan yapılır.
+  - Pazaryeri API kuralı (yukarıdaki ilk madde) ve "gerçek kanala yazma yok, yalnızca mock + contract test" kısıtı her zaman önce gelir.
 
 ## 11. Aşamalar ve kabul kriterleri
 
