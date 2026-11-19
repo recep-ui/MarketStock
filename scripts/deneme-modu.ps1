@@ -6,7 +6,8 @@
     - Gerçek pazaryerlerine hiçbir çağrı yapılmaz (tüm kanallar Mock modda).
     - Ana veritabanına (PazaryeriHub) dokunulmaz; test veritabanı kullanılır.
     - Her çalıştırmada rastgele bir parola üretilir ve yalnızca bu pencerede gösterilir (hiçbir dosyaya yazılmaz).
-    - Varsayılan olarak etiketli demo veri yüklenir (ürünler, stok, siparişler, sapma, hatalı senkron).
+    - Varsayılan olarak demo veri YÜKLENMEZ: kullanıcının canlı kanallardan çektiği verilerle karışmasın.
+      İstenirse -DemoVeri ile etiketli demo veri yüklenir (ürünler, stok, siparişler, sapma, hatalı senkron).
 
     Test veritabanı bağlantısı sırasıyla: PAZARYERIHUB_TEST_DB ortam değişkeni, test projesinin user-secrets'ı
     (ConnectionStrings:PazaryeriHubTest). Otomatik testler (entegrasyon + Playwright) aynı sunucuda ayrı veritabanını
@@ -14,11 +15,14 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1
-    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -Port 5095 -DemoVeriYok
-    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -DemoVeriYok -GercekKanal TRENDYOL
+    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -GercekKanal TRENDYOL
+    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -Port 5095 -DemoVeri
 #>
 param(
     [int]$Port = 5090,
+    # Etiketli demo veri yükler (varsayılan: yüklenmez)
+    [switch]$DemoVeri,
+    # Eski parametre; artık varsayılan davranış. Geriye uyumluluk için kabul edilir.
     [switch]$DemoVeriYok,
     # Gerçek API ile çalışacak kanallar (ör. -GercekKanal TRENDYOL). Zamanlanmış job'lar yine kapalıdır:
     # yalnızca panelden elle tetiklenen okuma işleri (Kanaldan ürün çek, mutabakat) kanala gider.
@@ -128,7 +132,7 @@ try {
     if (-not $ready) { throw 'API başlatılamadı (yukarıdaki çıktıya bakın).' }
 
     # 6) Demo veri
-    if (-not $DemoVeriYok) {
+    if ($DemoVeri -and -not $DemoVeriYok) {
         $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
         $login = @{ userName = 'demo-yonetici'; password = $password } | ConvertTo-Json
         Invoke-RestMethod "$baseUrl/api/auth/login" -Method Post -Body $login -ContentType 'application/json' -WebSession $session | Out-Null

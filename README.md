@@ -16,6 +16,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\deneme-modu.ps1
 - **Test** veritabanını (`PazaryeriHub_Test`) kullanır; ana veritabanına dokunmaz.
 - Tüm kanallar mock çalışır, yani gerçek pazaryerlerine hiçbir çağrı yapılmaz. Arka plan job'ları kapalıdır.
 - Bağlantı dizesi ilk çalıştırmada gizli girişle istenir ve test projesinin user-secrets'ına kaydedilir. Alternatif olarak `PAZARYERIHUB_TEST_DB` ortam değişkeni de kullanılabilir.
-- Etiketli demo veri yüklenir: ürünler, siparişler, bir stok sapması ve hatalı bir senkron kaydı.
+- Demo veri varsayılan olarak yüklenmez (canlı kanallardan çekilen verilerle karışmasın). `-DemoVeri` ile etiketli demo veri yüklenir: ürünler, siparişler, bir stok sapması ve hatalı bir senkron kaydı.
 - Adres `http://localhost:5090`. Kullanıcı `demo-yonetici` (diğer roller için panelden kullanıcı ekleyin); parola her çalıştırmada yeniden üretilir ve yalnızca terminalde gösterilir.
-- Parametreler: `-Port 5095` farklı port; `-DemoVeriYok` demo veri yüklemez.
+- Parametreler: `-Port 5095` farklı port; `-DemoVeri` demo veri yükler; `-GercekKanal TRENDYOL,BEYMEN` bu kanalları gerçek API ile çalıştırır (yazma kilitli). Eski `-DemoVeriYok` hâlâ kabul edilir.
