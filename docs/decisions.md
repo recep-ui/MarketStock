@@ -823,3 +823,20 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Bu iki açık soru Hepsiburada'ya traceId'leriyle iletilecek.
 
 **Doğrulama:** birim (HepsiburadaSitClientContractTests 14: adresler, gövde alanları, Basic Auth/User-Agent, Prod reddi, opsiyonel alanların yalnızca verilince gitmesi, hata gövdesinin rapora dönmesi), SIT'te gerçek çalıştırma raporları.
+
+## ADR-038: Kanal verisi gerçek değilse ve eşleşme yoksa ekranlar nedenini söyler
+**Tarih:** 2026-11-20 (kullanıcı geri bildirimi: Hepsiburada'dan çekilen ürünler Kanal Stoğu → Defter'e gelmiyor)
+**Bağlam:**
+- Hepsiburada kanalı test (SIT) ortamına bağlıydı. Çekilen 30 deneme ilanı defterle eşleşmedi (barkod yok, satıcı stok kodu farklı) ve kanalda 0 ilan oluştu.
+- Kanal Stoğu → Defter boş tabloda "Önce 'Kanaldan şimdi çek' ile mutabakat çalıştırın" diyordu. Kullanıcı mutabakatı defalarca çalıştırdı; 0 ilanlı kanalda bu hiçbir şey değiştirmez.
+- Katalog çekme raporu yalnızca "0 eşleşti" diyor, nedenini söylemiyordu.
+
+**Karar** (yalnızca panel; sunucu ve eşleştirme kuralları değişmedi):
+- `ChannelDataSourceNote`: kanal mock modda ise ("gerçek kanala istek gitmez") ya da API bilgisi test ortamına bağlıysa ("gelen ürünler deneme ilanı, deftere alınmamalı") uyarır.
+  - Kaynak: `/api/channels/status` (mode, environment).
+  - Eşleştirme → "Kanaldan ürün çek" ve Kanal Stoğu → Defter ekranlarında gösterilir.
+- Kanal Stoğu → Defter: kanalın eşleşmiş ilanı yoksa (`/api/stock-overview/channels/{id}` → totalListings = 0) açık uyarı verir: kaç ürünün eşleşme beklediği ve Eşleştirme bağlantısı.
+  - Boş tablo mesajı artık nedene göre: ilan yok / fark yok veya çekilmedi / mutabakat gerekli.
+- Katalog raporu (`CatalogNoMatchHelp`): hiç eşleşme ve SKU oluşmadıysa nedenleri yazar (stok kodu uyuşmayan sayısı, barkodsuz sayısı ve barkodsuzdan SKU oluşturulmadığı) ve sonraki adımı söyler.
+
+**Doğrulama:** Playwright (yeni senaryo; sunucu yanıtları `page.route` ile belirli hâle getirildi: Hepsiburada test ortamı, 0 ilan, 3 eşleşmeyen) ve tam set 17/17.

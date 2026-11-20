@@ -7,6 +7,18 @@
 
 ---
 
+## Kanal Stoğu / Eşleştirme: neden boş olduğunu söyleyen uyarılar (2026-11-20): TAMAM
+
+- Hepsiburada test ortamındayken çekilen ürünler eşleşmiyor ve Kanal Stoğu → Defter boş kalıyordu. Ekran ise kullanıcıyı işe yaramayan mutabakata yönlendiriyordu.
+- **Yeni uyarılar:**
+  - Kanal mock modda ya da test ortamındaysa uyarı.
+  - Kanalda eşleşmiş ilan yoksa "N ürün eşleşme bekliyor → Eşleştirme".
+  - Katalog raporunda hiç eşleşme yoksa nedenleri (stok kodu uyuşmuyor, barkod yok, barkodsuzdan SKU oluşmaz).
+- Sunucu ve eşleştirme kuralları değişmedi (ADR-038).
+- **Testler:** Playwright 17/17 (yeni 1, sunucu yanıtları yakalanarak belirli). Unit ve entegrasyon testleri etkilenmedi; yalnızca panel değişti.
+
+---
+
 ## Hepsiburada test ortamı (SIT) doğrulama aracı (2026-11-19): KISMEN (Hepsiburada'dan iki yanıt bekleniyor)
 
 - Hepsiburada canlı API için test ortamında katalog, listeleme ve sipariş adımlarını istiyor. Tek seferlik araç: `dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|siparis|hepsi>`. Yalnızca `*-sit.hepsiburada.com`'a gider, panel bilgisini okur, veritabanına yazmaz (ADR-037).

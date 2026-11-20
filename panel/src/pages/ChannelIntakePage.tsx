@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { get, post, qs, type Channel, type IntakeApplyResult, type IntakePreview, type IntakePreviewRow } from '../api';
+import { Link } from 'react-router-dom';
+import { get, post, qs, type Channel, type ChannelStatus, type ChannelStockList, type IntakeApplyResult, type IntakePreview, type IntakePreviewRow } from '../api';
+import { ChannelDataSourceNote } from '../components/ChannelDataSource';
 import { useAuth } from '../auth';
 import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
@@ -35,6 +37,14 @@ export function ChannelIntakePage() {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const selectedChannel = channelId || String(channels.data?.find(c => c.active)?.id ?? channels.data?.[0]?.id ?? '');
+  // ADR-038: kanalın veri kaynağı (mock / test ortamı) ve eşleşmiş ilan sayısı — boş önizlemenin nedenini söylemek için
+  const statuses = useLoad(() => get<ChannelStatus[]>('/api/channels/status'), []);
+  const summary = useLoad(
+    () => (selectedChannel ? get<ChannelStockList>(`/api/stock-overview/channels/${selectedChannel}?pageSize=1`) : Promise.resolve(null)),
+    [selectedChannel]
+  );
+  const selectedStatus = statuses.data?.find(s => String(s.id) === selectedChannel);
+  const noListings = summary.data != null && summary.data.totalListings === 0;
 
   async function loadPreview() {
     setBusy(true);
@@ -126,6 +136,16 @@ export function ChannelIntakePage() {
             Seçilen kanal pasif: kanaldan stok çekilemez (mutabakat çalışmaz). Ayarlar → Kanallar'dan kanalı aktif edin.
           </div>
         )}
+        <ChannelDataSourceNote status={selectedStatus} />
+        {noListings && summary.data && (
+          <div className="alert alert-warn" data-testid="intake-no-listings">
+            <strong>{channelNames[summary.data.channelCode] ?? summary.data.channelCode} kanalında eşleşmiş ilan yok.</strong> Kanal stoğu
+            yalnızca defterdeki bir SKU'ya bağlı ilanlar için deftere alınabilir; mutabakat çalıştırmak bunu değiştirmez.
+            {summary.data.unmatchedCount > 0
+              ? <> {summary.data.unmatchedCount} kanal ürünü eşleşme bekliyor: önce <Link to="/eslestirme">Eşleştirme</Link> ekranından SKU'lara bağlayın.</>
+              : <> Önce <Link to="/eslestirme">Eşleştirme</Link> ekranından “Kanaldan ürün çek” ile kanal ürünlerini getirip SKU'lara bağlayın.</>}
+          </div>
+        )}
         <ErrorBox error={error ?? channels.error} />
         {preview && !preview.enabled && <div className="alert alert-error">{preview.disabledReason}</div>}
         {preview?.enabled && (
@@ -145,7 +165,15 @@ export function ChannelIntakePage() {
                 <tbody>
                   {preview.rows.map(r => <IntakeRow key={r.skuId} row={r} selected={selected.has(r.skuId)} onToggle={() => toggle(r.skuId)}
                     target={targets[r.skuId] ?? ''} onTarget={v => setTargets({ ...targets, [r.skuId]: v })} />)}
-                  {preview.rows.length === 0 && <tr><td colSpan={10} className="empty">Satır yok. Önce "Kanaldan şimdi çek" ile mutabakat çalıştırın.</td></tr>}
+                  {preview.rows.length === 0 && (
+                    <tr><td colSpan={10} className="empty" data-testid="intake-empty">
+                      {noListings
+                        ? 'Satır yok: bu kanalda eşleşmiş ilan yok (yukarıdaki uyarıya bakın).'
+                        : onlyDifferences
+                          ? 'Satır yok: defterle farklı değer yok ya da kanal stoğu henüz çekilmedi. "Yalnızca farklı olanlar"ı kaldırın veya "Kanaldan şimdi çek" ile mutabakat çalıştırın.'
+                          : 'Satır yok. Önce "Kanaldan şimdi çek" ile mutabakat çalıştırın.'}
+                    </td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { get, post, qs, upload, type CatalogFetchStatus, type CatalogImportReport, type CatalogImportRow, type Channel, type Paged, type UnmatchedItem } from '../api';
+import { get, post, qs, upload, type CatalogFetchStatus, type CatalogImportReport, type CatalogImportRow, type Channel, type ChannelStatus, type Paged, type UnmatchedItem } from '../api';
+import { CatalogNoMatchHelp, ChannelDataSourceNote } from '../components/ChannelDataSource';
 import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
@@ -106,6 +107,7 @@ export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel
   const [tick, setTick] = useState(0);
   const selected = channelId || String(channels[0]?.id ?? '');
   const running = status?.state === 'CALISIYOR';
+  const statuses = useLoad(() => get<ChannelStatus[]>('/api/channels/status'), []);
 
   useEffect(() => {
     if (!selected) return;
@@ -166,6 +168,7 @@ export function ChannelCatalogFetch({ channels, onApplied }: { channels: Channel
           </button>
         )}
       </div>
+      <ChannelDataSourceNote status={statuses.data?.find(s => String(s.id) === selected)} />
       <ErrorBox error={error} />
       {running && <div className="alert alert-warn">Kanaldan ürünler çekiliyor… (başlangıç {formatDateTime(status?.lastAttemptUtc ?? null)})</div>}
       {status?.state === 'HATA' && <div className="alert alert-error">Son çekme başarısız: {status.lastError}</div>}
@@ -197,6 +200,7 @@ function CatalogReport({ report, filter, onFilter }: { report: CatalogImportRepo
         <strong>{report.unmatched}</strong> eşleşmedi ({report.withSuggestion} öneriyle) · <strong>{report.ambiguous}</strong> belirsiz ·{' '}
         <strong>{report.conflicts}</strong> çakışma · {report.passive} pasif · {errorRows > 0 ? <strong>{errorRows} hatalı satır</strong> : 'hatalı satır yok'}
       </div>
+      <CatalogNoMatchHelp report={report} />
       {report.warnings.map(w => <div key={w} className="alert alert-warn">{w}</div>)}
       {report.errors.length > 0 && (
         <table className="table">

@@ -190,6 +190,69 @@ test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan 
   await expect(page.getByRole('button', { name: 'Doğru eşleşme, onayla' })).toHaveCount(0);
 });
 
+test('Kanal test ortamında ve eşleşmiş ilanı yoksa Kanal Stoğu ve Eşleştirme nedenini söyler (ADR-038)', async ({ page }) => {
+  await login(page);
+  const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
+  const hb = channels.find(c => c.code === 'HEPSIBURADA')!;
+
+  // Sunucu durumu belirli olsun: Hepsiburada gerçek modda, TEST ortamında; 0 eşleşmiş ilan, 3 eşleşmeyen ürün
+  await page.route('**/api/channels/status', async route => {
+    const res = await route.fetch();
+    const list = (await res.json()) as { id: number; mode: string; environment: string | null }[];
+    await route.fulfill({ response: res, json: list.map(s => (s.id === hb.id ? { ...s, mode: 'GERCEK', environment: 'Test' } : s)) });
+  });
+  await page.route(`**/api/stock-overview/channels/${hb.id}?*`, route => route.fulfill({
+    json: {
+      channelId: hb.id, channelCode: 'HEPSIBURADA', rows: { items: [], total: 0, page: 1, pageSize: 1 },
+      totalListings: 0, deviationCount: 0, reviewCount: 0, notFetchedCount: 0, unmatchedCount: 3, lastFetchedUtc: null, approvedCount: 0
+    }
+  }));
+  await page.route('**/api/stock/channel-intake/preview?*', async route => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, json: { ...(await res.json()), rows: [] } });
+  });
+  await page.route(`**/api/channels/${hb.id}/catalog/fetch-status`, route => route.fulfill({
+    json: {
+      channelId: hb.id, state: 'TAMAMLANDI', lastAttemptUtc: new Date().toISOString(), lastSuccessUtc: new Date().toISOString(), lastError: null,
+      report: {
+        channelCode: 'HEPSIBURADA', format: null, source: 'API', validateOnly: false, createMissing: true, totalRows: 2, validRows: 2,
+        matchedExisting: 0, matchedByBarcode: 0, matchedByStockCode: 0, matchedByModelColorSize: 0,
+        listingsCreated: 0, listingsUpdated: 0, listingsUnchanged: 0, productsCreated: 0, skusCreated: 0,
+        unmatched: 2, ambiguous: 0, conflicts: 0, withSuggestion: 0, passive: 0, pushDeferred: 0, rowsTruncated: false,
+        errors: [], fileErrors: [], warnings: [],
+        rows: [1, 2].map(n => ({
+          row: n, barcode: null, channelProductCode: `HBV0000TEST${n}`, stockCode: `HBV0000STK${n}`, name: null, color: null, size: null,
+          outcome: 'ESLESME_YOK', skuCode: null, step: null, listingChange: null, detail: 'SKU bulunamadı.', suggestedSkuCode: null,
+          suggestionScore: null, passive: false
+        }))
+      }
+    }
+  }));
+
+  // Kanal Stoğu → Defter: nedeni ve doğru adımı söyler; boş tablo mutabakata yönlendirmez
+  await page.getByRole('navigation').getByRole('link', { name: 'Kanal Stoğu → Defter' }).click();
+  const source = page.getByLabel('Kaynak kanal');
+  await source.selectOption(String(hb.id));
+  await expect(page.getByTestId('channel-source-test')).toContainText('TEST ortamına bağlı');
+  const noListings = page.getByTestId('intake-no-listings');
+  await expect(noListings).toContainText('eşleşmiş ilan yok');
+  await expect(noListings).toContainText('3 kanal ürünü eşleşme bekliyor');
+  await page.getByRole('button', { name: 'Önizle' }).click();
+  await expect(page.getByTestId('intake-empty')).toContainText('bu kanalda eşleşmiş ilan yok');
+  await expect(page.getByTestId('intake-empty')).not.toContainText('mutabakat çalıştırın');
+
+  // Eşleştirme → Kanaldan ürün çek: test ortamı uyarısı ve "neden eşleşmedi"
+  await noListings.getByRole('link', { name: 'Eşleştirme' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Eşleştirme' })).toBeVisible();
+  await page.getByLabel('Kanal (API)').selectOption(String(hb.id));
+  await expect(page.getByTestId('channel-source-test')).toBeVisible();
+  const help = page.getByTestId('catalog-no-match');
+  await expect(help).toContainText("Hiçbir ürün defterdeki bir SKU'ya bağlanmadı");
+  await expect(help).toContainText('2 ürünün stok kodu');
+  await expect(help).toContainText('2 üründe barkod yok');
+  await expect(help).toContainText("barkodsuz üründen SKU oluşturulmaz");
+});
+
 test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   await login(page);
   const screens: [string, string][] = [
