@@ -16,6 +16,7 @@
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -GercekKanal TRENDYOL
+    powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -GercekKanal TRENDYOL,BEYMEN
     powershell -ExecutionPolicy Bypass -File scripts\deneme-modu.ps1 -Port 5095 -DemoVeri
 #>
 param(
@@ -26,10 +27,12 @@ param(
     [switch]$DemoVeriYok,
     # Gerçek API ile çalışacak kanallar (ör. -GercekKanal TRENDYOL). Zamanlanmış job'lar yine kapalıdır:
     # yalnızca panelden elle tetiklenen okuma işleri (Kanaldan ürün çek, mutabakat) kanala gider.
-    [ValidateSet('TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON')]
+    # Virgüllü liste de kabul edilir (-File ile çağrıldığında "A,B" tek metin gelir; aşağıda bölünüp doğrulanır).
     [string[]]$GercekKanal = @()
 )
-$GercekKanal = @($GercekKanal | ForEach-Object { $_.ToUpperInvariant() })
+$GercekKanal = @($GercekKanal | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToUpperInvariant() } | Where-Object { $_ })
+$gecersiz = @($GercekKanal | Where-Object { $_ -notin @('TRENDYOL', 'HEPSIBURADA', 'BEYMEN', 'SOFTCOTTON') })
+if ($gecersiz.Count -gt 0) { throw "Geçersiz kanal: $($gecersiz -join ', '). Geçerli: TRENDYOL, HEPSIBURADA, BEYMEN, SOFTCOTTON" }
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot

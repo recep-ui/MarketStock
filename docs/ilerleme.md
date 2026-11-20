@@ -7,6 +7,23 @@
 
 ---
 
+## Canlıya geçiş denetimi (2026-11-20): TAMAM — rapor `docs/canliya-gecis-denetimi.md`
+
+- **Otomatik testler:** unit 368/368, entegrasyon 149/149, Playwright 17/17.
+- **Trendyol ve Beymen canlı okuma:** katalog, stok mutabakatı, referanslar, iade, soru ve sipariş çekme başarılı; tüm çağrılar GET/200, kanala yazma yok. Panelin 15 görünümü gerçek veriyle hatasız açıldı.
+- **Düzeltilen:**
+  - Fiyat yeteneği mock'tayken açılmışsa KDV'si doğrulanmamış fiyat canlıya gidebiliyordu; gönderim anında da engelleniyor (ADR-039).
+  - `deneme-modu.ps1 -File … -GercekKanal A,B` virgüllü liste kabul ediyor.
+- **Canlıdan önce yapılacaklar** (rapordaki kontrol listesi):
+  - İlk stok gönderimi 754 ilanı birden değiştirir; önce sapmaları kapatın, STOK'u DENEME ile açın.
+  - DataProtection anahtar klasörü kalıcı olmalı.
+  - İlk sipariş çekimi 24 saat geriye bakıyor.
+  - Çerez ve ileri vekil başlıkları.
+  - Migration'lar.
+  - Denenmemiş yazma uçları için yetenekler DENEME ile açılmalı.
+
+---
+
 ## Kanal Stoğu / Eşleştirme: neden boş olduğunu söyleyen uyarılar (2026-11-20): TAMAM
 
 - Hepsiburada test ortamındayken çekilen ürünler eşleşmiyor ve Kanal Stoğu → Defter boş kalıyordu. Ekran ise kullanıcıyı işe yaramayan mutabakata yönlendiriyordu.

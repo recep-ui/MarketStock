@@ -162,6 +162,13 @@ public sealed class GuardedChannelAdapter(IChannelAdapter inner, IChannelWriteGa
     public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
     {
         await gate.EnsureAllowedAsync(ChannelCode, ChannelCapabilities.Price, ct);
+        // ADR-039: yetenek, kanal mock'tayken (mock izin verir) açılmış olabilir. Gerçek adaptörün kuralı (ör. KDV doğrulanmadı)
+        // izin vermiyorsa gönderim anında da engellenir; aksi halde KDV durumu belirsiz fiyat canlı kanala gidebilirdi.
+        var rule = inner.DescribePriceUpdate();
+        if (!rule.CanEnable)
+        {
+            throw new ChannelWriteBlockedException(ChannelCode, ChannelCapabilities.Price, rule.BlockReason ?? "Fiyat gönderimine izin verilmiyor.");
+        }
         return await inner.PushPriceAsync(updates, ct);
     }
 

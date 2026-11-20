@@ -840,3 +840,18 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Katalog raporu (`CatalogNoMatchHelp`): hiç eşleşme ve SKU oluşmadıysa nedenleri yazar (stok kodu uyuşmayan sayısı, barkodsuz sayısı ve barkodsuzdan SKU oluşturulmadığı) ve sonraki adımı söyler.
 
 **Doğrulama:** Playwright (yeni senaryo; sunucu yanıtları `page.route` ile belirli hâle getirildi: Hepsiburada test ortamı, 0 ilan, 3 eşleşmeyen) ve tam set 17/17.
+
+## ADR-039: Fiyat gönderiminde KDV kuralı gönderim anında da uygulanır
+**Tarih:** 2026-11-20 (canlıya geçiş denetimi; `docs/canliya-gecis-denetimi.md` madde 2)
+**Bağlam:**
+- Fiyat yeteneğinin açılabilmesi adaptör kuralına bağlı: `PriceUpdateRule.CanEnable` (KDV dahil olduğu resmi dokümanda doğrulanmış olmalı; ADR-028).
+- Bu kural yalnızca yetenek değiştirilirken, o an kayıtlı adaptöre göre kontrol ediliyordu. Kanal mock moddayken mock adaptör izin verdiği için yetenek açılabiliyordu.
+- Kanal gerçek moda geçince yetenek AÇIK kalıyordu. Deneme veritabanında Hepsiburada FİYAT = AÇIK bulundu. Kilit kalksa KDV durumu belirsiz fiyatlar canlı kanala gidebilirdi.
+
+**Karar:**
+- `GuardedChannelAdapter.PushPriceAsync`, yetenek kapısından sonra gerçek adaptörün `DescribePriceUpdate()` kuralına da bakar.
+- `CanEnable` false ise `ChannelWriteBlockedException` atılır ve istek kanala çıkmaz.
+- Fiyat hattı (FiyatGonder) bu istisnayı zaten "engellendi" olarak işliyor: kayıtlar deneme sayılmadan bekler ve uyarı günlüğe yazılır. Stok ve diğer yazmalar etkilenmez.
+- Yetenek kaydı otomatik değiştirilmez (kullanıcının kararı). Raporda KAPALI yapılması önerildi.
+
+**Doğrulama:** birim testi (gerçek Hepsiburada adaptörü + açık kapı → fiyat isteği çıkmaz, stok çıkar), unit 368/368, entegrasyon 149/149.

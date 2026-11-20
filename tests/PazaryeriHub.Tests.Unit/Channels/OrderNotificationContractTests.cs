@@ -205,6 +205,50 @@ public sealed class OrderNotificationContractTests
         gate.Checked.Should().HaveCount(3);
     }
 
+    private sealed class CountingHandler : HttpMessageHandler
+    {
+        public List<string> Requests { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requests.Add($"{request.Method} {request.RequestUri}");
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"id":"x"}""", System.Text.Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    private sealed class FixedCredentials(string json) : IChannelCredentialStore
+    {
+        public Task<string?> GetJsonAsync(string channelCode, CancellationToken ct) => Task.FromResult<string?>(json);
+        public Task SaveJsonAsync(string channelCode, string json, CancellationToken ct) => Task.CompletedTask;
+        public Task ClearAsync(string channelCode, CancellationToken ct) => Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// ADR-039: fiyat yeteneği kanal mock'tayken açılmış olabilir (mock adaptör izin verir). Gerçek adaptörün kuralı (KDV doğrulanmadı)
+    /// izin vermiyorsa, yetenek AÇIK olsa bile fiyat isteği gönderim anında engellenir ve kanala çıkmaz; stok etkilenmez.
+    /// </summary>
+    [Fact]
+    public async Task Yetenek_acik_olsa_da_adaptor_kurali_izin_vermiyorsa_fiyat_kanala_cikmaz()
+    {
+        var handler = new CountingHandler();
+        var hepsiburada = new PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter(new HttpClient(handler),
+            new FixedCredentials("""{"merchantId":"b2910839-83b9-4d45-adb6-86bad457edcb","userName":"u","password":"p","environment":"Prod"}"""),
+            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter>.Instance);
+        hepsiburada.DescribePriceUpdate().CanEnable.Should().BeFalse("ön koşul: Hepsiburada fiyatının KDV durumu dokümanda doğrulanmadı");
+        var guarded = new GuardedChannelAdapter(hepsiburada, new FakeGate(allow: true));
+
+        var price = () => guarded.PushPriceAsync([new PriceUpdate("HBV1", null, 100m, 90m)], Ct);
+
+        (await price.Should().ThrowAsync<ChannelWriteBlockedException>()).Which.Message.Should().Contain("KDV");
+        handler.Requests.Should().BeEmpty("fiyat isteği kanala çıkmamalı");
+
+        await guarded.PushStockAsync([new StockUpdate("HBV1", null, 3)], Ct);
+        handler.Requests.Should().ContainSingle().Which.Should().Contain("stock-uploads", "stok gönderimi etkilenmez");
+    }
+
     [Fact]
     public async Task Kapi_aciksa_yazma_ic_adaptore_ulasir()
     {
