@@ -78,7 +78,8 @@ public sealed class ChannelIntakeService(
 
         // SKU başına kaynak çekim anı (değeri olan kaynak ilanların en eskisi) ve o andan sonraki net rezervasyon.
         // Değeri hiç gelmeyen ilan (kara liste vb.) "eski çekim" sayılmaz; ayrıca ILAN_DEGERI_YOK ile işaretlenir.
-        var snapshotAt = listings.Where(l => l.ChannelId == sourceChannelId && l.CekilmeZamani is not null).GroupBy(l => l.SkuId)
+        // Son çekimde kanalda bulunamayan ilanın (KanalStok NULL, ADR-040) çekim anı da hesaba katılmaz.
+        var snapshotAt = listings.Where(l => l.ChannelId == sourceChannelId && l.KanalStok is not null && l.CekilmeZamani is not null).GroupBy(l => l.SkuId)
             .ToDictionary(g => g.Key, g => g.Min(l => l.CekilmeZamani!.Value));
         var reservedSince = snapshotAt.Count == 0 ? [] : (await connection.QueryAsync<(int SkuId, int D)>(new CommandDefinition("""
             SELECT j.SkuId, ISNULL(SUM(CASE m.Tip WHEN 'REZERVE' THEN m.Adet WHEN 'REZERVE_IPTAL' THEN -m.Adet END), 0) AS D

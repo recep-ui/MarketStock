@@ -28,14 +28,18 @@ public sealed record DashboardDto(
 
 /// <summary>Stok listesinde bir kanal hücresi.</summary>
 /// <param name="Expected">Kanala gitmesi gereken (hesaplanan) stok.</param>
-/// <param name="ChannelStock">Son mutabakatta kanalda görülen stok (hiç mutabakat yoksa null).</param>
+/// <param name="ChannelStock">Son mutabakatta kanalda görülen stok (hiç mutabakat yoksa veya son çekimde kanalda bulunamadıysa null).</param>
 /// <summary>Bir ilanın kanal stoğu. Aynı SKU'nun aynı kanalda birden fazla ilanı olabilir (ADR-023): her ilan ayrı hücre.</summary>
 /// <param name="ProductUrl">Ürünün kanaldaki sayfası (kanal API'si veriyorsa; ADR-031).</param>
 public sealed record ChannelStockCell(
     string ChannelCode, int ListingId, string Status, int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc,
     string? ChannelBarcode = null, string? ChannelProductCode = null, string? ProductUrl = null, string? Variant = null)
 {
+    /// <summary>Sapma yalnızca kanalda görülen değerle hesaplanır; kanalda bulunamayan ilan sapma sayılmaz (ADR-040).</summary>
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
+
+    /// <summary>Son mutabakatta kanalda bulunamadı (çekim var, değer yok; ADR-040). Hiç çekilmemiş ilan için false.</summary>
+    public bool MissingInChannel => ChannelStock is null && FetchedAtUtc is not null;
 }
 
 public sealed record StockOverviewRow(

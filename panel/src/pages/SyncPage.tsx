@@ -174,7 +174,7 @@ export function SyncPage() {
                 <td><ChannelBadge code={r.channelCode} /></td>
                 <td>{r.skuCode}</td>
                 <td>{r.expected}</td>
-                <td>{r.channelStock ?? 'kanalda yok'}</td>
+                <td>{r.channelStock ?? (r.missingInChannel ? 'kanalda yok (son çekimde bulunamadı)' : 'çekilmedi')}</td>
                 <td>{r.deviation ?? '—'}</td>
                 <td>{formatDateTime(r.fetchedAtUtc)}</td>
                 {can('admin') && <td><button className="small" onClick={() => pushToChannel([r.listingId])}>Kanala gönder</button></td>}

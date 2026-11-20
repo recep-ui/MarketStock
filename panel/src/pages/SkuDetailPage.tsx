@@ -67,7 +67,9 @@ export function SkuDetailPage() {
                         <td className="num">{c.expected}</td>
                         <td className="num">{c.lastSent ?? '—'}</td>
                         <td className="num">
-                          {c.channelStock ?? '—'}
+                          {c.channelStock ?? (c.missingInChannel
+                            ? <span className="muted small" title="Son mutabakatta bu ilan kanalda bulunamadı">kanalda yok</span>
+                            : '—')}
                           {c.hasDeviation && <small> (sapma)</small>}
                         </td>
                         <td title={formatDateTime(c.fetchedAtUtc)}>{c.fetchedAtUtc ? formatRelative(c.fetchedAtUtc) : '—'}</td>

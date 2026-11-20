@@ -181,8 +181,8 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
 
         return new ChannelStockList(channelId, channelCode,
             new PagedResult<ChannelStockListRow>(matching.Skip((p - 1) * size).Take(size).ToList(), matching.Count, p, size),
-            rows.Count, rows.Count(r => r.HasDeviation), rows.Count(r => r.NeedsReview), rows.Count(r => r.ChannelStock is null), unmatched,
-            rows.Max(r => r.FetchedAtUtc), rows.Count(r => r.Approval is { Valid: true }));
+            rows.Count, rows.Count(r => r.HasDeviation), rows.Count(r => r.NeedsReview), rows.Count(r => r.FetchedAtUtc is null), unmatched,
+            rows.Max(r => r.FetchedAtUtc), rows.Count(r => r.Approval is { Valid: true }), rows.Count(r => r.MissingInChannel));
     }
 
     /// <summary>

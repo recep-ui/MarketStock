@@ -855,3 +855,23 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Yetenek kaydı otomatik değiştirilmez (kullanıcının kararı). Raporda KAPALI yapılması önerildi.
 
 **Doğrulama:** birim testi (gerçek Hepsiburada adaptörü + açık kapı → fiyat isteği çıkmaz, stok çıkar), unit 368/368, entegrasyon 149/149.
+
+## ADR-040: Son mutabakatta kanalda bulunamayan ilan "kanalda yok" olarak kaydedilir
+**Tarih:** 2026-11-20 (canlıya geçiş denetimi; `docs/canliya-gecis-denetimi.md` madde 5)
+**Bağlam:**
+- Mutabakat, kanalda bulunan ilanlar için `ChannelStockSnapshot` satırı yazıyordu; bulunamayan ilan için hiçbir şey yazılmıyordu.
+- Ekranlar ilanın EN SON snapshot'ını okuduğu için bulunamayan ilan eski (ör. iki gün önceki) kanal stoğunu güncel gibi gösteriyor, sapma da bu eski değerle hesaplanıyordu. Deneme veritabanında 2026-11-20 Trendyol mutabakatında 75 ilan bulunamadı; 19'u 18.11 tarihli değeri gösteriyordu (ör. `AxelH50100000` → kanalda 100).
+
+**Karar:**
+- Migration `0016_kanalda_yok.sql`: `ChannelStockSnapshot.KanalStok` NULL olabilir. NULL = "bu çekimde kanalda bulunamadı".
+- Mutabakat, kanal stok sorgusunda dönmeyen her AKTIF ilan için de `KanalStok = NULL` satırı yazar. Böylece son snapshot her zaman son çekimin sonucudur; eski satırlar değişmez (yalnızca eklenir, geçmiş korunur).
+- Anlamlar: snapshot yok → "hiç çekilmedi"; son snapshot NULL → "son çekimde kanalda bulunamadı"; son snapshot değerli → kanal stoğu.
+- Sözleşmelere `MissingInChannel` (= `ChannelStock is null && FetchedAtUtc is not null`) eklendi: `ChannelStockCell` (Stok Listesi defter sekmesi, SKU detay), `ChannelStockListRow` (kanal sekmesi), `ReconciliationRow` (Senkron Merkezi), `IntakeChannelValue` (Kanal Stoğu → Defter). `HasDeviation`/`Deviation` zaten yalnızca değerli snapshot ile hesaplanıyordu; kanalda bulunamayan ilan sapma sayılmaz.
+- Kanal sekmesi: "hiç çekilmemiş" sayısı yalnızca çekimi olmayanları sayar; yeni "son çekimde kanalda bulunamadı" sayısı (`MissingCount`).
+- Kanal Stoğu → Defter: bulunamayan ilan değeri yok sayılır ve "eski çekim" anına katılmaz; mevcut `ILAN_DEGERI_YOK` / `KANALDA_DEGER_YOK` işaretleriyle tutarlıdır (artık eski değer `ESKI_CEKIM` ile önerilmez).
+
+**Alternatifler:** Ayrı `KanaldaYok BIT` kolonu + KanalStok=0: sıfır değeri yanlış okunabilir ve sapma üretirdi. Ayrı tablo: her okuma sorgusunun değişmesi gerekirdi. NULL, mevcut "değer yok" anlamıyla örtüşüyor; okuma sorguları değişmedi.
+
+**Kapsam dışı:** Kanala yazma yok; eşleştirme kuralları değişmedi. Senkron Merkezi "sapmalar" listesi değeri olmayan ilanları (önceden olduğu gibi) gösterir; artık "kanalda yok (son çekimde bulunamadı)" ile "çekilmedi" ayrılır.
+
+**Doğrulama:** unit 372/372, entegrasyon 150/150, Playwright 17/17.

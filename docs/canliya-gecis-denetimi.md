@@ -48,6 +48,7 @@
 - Son mutabakatta bulunamayan 19 Trendyol ilanı, ekranda hâlâ 18 Kasım'daki kanal stoğunu gösteriyor (ör. `AxelH50100000` → "kanalda 100, 18.11"). Sapma hesabı da bu eski değerle yapılıyor.
 - Çekim zamanı satırda yazıyor, ama kolayca gözden kaçıyor.
 - **Öneri:** Bu çekimde bulunamayan ilan "kanalda yok (son çekimde bulunamadı)" diye gösterilsin, sapma hesabına girmesin. Ayrı iş olarak önerildi.
+- **Durum (2026-11-20): düzeltildi** (ADR-040, migration 0016). Bir sonraki mutabakattan sonra geçerli.
 
 ### 🟠 6. HTTPS arkasında oturum çerezi "Secure" olmayabilir
 - Çerez `SecurePolicy = SameAsRequest`. Uygulama ileri vekil (nginx, IIS, yük dengeleyici) arkasında çalışacak ama `UseForwardedHeaders` yok.

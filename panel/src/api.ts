@@ -182,6 +182,8 @@ export type OrderDetail = OrderListItem & {
 export type ChannelCell = {
   channelCode: string; listingId: number; status: string; expected: number; lastSent: number | null;
   channelStock: number | null; fetchedAtUtc: string | null; hasDeviation: boolean;
+  /** ADR-040: son mutabakatta kanalda bulunamadı (çekim var, değer yok); sapma sayılmaz. */
+  missingInChannel?: boolean;
   channelBarcode: string | null; channelProductCode: string | null; productUrl?: string | null; variant?: string | null;
 };
 export type StockRow = {
@@ -201,11 +203,13 @@ export type SyncSummary = { channelCode: string; pending: number; inFlight: numb
 export type Reconciliation = {
   listingId: number; skuCode: string; channelCode: string; channelProductCode: string | null; channelBarcode: string | null;
   expected: number; lastSent: number | null; channelStock: number | null; fetchedAtUtc: string | null; deviation: number | null;
+  missingInChannel?: boolean;
 };
 export type PushListingsResult = { queued: number; skipped: { listingId: number; reason: string }[] };
 export type IntakeChannelValue = {
   listingId: number; channelCode: string; channelBarcode: string | null; channelProductCode: string | null;
   channelStock: number | null; fetchedAtUtc: string | null; expected: number; syncPending: boolean;
+  missingInChannel?: boolean;
 };
 export type IntakePreviewRow = {
   skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number; available: number;
@@ -332,10 +336,10 @@ export type ChannelStockListRow = {
   expected: number; lastSent: number | null; matchBasis: 'BARKOD' | 'STOK_KODU' | 'DIGER'; warnings: MatchWarning[];
   /** ADR-036: "doğru eşleşme" onayı; valid=false ise bilgi onaydan sonra değişti. */
   approval: { approvedBy: string | null; approvedAtUtc: string; valid: boolean; approvedWarnings: string[] } | null;
-  hasDeviation: boolean; needsReview: boolean;
+  hasDeviation: boolean; needsReview: boolean; missingInChannel?: boolean;
 };
 export type ChannelStockList = {
   channelId: number; channelCode: string; rows: Paged<ChannelStockListRow>;
   totalListings: number; deviationCount: number; reviewCount: number; notFetchedCount: number; unmatchedCount: number; lastFetchedUtc: string | null;
-  approvedCount: number;
+  approvedCount: number; missingCount?: number;
 };

@@ -83,6 +83,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
           />
           <Stat label="Doğru eşleşme olarak onaylı" value={d.approvedCount} testId="channel-approved-count" />
           <Stat label="Kanal stoğu hiç çekilmemiş" value={d.notFetchedCount} />
+          <Stat label="Son çekimde kanalda bulunamadı" value={d.missingCount ?? 0} tone={(d.missingCount ?? 0) > 0 ? 'warn' : undefined} testId="channel-missing-count" />
           <Stat label="Kanalda var, eşleşmemiş" value={<Link to="/eslestirme">{d.unmatchedCount}</Link>} tone={d.unmatchedCount > 0 ? 'warn' : undefined} />
           <Stat
             label="Son stok çekimi"
@@ -150,7 +151,9 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                       </div>
                     </td>
                     <td className="num">
-                      {r.channelStock ?? <span className="muted small">çekilmedi</span>}
+                      {r.channelStock ?? (r.missingInChannel
+                        ? <span className="muted small" title="Son mutabakatta bu ilan kanalda bulunamadı; sapma hesabına girmez.">kanalda yok</span>
+                        : <span className="muted small">çekilmedi</span>)}
                       {r.fetchedAtUtc && <div className="small muted" title={formatDateTime(r.fetchedAtUtc)}>{formatRelative(r.fetchedAtUtc)}</div>}
                     </td>
                     <td className="muted" aria-hidden="true">→</td>

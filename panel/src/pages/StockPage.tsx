@@ -91,9 +91,9 @@ function LedgerStockView() {
             <span
               className={deviates ? 'cell-deviation' : undefined}
               data-testid={`cell-${ch.code}`}
-              title={cells.map(c => `${c.channelBarcode ?? c.channelProductCode ?? `#${c.listingId}`}: beklenen ${c.expected} · son gönderilen ${c.lastSent ?? '—'} · kanalda ${c.channelStock ?? '—'} (${formatDateTime(c.fetchedAtUtc)})${c.status === 'PASIF' ? ' · pasif' : ''}`).join('\n')}
+              title={cells.map(c => `${c.channelBarcode ?? c.channelProductCode ?? `#${c.listingId}`}: beklenen ${c.expected} · son gönderilen ${c.lastSent ?? '—'} · kanalda ${c.missingInChannel ? 'yok (son çekimde bulunamadı)' : c.channelStock ?? '—'} (${formatDateTime(c.fetchedAtUtc)})${c.status === 'PASIF' ? ' · pasif' : ''}`).join('\n')}
             >
-              {cells.map(c => c.channelStock ?? c.lastSent ?? '—').join(' · ')}
+              {cells.map(c => (c.missingInChannel ? 'kanalda yok' : c.channelStock ?? c.lastSent ?? '—')).join(' · ')}
               <small className="muted"> ({cells.length} ilan)</small>
               {deviates && <small> (beklenen {cells[0].expected})</small>}
             </span>
@@ -105,9 +105,9 @@ function LedgerStockView() {
           <span
             className={cell.hasDeviation ? 'cell-deviation' : undefined}
             data-testid={`cell-${ch.code}`}
-            title={`Beklenen ${cell.expected} · son gönderilen ${cell.lastSent ?? '—'} · kanalda ${cell.channelStock ?? '—'} (${formatDateTime(cell.fetchedAtUtc)})`}
+            title={`Beklenen ${cell.expected} · son gönderilen ${cell.lastSent ?? '—'} · kanalda ${cell.missingInChannel ? 'yok (son çekimde bulunamadı)' : cell.channelStock ?? '—'} (${formatDateTime(cell.fetchedAtUtc)})`}
           >
-            {visible ?? '—'}
+            {cell.missingInChannel ? <span className="muted small">kanalda yok</span> : visible ?? '—'}
             {cell.hasDeviation && <small> (beklenen {cell.expected})</small>}
             {cell.status === 'PASIF' && <small className="muted"> pasif</small>}
           </span>

@@ -3,7 +3,11 @@ namespace PazaryeriHub.Application.Stock;
 /// <summary>Bir ilanın son mutabakat görüntüsü (kanal stoğunu deftere alma önizlemesi).</summary>
 public sealed record IntakeChannelValue(
     int ListingId, string ChannelCode, string? ChannelBarcode, string? ChannelProductCode,
-    int? ChannelStock, DateTime? FetchedAtUtc, int Expected, bool SyncPending);
+    int? ChannelStock, DateTime? FetchedAtUtc, int Expected, bool SyncPending)
+{
+    /// <summary>Son mutabakatta kanalda bulunamadı (çekim var, değer yok; ADR-040).</summary>
+    public bool MissingInChannel => ChannelStock is null && FetchedAtUtc is not null;
+}
 
 /// <summary>SKU başına önizleme satırı. Hedef satılabilir kullanıcı tarafından düzenlenebilir; Fiziksel uygulamada yeniden hesaplanır.</summary>
 /// <param name="SourceValue">Kaynak kanalın gösterdiği değer (çekim anında).</param>

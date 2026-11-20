@@ -123,8 +123,11 @@ public sealed record ReconciliationRow(
     int ListingId, string SkuCode, string ChannelCode, string? ChannelProductCode, string? ChannelBarcode,
     int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc)
 {
-    /// <summary>Kanal - beklenen (kanalda hiç görülmediyse null).</summary>
+    /// <summary>Kanal - beklenen (hiç çekilmediyse veya son çekimde kanalda bulunamadıysa null).</summary>
     public int? Deviation => ChannelStock - Expected;
+
+    /// <summary>Son mutabakatta kanalda bulunamadı (çekim var, değer yok; ADR-040).</summary>
+    public bool MissingInChannel => ChannelStock is null && FetchedAtUtc is not null;
 }
 
 public sealed record ReconciliationResult(string ChannelCode, bool Skipped, string? SkipReason, int Listings, int Matched, int Missing, int Deviations);

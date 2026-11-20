@@ -651,7 +651,8 @@ public sealed class ReconciliationJob(
         var byBarcode = channelStocks.Where(s => s.Barcode is not null).GroupBy(s => s.Barcode!, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.First().Quantity, StringComparer.Ordinal);
 
-        var snapshots = new List<(int ListingId, int Quantity)>();
+        // Bulunamayan ilan için de satır yazılır (KanalStok NULL, ADR-040): eski değer güncel gibi görünmesin.
+        var snapshots = new List<(int ListingId, int? Quantity)>();
         var deviations = 0;
         foreach (var t in targets)
         {
@@ -666,6 +667,10 @@ public sealed class ReconciliationJob(
                     deviations++;
                 }
             }
+            else
+            {
+                snapshots.Add((t.ListingId, null));
+            }
         }
 
         await connection.ExecuteAsync(new CommandDefinition("""
@@ -674,15 +679,16 @@ public sealed class ReconciliationJob(
             """, new { now, payload = JsonSerializer.Serialize(snapshots.Select(s => new { l = s.ListingId, k = s.Quantity })) }, cancellationToken: ct));
         await SaveStateAsync(connection, channel.Value.Id, now, null, ct);
 
-        var missing = targets.Count - snapshots.Count;
+        var found = snapshots.Count(s => s.Quantity is not null);
+        var missing = targets.Count - found;
         logger.LogInformation("Mutabakat {Kanal}: {Eslestirme} eşleştirme, {Bulunan} kanalda bulundu, {Eksik} bulunamadı, {Sapma} sapma.",
-            channelCode, targets.Count, snapshots.Count, missing, deviations);
+            channelCode, targets.Count, found, missing, deviations);
         if (deviations > 0 || missing > 0)
         {
             logger.LogWarning("UYARI: {Kanal} mutabakatında {Sapma} sapma ve {Eksik} kanalda bulunamayan eşleştirme var.", channelCode, deviations, missing);
         }
 
-        return new(channelCode, false, null, targets.Count, snapshots.Count, missing, deviations);
+        return new(channelCode, false, null, targets.Count, found, missing, deviations);
     }
 
     private static Task SaveStateAsync(SqlConnection connection, int channelId, DateTime now, string? error, CancellationToken ct) =>

@@ -7,6 +7,16 @@
 
 ---
 
+## Kanalda bulunamayan ilan eski kanal stoğunu göstermiyor (2026-11-20): TAMAM
+
+- Denetim madde 5: son mutabakatta kanalda bulunamayan ilan eski kanal stoğunu güncel gibi gösteriyor, sapma eski değerle hesaplanıyordu.
+- Mutabakat artık bulunamayan ilan için `KanalStok = NULL` snapshot yazar (migration 0016, ADR-040).
+- Stok Listesi (defter ve kanal sekmeleri), SKU detay, Senkron Merkezi ve Kanal Stoğu → Defter "kanalda yok" gösterir; bu ilanlar sapma sayılmaz. Kanal sekmesinde "son çekimde kanalda bulunamadı" sayısı.
+- Eski snapshot satırları değişmez. Deneme veritabanındaki 19 ilan bir sonraki Trendyol mutabakatından sonra "kanalda yok" görünür (migration uygulanmış olmalı).
+- **Testler:** unit 372/372 (yeni 4 + migration listesi), entegrasyon 150/150 (yeni: bulunamayan ilan sapma saymaz, "kanalda yok" döner, kanalda yeniden görünürse değer geri gelir), Playwright 17/17.
+
+---
+
 ## Canlıya geçiş denetimi (2026-11-20): TAMAM — rapor `docs/canliya-gecis-denetimi.md`
 
 - **Otomatik testler:** unit 368/368, entegrasyon 149/149, Playwright 17/17.

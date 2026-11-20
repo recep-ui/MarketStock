@@ -473,6 +473,55 @@ public sealed class SyncPipelineTests(TestDatabase db)
     }
 
     [Fact]
+    public async Task Son_cekimde_kanalda_bulunamayan_ilan_eski_degeri_gostermez_ve_sapma_sayilmaz()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, gone, goneCode) = await SkuWithListingAsync(channelId, 10);
+            await SyncOnceAsync();
+            Mock.SetChannelStock(Channel, goneCode, 100); // ilk çekimde kanalda 100 (sapma)
+
+            var first = await RunAsync(sp => sp.GetRequiredService<ReconciliationJob>().RunAsync(Channel, Ct));
+            first.Should().BeEquivalentTo(new { Listings = 1, Matched = 1, Missing = 0, Deviations = 1 });
+
+            Mock.StockOf(Channel).TryRemove(goneCode, out _); // ilan kanaldan kalktı
+            var second = await RunAsync(sp => sp.GetRequiredService<ReconciliationJob>().RunAsync(Channel, Ct));
+            second.Should().BeEquivalentTo(new { Listings = 1, Matched = 0, Missing = 1, Deviations = 0 });
+
+            // Senkron Merkezi: eski 100 değil, "kanalda yok"; sapma değeri yok
+            var row = (await db.Api.GetFromJsonAsync<List<ReconciliationRow>>($"/api/sync/reconciliation?channelId={channelId}", Json, Ct))!
+                .Single(r => r.ListingId == gone);
+            row.Should().Match<ReconciliationRow>(r => r.ChannelStock == null && r.MissingInChannel && r.Deviation == null && r.FetchedAtUtc != null);
+
+            // Stok Listesi / SKU detay: hücre "kanalda yok", sapma sayılmaz
+            var detail = (await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Panel.SkuDetail>($"/api/skus/{skuId}/detail", Json, Ct))!;
+            var cell = detail.Channels.Single(c => c.ListingId == gone);
+            cell.Should().Match<PazaryeriHub.Application.Panel.ChannelStockCell>(c => c.ChannelStock == null && c.MissingInChannel && !c.HasDeviation);
+            detail.HasDeviation.Should().BeFalse();
+
+            // Kanal sekmesi: "kanalda yok" sayılır, "hiç çekilmemiş" sayılmaz
+            var list = (await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Panel.ChannelStockList>(
+                $"/api/stock-overview/channels/{channelId}?pageSize=500", Json, Ct))!;
+            list.Rows.Items.Single(r => r.ListingId == gone).Should()
+                .Match<PazaryeriHub.Application.Panel.ChannelStockListRow>(r => r.MissingInChannel && !r.HasDeviation && r.ChannelStock == null);
+            list.MissingCount.Should().BeGreaterThanOrEqualTo(1);
+
+            // Kanalda yeniden görünürse değer geri gelir
+            Mock.SetChannelStock(Channel, goneCode, 10);
+            (await RunAsync(sp => sp.GetRequiredService<ReconciliationJob>().RunAsync(Channel, Ct)))
+                .Should().BeEquivalentTo(new { Matched = 1, Missing = 0, Deviations = 0 });
+            (await db.Api.GetFromJsonAsync<List<ReconciliationRow>>($"/api/sync/reconciliation?channelId={channelId}", Json, Ct))!
+                .Single(r => r.ListingId == gone).Should().Match<ReconciliationRow>(r => r.ChannelStock == 10 && !r.MissingInChannel);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
     public async Task Pasif_kanalda_mutabakat_istegi_acik_hatayla_reddedilir()
     {
         db.SkipIfUnavailable();

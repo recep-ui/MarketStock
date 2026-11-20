@@ -116,7 +116,7 @@ public static class ListingMatchCheck
 public sealed record MatchApproval(string? ApprovedBy, DateTime ApprovedAtUtc, bool Valid, IReadOnlyList<string> ApprovedWarnings);
 
 /// <summary>Kanal bazlı stok listesinde bir ilan: kanalın bildirdiği ↔ bağlandığı SKU (ADR-035).</summary>
-/// <param name="ChannelStock">Son mutabakatta kanaldan çekilen stok (hiç çekilmediyse null).</param>
+/// <param name="ChannelStock">Son mutabakatta kanaldan çekilen stok (hiç çekilmediyse veya son çekimde kanalda bulunamadıysa null).</param>
 /// <param name="Expected">Bu ilana gitmesi gereken (defterden hesaplanan) stok.</param>
 public sealed record ChannelStockListRow(
     int ListingId, string Status, ChannelSide Channel, string? ProductUrl, int? ChannelStock, DateTime? FetchedAtUtc,
@@ -124,6 +124,9 @@ public sealed record ChannelStockListRow(
     int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings, MatchApproval? Approval = null)
 {
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
+
+    /// <summary>Son mutabakatta kanalda bulunamadı (çekim var, değer yok; ADR-040). Sapma sayılmaz.</summary>
+    public bool MissingInChannel => ChannelStock is null && FetchedAtUtc is not null;
 
     /// <summary>Uyarı var ve geçerli bir "doğru eşleşme" onayı yok (ADR-036).</summary>
     public bool NeedsReview => Warnings.Count > 0 && Approval is not { Valid: true };
@@ -136,7 +139,7 @@ public sealed record ChannelStockListRow(
 public sealed record ChannelStockList(
     int ChannelId, string ChannelCode, PagedResult<ChannelStockListRow> Rows,
     int TotalListings, int DeviationCount, int ReviewCount, int NotFetchedCount, int UnmatchedCount, DateTime? LastFetchedUtc,
-    int ApprovedCount = 0);
+    int ApprovedCount = 0, int MissingCount = 0);
 
 /// <summary>"Doğru eşleşme" onayı (ADR-036). Eşleştirmeyi değiştirmez; yalnızca uyarıyı kapatır.</summary>
 public interface IListingMatchApprovalService

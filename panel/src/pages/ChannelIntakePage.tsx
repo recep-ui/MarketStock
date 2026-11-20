@@ -215,7 +215,7 @@ function IntakeRow({ row, selected, onToggle, target, onTarget }:
       <td style={{ whiteSpace: 'normal', minWidth: 200 }}>
         {row.channels.map(c => (
           <div key={c.listingId} title={`${c.channelBarcode ?? c.channelProductCode ?? ''} · beklenen ${c.expected} · ${formatDateTime(c.fetchedAtUtc)}`}>
-            <ChannelBadge code={c.channelCode} /> {c.channelStock ?? '—'}
+            <ChannelBadge code={c.channelCode} /> {c.channelStock ?? (c.missingInChannel ? <span className="muted">kanalda yok</span> : '—')}
             {c.channelStock === row.minValue && row.channels.length > 1 && <small className="muted"> (en düşük)</small>}
           </div>
         ))}
