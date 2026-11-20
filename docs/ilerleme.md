@@ -17,6 +17,20 @@
 
 ---
 
+## Hepsiburada SIT: sipariş akışı tamam, tam ürün gönderme bekliyor (2026-11-20)
+
+- **Destek yanıtı:**
+  - Sipariş örneğindeki `CargoCompanyId: 21`, `DeliveryOptionId: 1` ve `OrderDate` ile test siparişi oluştu (201).
+  - Sipariş listelendi ve uygulamanın adaptörüyle paketlendi: 201 `{packageNumber, barcode}`.
+- **Tam ürün gönderme akışı:**
+  - Araçta yeni adımlar: `katalog-kesif` (kategori, özellik, değer; yalnızca okuma), `urun-gonder --dosya`, `eslesme --onay/--red`.
+  - Kategori, özellik ve değer uçları çalışıyor.
+  - Royal Kimono (Bornoz 60005084) gönderimi "File not found" (3003) aldı; çalışan curl örneği Hepsiburada'dan istendi.
+- **Hepsiburada'ya yanıt taslağı:** `hb-sit-rapor/hepsiburada-yanit-taslagi.md` (stok, fiyat, envanter istekleri, sipariş sonuçları, katalog sorusu).
+- **Testler:** HepsiburadaSitClient contract testleri 18/18.
+
+---
+
 ## Canlıya geçiş denetimi (2026-11-20): TAMAM — rapor `docs/canliya-gecis-denetimi.md`
 
 - **Otomatik testler:** unit 368/368, entegrasyon 149/149, Playwright 17/17.

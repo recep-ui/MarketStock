@@ -89,6 +89,89 @@ public sealed class HepsiburadaSitClientContractTests
     }
 
     [Fact]
+    public async Task Katalog_kategori_ozellik_ve_deger_sorgulari()
+    {
+        var (client, http) = Create();
+
+        await client.CategoriesAsync(page: 2, size: 1000, Ct);
+        await client.CategoryAttributesAsync(18021982, Ct);
+        await client.AttributeValuesAsync(18021982, "renk_variant_property", page: 0, Ct);
+
+        http.Requests.Select(r => r.Method).Should().AllBeEquivalentTo(HttpMethod.Get);
+        http.Requests[0].Uri.ToString().Should().Be(
+            "https://mpop-sit.hepsiburada.com/product/api/categories/get-all-categories?leaf=true&status=ACTIVE&available=true&page=2&size=1000");
+        http.Requests[1].Uri.ToString().Should().Be("https://mpop-sit.hepsiburada.com/product/api/categories/18021982/attributes");
+        http.Requests[2].Uri.ToString().Should().Be(
+            "https://mpop-sit.hepsiburada.com/product/api/categories/18021982/attribute/renk_variant_property/values?page=0&size=1000");
+    }
+
+    [Fact]
+    public async Task Urun_bilgisi_multipart_json_dosyasi_olarak_gonderilir()
+    {
+        var handler = new MultipartCapture();
+        var client = new HepsiburadaSitClient(new HttpClient(handler), TestCreds);
+        const string json = """[{"categoryId":1,"merchant":"m","attributes":{"merchantSku":"S1","UrunAdi":"Ürün"}}]""";
+
+        var call = await client.ProductImportAsync(json, Ct);
+
+        handler.Uri!.ToString().Should().Be("https://mpop-sit.hepsiburada.com/product/api/products/import?version=1");
+        handler.Method.Should().Be(HttpMethod.Post);
+        handler.MediaType.Should().Be("multipart/form-data");
+        handler.PartName.Should().Be("file");
+        handler.FileName.Should().Be("integrator.json");
+        handler.PartContent.Should().Be(json);
+        // Java tabanlı sunucuların tanıması için: tırnaksız boundary, yalnızca name ve filename (filename* yok)
+        handler.ContentTypeHeader.Should().NotContain("boundary=\"");
+        handler.DispositionHeader.Should().Be("form-data; name=\"file\"; filename=\"integrator.json\"");
+        handler.PartType.Should().Be("application/octet-stream", "curl -F file=@… ile aynı");
+        call.RequestBody.Should().Contain("integrator.json").And.Contain("\"merchantSku\":\"S1\"");
+    }
+
+    [Fact]
+    public async Task Eslesen_statu_onay_ve_red_dizi_govdesiyle_gider()
+    {
+        var (client, http) = Create();
+
+        await client.ApprovePreMatchAsync(["PH-1"], Ct);
+        await client.RejectPreMatchAsync(["PH-2", "PH-3"], Ct);
+
+        http.Requests[0].Uri.ToString().Should().Be("https://mpop-sit.hepsiburada.com/product/api/products/approve-prematch");
+        http.Requests[1].Uri.ToString().Should().Be("https://mpop-sit.hepsiburada.com/product/api/products/reject-prematch");
+        var approve = Body(http.Requests[0]).EnumerateArray().Single();
+        approve.GetProperty("merchant").GetString().Should().Be(MerchantId);
+        approve.GetProperty("merchantSkuList").EnumerateArray().Select(e => e.GetString()).Should().Equal("PH-1");
+        Body(http.Requests[1])[0].GetProperty("merchantSkuList").EnumerateArray().Select(e => e.GetString()).Should().Equal("PH-2", "PH-3");
+    }
+
+    private sealed class MultipartCapture : HttpMessageHandler
+    {
+        public Uri? Uri { get; private set; }
+        public HttpMethod? Method { get; private set; }
+        public string? MediaType { get; private set; }
+        public string? PartName { get; private set; }
+        public string? FileName { get; private set; }
+        public string? PartContent { get; private set; }
+        public string? ContentTypeHeader { get; private set; }
+        public string? DispositionHeader { get; private set; }
+        public string? PartType { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Uri = request.RequestUri;
+            Method = request.Method;
+            MediaType = request.Content!.Headers.ContentType!.MediaType;
+            var part = ((MultipartFormDataContent)request.Content).Single();
+            PartName = part.Headers.ContentDisposition!.Name!.Trim('"');
+            FileName = part.Headers.ContentDisposition.FileName!.Trim('"');
+            PartContent = await part.ReadAsStringAsync(ct);
+            ContentTypeHeader = request.Content.Headers.ContentType!.ToString();
+            DispositionHeader = part.Headers.ContentDisposition.ToString();
+            PartType = part.Headers.ContentType!.MediaType;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("""{"trackingId":"t"}""") };
+        }
+    }
+
+    [Fact]
     public async Task Envanter_yukleme_ve_sorgulama()
     {
         var (client, http) = Create();

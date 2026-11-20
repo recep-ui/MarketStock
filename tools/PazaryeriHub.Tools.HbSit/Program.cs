@@ -22,7 +22,9 @@ Console.OutputEncoding = Encoding.UTF8;
 var step = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))?.ToLowerInvariant() ?? "kontrol";
 var autoYes = args.Contains("--evet");
 var hbSkuArg = args.SkipWhile(a => a != "--hbsku").Skip(1).FirstOrDefault();
-string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi"];
+string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi", "katalog-kesif", "urun-gonder", "eslesme"];
+string? Arg(string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
+var categoryArg = args.SkipWhile(a => a != "--kategori").Skip(1).FirstOrDefault();
 if (!known.Contains(step))
 {
     Console.WriteLine($"Bilinmeyen adım '{step}'. Adımlar: {string.Join(", ", known)}");
@@ -80,6 +82,9 @@ try
     if (step is "katalog" or "hepsi") await CatalogAsync();
     if (step is "listeleme" or "hepsi") await ListingAsync(listing);
     if (step is "siparis" or "hepsi") await OrderAsync(listing);
+    if (step is "katalog-kesif") await CatalogDiscoveryAsync();
+    if (step is "urun-gonder") await ProductUploadAsync(Arg("--dosya") ?? throw new InvalidOperationException("--dosya <ürün json> gerekli"));
+    if (step is "eslesme") await PreMatchAsync(Arg("--onay"), Arg("--red"), Arg("--tracking"));
 }
 catch (Exception ex) when (ex is not OperationCanceledException)
 {
@@ -111,6 +116,159 @@ async Task<ListingInfo?> ChooseListingAsync()
         ?? throw new InvalidOperationException($"--hbsku {hbSkuArg} test envanterinde yok.");
     Console.WriteLine($"Kullanılacak test listing'i: HBSKU {chosen.HbSku}, satıcı SKU {chosen.MerchantSku ?? "—"}, stok {chosen.Stock?.ToString(CultureInfo.InvariantCulture) ?? "—"}, fiyat {chosen.Price?.ToString(CultureInfo.InvariantCulture) ?? "—"}");
     return chosen;
+}
+
+// Tam ürün gönderme akışı, 1. aşama (YALNIZCA OKUMA): uygun uç kategori, özellikleri ve enum değerleri. Ham yanıtlar raporda.
+async Task CatalogDiscoveryAsync()
+{
+    long? chosen = categoryArg is null ? null : long.Parse(categoryArg, CultureInfo.InvariantCulture);
+    if (chosen is null)
+    {
+        recorder.CurrentStep = "Kategori bilgilerini alma";
+        string[] keywords = ["bornoz", "kimono", "sabahlık", "sabahlik"];
+        var candidates = new List<(long Id, string Name, string Path)>();
+        for (var page = 0; page < 30; page++)
+        {
+            var call = await sit.CategoriesAsync(page, 1000, ct);
+            if (!call.Success) { Show(call.Step, call.Status, call.ResponseBody); break; }
+            using var doc = JsonDocument.Parse(call.ResponseBody);
+            var items = FindArrayWith(doc.RootElement, "categoryId");
+            if (items is null || items.Value.GetArrayLength() == 0) { Console.WriteLine($"Sayfa {page}: kategori yok, tarama bitti."); break; }
+            foreach (var c in items.Value.EnumerateArray())
+            {
+                var name = Str(c, "name") ?? Str(c, "displayName") ?? "";
+                var path = c.TryGetProperty("paths", out var ps) && ps.ValueKind == JsonValueKind.Array
+                    ? string.Join(" > ", ps.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() : x.GetRawText())) : "";
+                if (keywords.Any(k => name.Contains(k, StringComparison.CurrentCultureIgnoreCase) || path.Contains(k, StringComparison.CurrentCultureIgnoreCase))
+                    && Num(c, "categoryId") is { } id)
+                {
+                    candidates.Add(((long)id, name, path));
+                }
+            }
+            Console.WriteLine($"Sayfa {page}: {items.Value.GetArrayLength()} kategori tarandı, aday {candidates.Count}");
+            if (items.Value.GetArrayLength() < 1000) break;
+        }
+        foreach (var c in candidates.Take(20)) Console.WriteLine($"  aday: {c.Id} — {c.Name} — {c.Path}");
+        findings.Add(("Katalog", "Kategori adayları", string.Join("; ", candidates.Take(10).Select(c => $"{c.Id} {c.Name}"))));
+        if (candidates.Count == 0) return;
+        chosen = candidates.FirstOrDefault(c => c.Name.Contains("bornoz", StringComparison.CurrentCultureIgnoreCase)).Id is var b && b != 0 ? b : candidates[0].Id;
+    }
+
+    Console.WriteLine($"Seçilen kategori: {chosen}");
+    recorder.CurrentStep = "Kategori özelliklerini alma";
+    var attrs = await sit.CategoryAttributesAsync(chosen.Value, ct);
+    Show(attrs.Step, attrs.Status, attrs.ResponseBody);
+    findings.Add(("Katalog", "Kategori özellikleri", $"kategori {chosen}, HTTP {attrs.Status}"));
+    if (!attrs.Success) return;
+
+    // Zorunlu ve enum olan özelliklerin değerleri (özellik nesnesinde id/type/mandatory alanları aranır; yanıt şeması dokümanda yok)
+    using var adoc = JsonDocument.Parse(attrs.ResponseBody);
+    var all = new List<JsonElement>();
+    void Collect(JsonElement e)
+    {
+        if (e.ValueKind == JsonValueKind.Array) { foreach (var x in e.EnumerateArray()) Collect(x); }
+        else if (e.ValueKind == JsonValueKind.Object)
+        {
+            if (Str(e, "id") is not null && (e.TryGetProperty("mandatory", out _) || e.TryGetProperty("type", out _))) all.Add(e.Clone());
+            else foreach (var p in e.EnumerateObject()) Collect(p.Value);
+        }
+    }
+    Collect(adoc.RootElement);
+    Console.WriteLine($"Özellik sayısı: {all.Count}");
+    recorder.CurrentStep = "Kategori özellik değerlerini alma";
+    foreach (var a in all)
+    {
+        var mandatory = a.TryGetProperty("mandatory", out var m) && m.ValueKind == JsonValueKind.True;
+        var type = Str(a, "type") ?? "";
+        Console.WriteLine($"  {(mandatory ? "*" : " ")} {Str(a, "id")} ({Str(a, "name")}) tip={type}");
+        if (mandatory && type.Equals("enum", StringComparison.OrdinalIgnoreCase))
+        {
+            var values = await sit.AttributeValuesAsync(chosen.Value, Str(a, "id")!, 0, ct);
+            Show($"    değerler {Str(a, "id")}", values.Status, values.ResponseBody, brief: true);
+        }
+    }
+}
+
+// Tam ürün gönderme akışı, 2. aşama: ürün dosyası (Hepsiburada'nın özellik adları ve enum değerleriyle) gönderilir, durum sorgulanır.
+async Task ProductUploadAsync(string path)
+{
+    var json = File.ReadAllText(path);
+    using (var doc = JsonDocument.Parse(json))
+    {
+        var skus = doc.RootElement.EnumerateArray().Select(p => p.GetProperty("attributes").GetProperty("merchantSku").GetString()).ToList();
+        var category = doc.RootElement[0].GetProperty("categoryId").GetRawText();
+        if (!Confirm("Ürün bilgisi gönderme (katalog)", $"{Path.GetFileName(path)}: {skus.Count} ürün, kategori {category}, satıcı SKU {string.Join(", ", skus)}")) return;
+    }
+    recorder.CurrentStep = "Ürün bilgisi gönderme";
+    var upload = await sit.ProductImportAsync(json, ct);
+    Show(upload.Step, upload.Status, upload.ResponseBody);
+    var trackingId = upload.Find("trackingId");
+    findings.Add(("Katalog", $"Ürün bilgisi gönderme ({Path.GetFileName(path)})", $"HTTP {upload.Status}, trackingId {trackingId ?? "—"}"));
+    if (trackingId is not null) await ProductStatusLoopAsync(trackingId, Path.GetFileName(path));
+}
+
+async Task ProductStatusLoopAsync(string trackingId, string label)
+{
+    recorder.CurrentStep = "Ürün durumu sorgulama";
+    string last = "";
+    for (var i = 0; i < 8; i++)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(i == 0 ? 3 : 6), ct);
+        var status = await sit.ProductStatusAsync(trackingId, ct);
+        if (!status.Success) { Show(status.Step, status.Status, status.ResponseBody); break; }
+        using var doc = JsonDocument.Parse(status.ResponseBody);
+        var rows = FindArrayWith(doc.RootElement, "merchantSku");
+        var lines = rows is null ? [] : rows.Value.EnumerateArray().Select(r =>
+        {
+            var msgs = r.TryGetProperty("importMessages", out var m) && m.ValueKind == JsonValueKind.Array
+                ? string.Join(" / ", m.EnumerateArray().Select(x => Str(x, "message"))) : "";
+            var valid = r.TryGetProperty("validationResults", out var v) && v.ValueKind == JsonValueKind.Array
+                ? string.Join(" / ", v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Object ? (Str(x, "message") ?? x.GetRawText()) : x.GetRawText())) : "";
+            return $"{Str(r, "merchantSku")}: import={Str(r, "importStatus")} ürün={Str(r, "productStatus")}{(msgs.Length > 0 ? " | " + msgs : "")}{(valid.Length > 0 ? " | doğrulama: " + valid : "")}";
+        }).ToList();
+        var text = string.Join("\n    ", lines);
+        if (text != last) Console.WriteLine($"[Ürün durumu #{i + 1}] {trackingId}\n    {text}");
+        last = text;
+        if (lines.Count > 0 && lines.All(l => !l.Contains("import=PROCESSING", StringComparison.Ordinal) && !l.Contains("import=WAITING", StringComparison.Ordinal))) break;
+    }
+    findings.Add(("Katalog", $"Ürün durumu ({label}, {trackingId})", last.Replace("\n    ", " ; ")));
+}
+
+async Task PreMatchAsync(string? approve, string? reject, string? trackingId)
+{
+    static List<string> Split(string? v) => (v ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+    var ok = Split(approve);
+    var no = Split(reject);
+    if (ok.Count > 0 && Confirm("Eşleşen statü onay", string.Join(", ", ok)))
+    {
+        recorder.CurrentStep = "Eşleşen statü onay";
+        var r = await sit.ApprovePreMatchAsync(ok, ct);
+        Show(r.Step, r.Status, r.ResponseBody);
+        findings.Add(("Katalog", "Eşleşen statü onay", $"HTTP {r.Status} ({string.Join(", ", ok)})"));
+    }
+    if (no.Count > 0 && Confirm("Eşleşen statü red", string.Join(", ", no)))
+    {
+        recorder.CurrentStep = "Eşleşen statü red";
+        var r = await sit.RejectPreMatchAsync(no, ct);
+        Show(r.Step, r.Status, r.ResponseBody);
+        findings.Add(("Katalog", "Eşleşen statü red", $"HTTP {r.Status} ({string.Join(", ", no)})"));
+    }
+    if (trackingId is not null) await ProductStatusLoopAsync(trackingId, "onay/red sonrası");
+}
+
+static JsonElement? FindArrayWith(JsonElement e, string property)
+{
+    if (e.ValueKind == JsonValueKind.Array)
+    {
+        var first = e.EnumerateArray().FirstOrDefault();
+        if (first.ValueKind == JsonValueKind.Object && first.TryGetProperty(property, out _)) return e;
+        foreach (var x in e.EnumerateArray()) if (FindArrayWith(x, property) is { } f) return f;
+    }
+    else if (e.ValueKind == JsonValueKind.Object)
+    {
+        foreach (var p in e.EnumerateObject()) if (FindArrayWith(p.Value, property) is { } f) return f;
+    }
+    return null;
 }
 
 async Task CatalogAsync()

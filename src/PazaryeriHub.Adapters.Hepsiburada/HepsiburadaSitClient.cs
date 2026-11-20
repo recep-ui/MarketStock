@@ -80,7 +80,10 @@ public sealed record SitTestOrderLine(
 /// "Test Süreci Adımları"ndaki uçlar. Kaynak: developers.hepsiburada.com (2026-11-19, uygulama içi tarayıcıyla okundu):
 /// <list type="bullet">
 /// <item>Katalog: Hızlı Ürün Yükleme <c>POST mpop-sit…/product/api/products/fastlisting</c>, Ürün Durumu Sorgulama
-/// <c>GET …/products/status/{trackingId}?version&amp;page&amp;size</c>.</item>
+/// <c>GET …/products/status/{trackingId}?version&amp;page&amp;size</c>; tam akış (2026-11-20): kategoriler
+/// <c>GET …/api/categories/get-all-categories</c>, özellikler <c>…/categories/{id}/attributes</c>, değerler
+/// <c>…/categories/{id}/attribute/{attributeId}/values</c>, Ürün Bilgisi Gönderme <c>POST …/products/import?version=1</c>
+/// (multipart <c>file</c>), Eşleşen Statü Onay / Red <c>POST …/products/approve-prematch</c> / <c>reject-prematch</c>.</item>
 /// <item>Listeleme: Listing Bilgilerini Sorgulama, Envanter Güncelleme (+ sorgulama), Activate / Deactivate (<c>…/sku/{sku}/activate</c>),
 /// Toplu Kilit Kaldırma (<c>{hbSkuList}</c>). Stok ve fiyat yüklemesi mevcut <see cref="HepsiburadaAdapter"/> üzerinden yapılır.</item>
 /// <item>Sipariş: Test Siparişi Oluşturma <c>POST oms-stub-external-sit…/orders/merchantId/{merchantId}</c> (yalnızca TEST ortamında),
@@ -132,6 +135,47 @@ public sealed class HepsiburadaSitClient
                 stock = i.Stock?.ToString(CultureInfo.InvariantCulture),
                 price = i.Price?.ToString(CultureInfo.InvariantCulture)
             }).ToList(), CamelCase, ct);
+
+    /// <summary>Kategori Bilgilerini Alma: yalnızca uç (leaf), aktif ve kullanılabilir kategoriler.</summary>
+    public Task<SitCall> CategoriesAsync(int page, int size, CancellationToken ct) =>
+        SendAsync("Kategori bilgilerini alma", HttpMethod.Get,
+            $"{ProductBaseUrl}/api/categories/get-all-categories?leaf=true&status=ACTIVE&available=true&page={page}&size={size}", null, null, ct);
+
+    public Task<SitCall> CategoryAttributesAsync(long categoryId, CancellationToken ct) =>
+        SendAsync("Kategori özelliklerini alma", HttpMethod.Get, $"{ProductBaseUrl}/api/categories/{categoryId}/attributes", null, null, ct);
+
+    public Task<SitCall> AttributeValuesAsync(long categoryId, string attributeId, int page, CancellationToken ct) =>
+        SendAsync("Kategori özellik değerlerini alma", HttpMethod.Get,
+            $"{ProductBaseUrl}/api/categories/{categoryId}/attribute/{Uri.EscapeDataString(attributeId)}/values?page={page}&size=1000", null, null, ct);
+
+    /// <summary>
+    /// Ürün Bilgisi Gönderme: ürün JSON'u bir dosya olarak multipart/form-data içinde <c>file</c> alanıyla gönderilir
+    /// (dokümandaki örnek dosya adı <c>integrator.json</c>). Yanıttaki trackingId ile <see cref="ProductStatusAsync"/>.
+    /// </summary>
+    public Task<SitCall> ProductImportAsync(string productsJson, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(productsJson);
+        // Standart form biçimi: tırnaksız boundary ve yalnızca name/filename (.NET varsayılanı boundary'yi tırnaklar ve filename*
+        // ekler; SIT ilk denemede "File not found" döndü, 2026-11-20).
+        var boundary = "----PazaryeriHub" + Guid.NewGuid().ToString("N");
+        var form = new MultipartFormDataContent(boundary);
+        form.Headers.ContentType = MediaTypeHeaderValue.Parse("multipart/form-data; boundary=" + boundary);
+        // curl -F file=@integrator.json ile aynı: parça türü application/octet-stream, içerik UTF-8 bayt
+        var file = new ByteArrayContent(Encoding.UTF8.GetBytes(productsJson));
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        file.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data") { Name = "\"file\"", FileName = "\"integrator.json\"" };
+        form.Add(file);
+        return SendContentAsync("Ürün bilgisi gönderme", HttpMethod.Post, $"{ProductBaseUrl}/api/products/import?version=1", form,
+            "multipart/form-data; file=integrator.json; " + productsJson, ct);
+    }
+
+    public Task<SitCall> ApprovePreMatchAsync(IReadOnlyList<string> merchantSkus, CancellationToken ct) =>
+        SendAsync("Eşleşen statü onay", HttpMethod.Post, $"{ProductBaseUrl}/api/products/approve-prematch",
+            new[] { new { merchant = _creds.MerchantId, merchantSkuList = merchantSkus } }, CamelCase, ct);
+
+    public Task<SitCall> RejectPreMatchAsync(IReadOnlyList<string> merchantSkus, CancellationToken ct) =>
+        SendAsync("Eşleşen statü red", HttpMethod.Post, $"{ProductBaseUrl}/api/products/reject-prematch",
+            new[] { new { merchant = _creds.MerchantId, merchantSkuList = merchantSkus } }, CamelCase, ct);
 
     public Task<SitCall> ProductStatusAsync(string trackingId, CancellationToken ct) =>
         SendAsync("Ürün durumu sorgulama", HttpMethod.Get,
@@ -220,7 +264,14 @@ public sealed class HepsiburadaSitClient
 
     private string Listings => $"{ListingBaseUrl}/listings/merchantid/{_creds.MerchantId}";
 
-    private async Task<SitCall> SendAsync(string step, HttpMethod method, string url, object? body, JsonSerializerOptions? options, CancellationToken ct)
+    private Task<SitCall> SendAsync(string step, HttpMethod method, string url, object? body, JsonSerializerOptions? options, CancellationToken ct)
+    {
+        string? requestBody = body is null ? null : JsonSerializer.Serialize(body, options ?? CamelCase);
+        var content = requestBody is null ? null : new StringContent(requestBody, Encoding.UTF8, "application/json");
+        return SendContentAsync(step, method, url, content, requestBody, ct);
+    }
+
+    private async Task<SitCall> SendContentAsync(string step, HttpMethod method, string url, HttpContent? content, string? requestBody, CancellationToken ct)
     {
         var uri = new Uri(url);
         if (uri.Scheme != Uri.UriSchemeHttps || !uri.Host.EndsWith("-sit.hepsiburada.com", StringComparison.OrdinalIgnoreCase))
@@ -233,12 +284,7 @@ public sealed class HepsiburadaSitClient
             Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_creds.UserName}:{_creds.Password}")));
         request.Headers.TryAddWithoutValidation("User-Agent", _creds.EffectiveUserAgent);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        string? requestBody = null;
-        if (body is not null)
-        {
-            requestBody = JsonSerializer.Serialize(body, options ?? CamelCase);
-            request.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
-        }
+        request.Content = content;
 
         var watch = Stopwatch.StartNew();
         try
