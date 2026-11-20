@@ -224,7 +224,9 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
                 VariantAttributes: described.Count > 0 ? string.Join("; ", described) : null,
                 ProductUrl: Clean(v.ProductUrl),
                 SalePrice: v.Price?.SalePrice,
-                ListPrice: v.Price?.ListPrice);
+                ListPrice: v.Price?.ListPrice,
+                // Görsel: dokümandaki örnek göreli; gerçek yanıt mutlak https (cdn.dsmcdn.com, deneme modu katalog okuması 2026-11-20). Göreli adres alınmaz.
+                ImageUrl: content.Images.Select(x => Clean(x.Url)).FirstOrDefault(x => x is not null && x.StartsWith("https://", StringComparison.OrdinalIgnoreCase)));
         }
     }
 
@@ -567,12 +569,13 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
     /// <summary>
     /// Uç ve alanlar doğrulandı: <c>POST /inventory/sellers/{sellerId}/products/price-and-inventory</c>
     /// <c>{items:[{barcode, salePrice, listPrice}]}</c>; "listPrice cannot be lower than salePrice"; yalnızca fiyat gönderilebilir.
-    /// TODO: doğrulanmalı — fiyatların KDV dahil olup olmadığı dokümanda YAZMIYOR → VatIncluded = null, yetenek açılamaz.
+    /// KDV: resmi dokümanda ifade yok ("salePrice; Ürün satış fiyatı TSF'dir", 2026-11-20 yeniden okundu). Kullanıcı onayıyla KDV dahil
+    /// kabul edildi (ADR-041): satıcı panelinde "Trendyol Satış Fiyatı" ile "Müşterinin Gördüğü Fiyat" aynı (ekran görüntüsü, 2026-11-20).
     /// </summary>
     public PriceUpdateRule DescribePriceUpdate() => new(
-        Supported: true, VatIncluded: null, SendsListPrice: true, SamePriceForProductVariants: false,
-        "Trendyol dokümanı fiyatın KDV dahil mi hariç mi olduğunu belirtmiyor. Resmi bir kaynak docs/ altına konunca açılabilir.",
-        PriceSource);
+        Supported: true, VatIncluded: true, SendsListPrice: true, SamePriceForProductVariants: false,
+        "Kullanıcı onayı (ADR-041): Trendyol satış fiyatı (TSF) müşterinin gördüğü KDV dahil fiyattır; resmi dokümanda ifade yok.",
+        PriceSource + "; KDV: kullanıcı onayı 2026-11-20 (satıcı paneli)");
 
     public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
     {

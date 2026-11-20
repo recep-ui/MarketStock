@@ -31,7 +31,8 @@ public sealed class EmbeddedScriptsTests
             "PazaryeriHub.Infrastructure.Database.Migrations.0013_fiyat.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0014_soru_cevap.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0015_eslesme_onayi.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0016_kanalda_yok.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0016_kanalda_yok.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0017_ilan_stok_kurali_ve_gorsel.sql");
     }
 
     [Fact]

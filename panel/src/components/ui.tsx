@@ -13,6 +13,22 @@ export function ChannelLink({ code, url, label }: { code: string; url: string | 
   );
 }
 
+/**
+ * Kanalın kendi API'sinden gelen küçük resim (ADR-042): yanlış eşleşmeyi gözle yakalamak için. Görsel kanalın CDN'inden
+ * yüklenir (referrer gönderilmez); yüklenemezse yer tutucu gösterilir. Tıklayınca büyük hali yeni sekmede açılır.
+ */
+export function Thumb({ url, alt, size = 48 }: { url: string | null | undefined; alt: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!url || failed) {
+    return <span className="thumb thumb-empty" style={{ width: size, height: size }} title="Kanal görsel bildirmedi" aria-label="görsel yok">—</span>;
+  }
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className="thumb" title="Görseli büyük aç" style={{ width: size, height: size }}>
+      <img src={url} alt={alt} loading="lazy" referrerPolicy="no-referrer" width={size} height={size} onError={() => setFailed(true)} data-testid="channel-thumb" />
+    </a>
+  );
+}
+
 export function ChannelBadge({ code }: { code: string }) {
   return <span className={`badge channel-${code.toLowerCase()}`}>{channelNames[code] ?? code}</span>;
 }

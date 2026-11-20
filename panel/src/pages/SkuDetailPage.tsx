@@ -1,7 +1,10 @@
 import { Link, useParams } from 'react-router-dom';
 import { get, type SkuDetail } from '../api';
-import { Card, ChannelBadge, ChannelLink, ErrorBox, Stat, StatusBadge, useLoad } from '../components/ui';
-import { formatDateTime, formatMoney, formatRelative, movementLabels } from '../format';
+import { Card, ChannelBadge, ChannelLink, ErrorBox, Stat, StatusBadge, Thumb, useLoad } from '../components/ui';
+import { channelNames, formatDateTime, formatMoney, formatRelative, movementLabels } from '../format';
+
+const ruleText = (type: string | null | undefined, value: number | null | undefined) =>
+  type === 'UST_LIMIT' ? `üst limit ${value}` : type === 'SABIT' ? `sabit ${value}` : null;
 
 /**
  * SKU detay (ADR-034): tek ürünün her şeyi bir ekranda — bakiye, depolar, kanal ilanları (stok, sapma, link),
@@ -50,6 +53,16 @@ export function SkuDetailPage() {
             {d.channels.length === 0 ? (
               <p className="muted">Bu SKU hiçbir kanal ilanıyla eşleşmemiş. <Link to="/eslestirme">Eşleştirme →</Link></p>
             ) : (
+              <>
+              {/* ADR-042: aynı SKU'ya bağlı ilanların kanal görselleri yan yana; farklı ürün görünüyorsa eşleşme yanlış olabilir */}
+              <div className="thumb-strip" data-testid="sku-thumb-strip" aria-label="Kanallardaki görseller">
+                {d.channels.map(c => (
+                  <figure key={c.listingId}>
+                    <Thumb url={c.imageUrl} alt={`${channelNames[c.channelCode] ?? c.channelCode} görseli`} size={96} />
+                    <figcaption>{channelNames[c.channelCode] ?? c.channelCode}{c.variant ? ` · ${c.variant}` : ''}</figcaption>
+                  </figure>
+                ))}
+              </div>
               <div className="table-wrap">
                 <table className="table">
                   <thead>
@@ -64,7 +77,10 @@ export function SkuDetailPage() {
                         <td><ChannelBadge code={c.channelCode} />{c.variant && <div className="small muted">{c.variant}</div>}</td>
                         <td>{c.channelBarcode ?? c.channelProductCode ?? '—'}</td>
                         <td>{c.status === 'PASIF' ? <span className="badge">Pasif</span> : <span className="badge ok">Aktif</span>}</td>
-                        <td className="num">{c.expected}</td>
+                        <td className="num">
+                          {c.expected}
+                          {ruleText(c.stockRuleType, c.stockRuleValue) && <div className="small muted">{ruleText(c.stockRuleType, c.stockRuleValue)}</div>}
+                        </td>
                         <td className="num">{c.lastSent ?? '—'}</td>
                         <td className="num">
                           {c.channelStock ?? (c.missingInChannel
@@ -79,6 +95,7 @@ export function SkuDetailPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
             {d.hasDeviation && <p className="small">Sapma var: kanaldaki değer defterle uyuşmuyor. <Link to="/senkron">Senkron Merkezi →</Link></p>}
           </Card>

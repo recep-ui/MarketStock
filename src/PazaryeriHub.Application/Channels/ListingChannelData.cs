@@ -9,8 +9,13 @@ namespace PazaryeriHub.Application.Channels;
 /// </summary>
 public sealed record ListingChannelData(
     string? ProductUrl, decimal? SalePrice, decimal? ListPrice, string? Variant,
-    string? Name = null, string? Brand = null, string? StockCode = null, string? Color = null, string? Size = null)
+    string? Name = null, string? Brand = null, string? StockCode = null, string? Color = null, string? Size = null,
+    string? ImageUrl = null)
 {
+    /// <summary>Kanal adresleri (ürün linki, görsel) yalnızca mutlak https ve en fazla 1000 karakterse kabul edilir.</summary>
+    public static string? HttpsOrNull(string? url) =>
+        url is not null && url.Length <= 1000 && Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps ? url : null;
+
     public static ListingChannelData Empty { get; } = new(null, null, null, null);
 
     public static ListingChannelData Parse(string? json)
@@ -27,13 +32,10 @@ public sealed record ListingChannelData(
             {
                 return Empty;
             }
-            var url = Str(r, "urunLinki");
-            if (url is not null && (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps))
-            {
-                url = null;
-            }
+            var url = HttpsOrNull(Str(r, "urunLinki"));
             return new ListingChannelData(url, Dec(r, "kanalSatisFiyati"), Dec(r, "kanalListeFiyati"), Str(r, "varyant"),
-                Str(r, "urunAdi"), Str(r, "marka"), Str(r, "stokKodu"), Str(r, "renk"), Str(r, "beden"));
+                Str(r, "urunAdi"), Str(r, "marka"), Str(r, "stokKodu"), Str(r, "renk"), Str(r, "beden"),
+                HttpsOrNull(Str(r, "gorsel")));
         }
         catch (JsonException)
         {

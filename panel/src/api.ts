@@ -185,6 +185,14 @@ export type ChannelCell = {
   /** ADR-040: son mutabakatta kanalda bulunamadı (çekim var, değer yok); sapma sayılmaz. */
   missingInChannel?: boolean;
   channelBarcode: string | null; channelProductCode: string | null; productUrl?: string | null; variant?: string | null;
+  /** ADR-042: kanalın küçük resmi (yalnızca https) ve ilan stok kuralı. */
+  imageUrl?: string | null; stockRuleType?: StockRuleType | null; stockRuleValue?: number | null;
+};
+/** ADR-042: ilan başına stok kuralı. UST_LIMIT: en fazla X; SABIT: X (defteri ve kanal limitini aşmaz). */
+export type StockRuleType = 'UST_LIMIT' | 'SABIT';
+export type ListingStockRule = {
+  listingId: number; type: StockRuleType | null; value: number | null; target: number; lastSent: number | null;
+  changedBy: string | null; changedAtUtc: string | null;
 };
 export type StockRow = {
   skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number;
@@ -261,6 +269,7 @@ export type UnmatchedItem = {
   brand: string | null; channelStatus: string | null; reason: string; reasonDetail: string | null; suggestedSkuId: number | null;
   suggestedSkuCode: string | null; suggestedProductName: string | null; suggestionScore: number | null; status: string;
   firstSeenUtc: string; lastSeenUtc: string; resolvedBy: string | null; resolvedAtUtc: string | null;
+  imageUrl?: string | null;
 };
 export type Dashboard = {
   day: string; todayOrders: number; todayRevenue: number;
@@ -337,6 +346,10 @@ export type ChannelStockListRow = {
   /** ADR-036: "doğru eşleşme" onayı; valid=false ise bilgi onaydan sonra değişti. */
   approval: { approvedBy: string | null; approvedAtUtc: string; valid: boolean; approvedWarnings: string[] } | null;
   hasDeviation: boolean; needsReview: boolean; missingInChannel?: boolean;
+  /** ADR-042: kanal görseli, kanalda görünen fiyat, ilan stok kuralı ve ilan fiyatı. */
+  imageUrl?: string | null; channelSalePrice?: number | null; channelListPrice?: number | null;
+  stockRuleType?: StockRuleType | null; stockRuleValue?: number | null;
+  priceOverride?: number | null; skuSalePrice?: number | null; lastSentSalePrice?: number | null;
 };
 export type ChannelStockList = {
   channelId: number; channelCode: string; rows: Paged<ChannelStockListRow>;

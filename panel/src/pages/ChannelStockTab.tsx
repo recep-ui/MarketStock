@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, get, qs, type Channel, type ChannelStockList, type ChannelStockListRow } from '../api';
+import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockList, type ChannelStockListRow, type Paged, type UnmatchedItem } from '../api';
 import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
-import { Card, ChannelLink, ErrorBox, Stat, useLoad } from '../components/ui';
+import { ListingEditor, draftOf, draftProblem, isDirty, saveDraft, type ListingDraft } from '../components/ListingEditor';
+import { Card, ChannelLink, ErrorBox, Stat, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatRelative } from '../format';
 
 const basisLabels: Record<ChannelStockListRow['matchBasis'], { text: string; title: string; tone?: 'ok' }> = {
@@ -19,6 +20,12 @@ const warningLabels: Record<string, string> = {
 
 const variantText = (color: string | null, size: string | null) => [color, size].filter(Boolean).join(' / ');
 
+const capabilityText: Record<string, string> = {
+  ACIK: 'açık: kaydedilen fiyat kanala gönderilir',
+  DENEME: 'deneme: her fiyat değişikliği önce Yönetici onayına düşer',
+  KAPALI: 'kapalı: fiyat kaydedilir ama kanala gönderilmez'
+};
+
 /**
  * Stok Listesi → kanal sekmesi (ADR-035). Kanalın çekilen stok listesi: her satırda kanalın bildirdiği barkod/kod/ad/stok ve
  * bağlandığı SKU yan yana. Kanal bilgisi SKU ile uyuşmuyorsa "Kontrol et" (yanlış eşleştirme olabilir). Eşleştirmeyi değiştirmez.
@@ -29,8 +36,15 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
+  const [drafts, setDrafts] = useState<Record<number, ListingDraft>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveResult, setSaveResult] = useState<string | null>(null);
+  const [showUnmatched, setShowUnmatched] = useState(false);
   const { can } = useAuth();
+  const editable = can('catalogWrite');
   const name = channelNames[channel.code] ?? channel.name;
+  const priceInfo = useLoad(() => get<ChannelPriceInfo[]>('/api/prices/channels'), []);
+  const priceState = priceInfo.data?.find(c => c.channelId === channel.id)?.capabilityState;
 
   const data = useLoad(
     () => get<ChannelStockList>(`/api/stock-overview/channels/${channel.id}${qs({
@@ -56,6 +70,32 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
     } finally {
       setBusy(null);
     }
+  };
+
+  const rows = d?.rows.items ?? [];
+  const dirtyRows = rows.filter(r => isDirty(r, drafts[r.listingId]));
+  const invalid = dirtyRows.some(r => draftProblem(drafts[r.listingId]) !== null);
+
+  // Tek "Kaydet": değişen her ilan için stok kuralı ve/veya ilan fiyatı yazılır; kanala gönderim mevcut güvenli hattan gider.
+  const saveAll = async () => {
+    setSaving(true);
+    setActionError(null);
+    setSaveResult(null);
+    const failed: string[] = [];
+    for (const r of dirtyRows) {
+      try {
+        await saveDraft(r, drafts[r.listingId]);
+      } catch (e) {
+        failed.push(r.skuCode);
+        setActionError(e);
+      }
+    }
+    setDrafts({});
+    setSaving(false);
+    setSaveResult(failed.length === 0
+      ? `${dirtyRows.length} ilan kaydedildi. Kanala gönderim senkron hattından gider (Senkron Merkezi'nden izlenir).`
+      : `${dirtyRows.length - failed.length} ilan kaydedildi; kaydedilemeyen: ${failed.join(', ')}.`);
+    data.reload();
   };
 
   const quick = (patch: Partial<typeof form>) => {
@@ -107,13 +147,26 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
             <input type="checkbox" checked={form.onlyDeviations} onChange={e => quick({ onlyDeviations: e.target.checked })} /> Yalnızca stok sapmaları
           </label>
           <button type="submit">Filtrele</button>
+          {d && d.unmatchedCount > 0 && (
+            <label className="check">
+              <input type="checkbox" checked={showUnmatched} onChange={e => setShowUnmatched(e.target.checked)} /> Eşleşmemiş kanal ürünlerini de göster
+            </label>
+          )}
         </form>
         <p className="muted small">
           Sol: {name}'in bildirdiği (son katalog çekimi / mutabakat). Sağ: bağlı olduğu SKU ve deftere göre gitmesi gereken stok.
           <strong> Kontrol et</strong>: kanalın bilgisi SKU ile uyuşmuyor, yanlış eşleşme olabilir; düzeltmek için <Link to="/eslestirme">Eşleştirme</Link>.
           Çoklanan ilanlarda barkod farklı olabilir. Doğru olduğunu bildiğiniz eşleşmeyi "Doğru eşleşme, onayla" ile kapatabilirsiniz
           (Yönetici); bilgiler sonradan değişirse uyarı geri gelir. Bu ekran eşleştirmeyi değiştirmez.
+          <strong> Stok ve fiyat</strong>: ilana özel stok kuralı (üst limit / sabit; defteri asla aşmaz) ve satış fiyatı buradan
+          tek seferde kaydedilir. Görseller {name}'in kendi API'sinden gelir; diğer kanallardaki görsellerle karşılaştırmak için SKU'yu açın.
         </p>
+        {priceState && (
+          <p className="small" data-testid="price-capability">
+            {name} fiyat gönderimi <strong>{capabilityText[priceState] ?? priceState}</strong>. <Link to="/ayarlar">Ayarlar →</Link>
+          </p>
+        )}
+        {saveResult && <p className="small" role="status" data-testid="save-result">{saveResult}</p>}
         <ErrorBox error={data.error ?? actionError} onRetry={data.reload} />
         {data.loading && !d && <div className="loading">Yükleniyor…</div>}
         {d && (
@@ -127,6 +180,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                   <th>Bağlı SKU (defter)</th>
                   <th className="num">Gitmesi gereken</th>
                   <th>Eşleşme kontrolü</th>
+                  <th>Stok ve fiyat</th>
                 </tr>
               </thead>
               <tbody>
@@ -136,7 +190,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                     data-testid="channel-stock-row"
                     className={r.needsReview ? 'row-review' : r.hasDeviation ? 'row-deviation' : undefined}
                   >
-                    <td className="wrap-cell">
+                    <td className="wrap-cell"><div className="with-thumb"><Thumb url={r.imageUrl} alt={r.channel.name ?? r.skuCode} /><div>
                       <div><strong>{r.channel.name ?? <span className="muted">(kanal adı bilinmiyor)</span>}</strong></div>
                       <div className="small muted">
                         {[r.channel.barcode && `Barkod ${r.channel.barcode}`, r.channel.productCode && `Kod ${r.channel.productCode}`,
@@ -149,7 +203,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                         {r.status === 'PASIF' && <span className="badge">Pasif</span>}
                         <ChannelLink code={channel.code} url={r.productUrl} />
                       </div>
-                    </td>
+                    </div></div></td>
                     <td className="num">
                       {r.channelStock ?? (r.missingInChannel
                         ? <span className="muted small" title="Son mutabakatta bu ilan kanalda bulunamadı; sapma hesabına girmez.">kanalda yok</span>
@@ -206,10 +260,18 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                         </button>
                       )}
                     </td>
+                    <td>
+                      <ListingEditor
+                        row={r}
+                        draft={drafts[r.listingId] ?? draftOf(r)}
+                        editable={editable && !saving}
+                        onChange={next => setDrafts(prev => ({ ...prev, [r.listingId]: next }))}
+                      />
+                    </td>
                   </tr>
                 ))}
                 {d.rows.items.length === 0 && (
-                  <tr><td colSpan={6} className="empty">
+                  <tr><td colSpan={7} className="empty">
                     {d.totalListings === 0 ? `${name} için henüz eşleşmiş ilan yok.` : 'Filtreye uyan ilan yok.'}
                   </td></tr>
                 )}
@@ -217,8 +279,65 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
             </table>
           </div>
         )}
-        {d && <Pager page={page} pageSize={d.rows.pageSize} total={d.rows.total} onPage={setPage} />}
+        {dirtyRows.length > 0 && (
+          <div className="save-bar" data-testid="save-bar">
+            <strong>{dirtyRows.length} ilanda kaydedilmemiş değişiklik</strong>
+            <button onClick={saveAll} disabled={saving || invalid} data-testid="save-all">{saving ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button>
+            <button className="link" onClick={() => setDrafts({})} disabled={saving}>Vazgeç</button>
+            {invalid && <span className="small cell-deviation">Hatalı alanları düzeltin.</span>}
+          </div>
+        )}
+        {d && <Pager page={page} pageSize={d.rows.pageSize} total={d.rows.total} onPage={p => {
+          if (dirtyRows.length > 0 && !window.confirm('Kaydedilmemiş değişiklikler var; sayfa değişirse kaybolur. Devam edilsin mi?')) return;
+          setDrafts({});
+          setPage(p);
+        }} />}
       </Card>
+      {showUnmatched && <UnmatchedList channel={channel} />}
     </>
+  );
+}
+
+/**
+ * Kanalda olup hiçbir SKU'ya bağlanmamış ürünler (salt okuma): kanalın tüm ürünlerini tek tek görmek için. Bağlama
+ * Eşleştirme ekranında yapılır; stok/fiyat düzenlemesi ancak bir SKU'ya bağlandıktan sonra yapılabilir (defter esas).
+ */
+function UnmatchedList({ channel }: { channel: Channel }) {
+  const [page, setPage] = useState(1);
+  const items = useLoad(
+    () => get<Paged<UnmatchedItem>>(`/api/channel-catalog/unmatched${qs({ channelId: channel.id, status: 'BEKLIYOR', page, pageSize: 50 })}`),
+    [channel.id, page]
+  );
+  const name = channelNames[channel.code] ?? channel.name;
+  return (
+    <Card title={`${name}: eşleşmemiş ürünler`} actions={<Link to="/eslestirme">Eşleştirmede bağla →</Link>}>
+      <ErrorBox error={items.error} onRetry={items.reload} />
+      {items.data && (
+        <div className="table-wrap">
+          <table className="table channel-stock-table" data-testid="unmatched-table">
+            <thead><tr><th>{name}'de görünen ürün</th><th>Kanal durumu</th><th>Neden eşleşmedi</th><th>Öneri</th></tr></thead>
+            <tbody>
+              {items.data.items.map(u => (
+                <tr key={u.id} data-testid="unmatched-row">
+                  <td className="wrap-cell"><div className="with-thumb"><Thumb url={u.imageUrl} alt={u.productName ?? u.channelBarcode ?? 'ürün'} /><div>
+                    <div><strong>{u.productName ?? <span className="muted">(ad bilinmiyor)</span>}</strong></div>
+                    <div className="small muted">
+                      {[u.channelBarcode && `Barkod ${u.channelBarcode}`, u.channelProductCode && `Kod ${u.channelProductCode}`,
+                        u.channelStockCode && `Stok kodu ${u.channelStockCode}`].filter(Boolean).join(' · ')}
+                    </div>
+                    {variantText(u.color, u.size) && <div className="small">{variantText(u.color, u.size)}</div>}
+                  </div></div></td>
+                  <td className="small">{u.channelStatus ?? '—'}</td>
+                  <td className="wrap-cell small">{u.reasonDetail ?? u.reason}</td>
+                  <td className="small">{u.suggestedSkuCode ? <>{u.suggestedSkuCode}<div className="muted">{u.suggestedProductName}</div></> : '—'}</td>
+                </tr>
+              ))}
+              {items.data.items.length === 0 && <tr><td colSpan={4} className="empty">Bekleyen eşleşmemiş ürün yok.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {items.data && <Pager page={page} pageSize={items.data.pageSize} total={items.data.total} onPage={setPage} />}
+    </Card>
   );
 }

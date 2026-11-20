@@ -53,8 +53,9 @@ public static class ChannelCatalogEntries
                 Truncate(Clean(e.Name), CatalogLimits.ProductName), Truncate(Clean(e.Brand), CatalogLimits.Brand),
                 Truncate(Clean(e.Category), CatalogLimits.Category), Truncate(Clean(e.ChannelStatus), 100), e.Passive,
                 Truncate(Clean(e.VariantKey), 400), Truncate(Clean(e.VariantAttributes), 400),
-                Clean(e.ProductUrl) is { } url && url.Length <= 1000 && Uri.TryCreate(url, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps ? url : null,
-                e.SalePrice is > 0 ? e.SalePrice : null, e.ListPrice is > 0 ? e.ListPrice : null));
+                ListingChannelData.HttpsOrNull(Clean(e.ProductUrl)),
+                e.SalePrice is > 0 ? e.SalePrice : null, e.ListPrice is > 0 ? e.ListPrice : null,
+                ListingChannelData.HttpsOrNull(Clean(e.ImageUrl))));
         }
 
         var invalid = new HashSet<int>();

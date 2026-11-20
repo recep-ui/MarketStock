@@ -33,7 +33,8 @@ public sealed record DashboardDto(
 /// <param name="ProductUrl">Ürünün kanaldaki sayfası (kanal API'si veriyorsa; ADR-031).</param>
 public sealed record ChannelStockCell(
     string ChannelCode, int ListingId, string Status, int Expected, int? LastSent, int? ChannelStock, DateTime? FetchedAtUtc,
-    string? ChannelBarcode = null, string? ChannelProductCode = null, string? ProductUrl = null, string? Variant = null)
+    string? ChannelBarcode = null, string? ChannelProductCode = null, string? ProductUrl = null, string? Variant = null,
+    string? ImageUrl = null, string? StockRuleType = null, int? StockRuleValue = null)
 {
     /// <summary>Sapma yalnızca kanalda görülen değerle hesaplanır; kanalda bulunamayan ilan sapma sayılmaz (ADR-040).</summary>
     public bool HasDeviation => ChannelStock is { } c && c != Expected;

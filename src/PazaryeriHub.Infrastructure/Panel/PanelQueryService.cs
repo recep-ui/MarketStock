@@ -195,18 +195,20 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         var listings = (await connection.QueryAsync<ChannelListingRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.Durum AS Status, l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
                    l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
+                   l.StokKuralTip AS StockRuleType, l.StokKuralDeger AS StockRuleValue, l.FiyatOverride AS PriceOverride,
+                   l.SonGonderilenSatisFiyati AS LastSentSalePrice, s.SatisFiyati AS SkuSalePrice,
                    s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
                    s.Renk AS Color, s.Beden AS Size,
                    snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc,
                    u.UrunAdi AS FallbackName, u.Marka AS FallbackBrand, u.KanalStokKodu AS FallbackStockCode,
-                   u.Renk AS FallbackColor, u.Beden AS FallbackSize,
+                   u.Renk AS FallbackColor, u.Beden AS FallbackSize, u.GorselUrl AS FallbackImageUrl,
                    a.Imza AS ApprovalSignature, a.Uyarilar AS ApprovalWarnings, a.Onaylayan AS ApprovedBy, a.OnayTarihi AS ApprovedAtUtc
               FROM dbo.ChannelListing l
               JOIN dbo.Sku s ON s.Id = l.SkuId
               JOIN dbo.Product p ON p.Id = s.ProductId
               OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
                             WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
-              OUTER APPLY (SELECT TOP (1) i.UrunAdi, i.Marka, i.KanalStokKodu, i.Renk, i.Beden FROM dbo.UnmatchedChannelItem i
+              OUTER APPLY (SELECT TOP (1) i.UrunAdi, i.Marka, i.KanalStokKodu, i.Renk, i.Beden, i.GorselUrl FROM dbo.UnmatchedChannelItem i
                             WHERE i.ChannelId = l.ChannelId AND i.Durum = 'BAGLANDI'
                               AND ((l.KanalBarkod IS NOT NULL AND i.KanalBarkod = l.KanalBarkod)
                                 OR (l.KanalUrunKodu IS NOT NULL AND i.KanalUrunKodu = l.KanalUrunKodu))
@@ -238,7 +240,9 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
             }
             return new ChannelStockListRow(l.ListingId, l.Status, side, data.ProductUrl, l.ChannelStock, Utc(l.FetchedAtUtc),
                 l.SkuId, l.SkuCode, l.SkuBarcode, l.ProductName, l.Color, l.Size,
-                targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings, approval);
+                targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings, approval,
+                data.ImageUrl ?? PazaryeriHub.Application.Channels.ListingChannelData.HttpsOrNull(l.FallbackImageUrl),
+                data.SalePrice, data.ListPrice, l.StockRuleType, l.StockRuleValue, l.PriceOverride, l.SkuSalePrice, l.LastSentSalePrice);
         }).ToList();
     }
 
@@ -359,6 +363,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         var listings = (await connection.QueryAsync<ListingRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.SkuId, c.Kod AS ChannelCode, l.Durum AS Status, l.SonGonderilenStok AS LastSent,
                    l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode, l.KanalVerisi AS ChannelData,
+                   l.StokKuralTip AS StockRuleType, l.StokKuralDeger AS StockRuleValue,
                    snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc
               FROM dbo.ChannelListing l
               JOIN dbo.Channel c ON c.Id = l.ChannelId
@@ -377,7 +382,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
                 var data = PazaryeriHub.Application.Channels.ListingChannelData.Parse(l.ChannelData);
                 return new ChannelStockCell(
                     l.ChannelCode, l.ListingId, l.Status, targets[l.ListingId], l.LastSent, l.ChannelStock, Utc(l.FetchedAtUtc),
-                    l.ChannelBarcode, l.ChannelProductCode, data.ProductUrl, data.Variant);
+                    l.ChannelBarcode, l.ChannelProductCode, data.ProductUrl, data.Variant, data.ImageUrl, l.StockRuleType, l.StockRuleValue);
             }).ToList())).ToList();
     }
 
@@ -432,6 +437,12 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public string? FallbackStockCode { get; init; }
         public string? FallbackColor { get; init; }
         public string? FallbackSize { get; init; }
+        public string? FallbackImageUrl { get; init; }
+        public string? StockRuleType { get; init; }
+        public int? StockRuleValue { get; init; }
+        public decimal? PriceOverride { get; init; }
+        public decimal? LastSentSalePrice { get; init; }
+        public decimal? SkuSalePrice { get; init; }
         public string? ApprovalSignature { get; init; }
         public string? ApprovalWarnings { get; init; }
         public string? ApprovedBy { get; init; }
@@ -486,5 +497,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public string? ChannelBarcode { get; init; }
         public string? ChannelProductCode { get; init; }
         public string? ChannelData { get; init; }
+        public string? StockRuleType { get; init; }
+        public int? StockRuleValue { get; init; }
     }
 }

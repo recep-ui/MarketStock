@@ -212,7 +212,8 @@ public sealed class BeymenAdapterContractTests
                "stockCode":"","brand":{"id":"717","name":"Softcotton"},"category":{"id":"98267","name":"Havlu"},"merchantColorCode":"",
                "size":{"id":"13483","name":"75x150"},"platformColor":{"id":"2481","name":"Krem"},
                "salesPrice":{"value":499.9,"currency":"TRY"},"platformSalesPrice":{"value":349.9,"currency":"TRY"},
-               "stock":{"count":19},"status":{"status":"OnSale","localizedDescription":"Satışta"}}],
+               "stock":{"count":19},"status":{"status":"OnSale","localizedDescription":"Satışta"},
+               "images":[{"id":4352,"thumbnailPath":"https://img-beymen-marketplace.mncdn.com/mnresize/57/93/a/e5.jpg","originalPath":"https://img-beymen-marketplace.mncdn.com/a/e5.jpg","isImageRevised":true}]}],
              "page":0,"itemsPerPage":100,"pageCount":1,"total":1}
             """);
 
@@ -221,7 +222,8 @@ public sealed class BeymenAdapterContractTests
         http.Requests.Single().Uri.PathAndQuery.Should().Be("/products?size=100&page=0");
         page.NextCursor.Should().BeNull();
         page.Items.Should().Equal(new ChannelCatalogEntry("d4cc05d9-52fb-49b1-8074-e2e6af8e5440", "Chain75150001", null, "Chain75150", "Krem", "75x150",
-            "Chain Havlu", "Softcotton", "Havlu", "Satışta", false, "pd4cc05d9-52fb-49b1-8074-e2e6af8e5440", "Renk: Krem; Beden: 75x150", null, 349.9m, 499.9m));
+            "Chain Havlu", "Softcotton", "Havlu", "Satışta", false, "pd4cc05d9-52fb-49b1-8074-e2e6af8e5440", "Renk: Krem; Beden: 75x150", null, 349.9m, 499.9m,
+            ImageUrl: "https://img-beymen-marketplace.mncdn.com/mnresize/57/93/a/e5.jpg"));
     }
 
     [Fact]

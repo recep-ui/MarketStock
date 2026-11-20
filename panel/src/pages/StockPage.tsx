@@ -3,7 +3,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs, type Channel, type Paged, type StockRow } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
-import { Card, ChannelLink, ErrorBox, useLoad } from '../components/ui';
+import { Card, ChannelLink, ErrorBox, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { ChannelStockTab } from './ChannelStockTab';
 
@@ -58,8 +58,9 @@ function LedgerStockView() {
       cell: ({ row }) => {
         // Ürünün kanal sayfaları (ADR-031): her ilan için ayrı link; varyant bilgisi ipucu olarak.
         const links = row.original.channels.filter(c => c.productUrl);
+        const image = row.original.channels.find(c => c.imageUrl)?.imageUrl;
         return (
-          <>
+          <div className="with-thumb"><Thumb url={image} alt={row.original.productName} size={36} /><div>
             {row.original.productName}
             {links.length > 0 && (
               <div className="small">
@@ -70,7 +71,7 @@ function LedgerStockView() {
                 ))}
               </div>
             )}
-          </>
+          </div></div>
         );
       }
     },

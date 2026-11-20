@@ -117,4 +117,12 @@ public sealed class ListingMatchCheckTests
 
         (d.Name, d.Brand, d.StockCode, d.Color, d.Size).Should().Be(("Bambu Havlu", "Softcotton", "B-1", "Beyaz", "50x90"));
     }
+
+    [Fact]
+    public void Kanal_verisinden_yalnizca_https_gorsel_okunur()
+    {
+        ListingChannelData.Parse("""{"gorsel":"https://img.example.com/a.jpg"}""").ImageUrl.Should().Be("https://img.example.com/a.jpg");
+        ListingChannelData.Parse("""{"gorsel":"http://img.example.com/a.jpg"}""").ImageUrl.Should().BeNull();
+        ListingChannelData.Parse("""{"gorsel":"/mediacenter/a.jpg"}""").ImageUrl.Should().BeNull();
+    }
 }

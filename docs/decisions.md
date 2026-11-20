@@ -875,3 +875,39 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 **Kapsam dışı:** Kanala yazma yok; eşleştirme kuralları değişmedi. Senkron Merkezi "sapmalar" listesi değeri olmayan ilanları (önceden olduğu gibi) gösterir; artık "kanalda yok (son çekimde bulunamadı)" ile "çekilmedi" ayrılır.
 
 **Doğrulama:** unit 372/372, entegrasyon 150/150, Playwright 17/17.
+
+## ADR-041: Trendyol satış fiyatı KDV dahil kabul edildi (kullanıcı onayı)
+**Tarih:** 2026-11-20
+**Bağlam:**
+- ADR-039 ile fiyat gönderimi `PriceUpdateRule.CanEnable = Supported && VatIncluded == true` koşuluna bağlandı. Trendyol resmi dokümanı `salePrice` için yalnızca "Ürün satış fiyatı TSF'dir" diyor; KDV dahil/hariç ifadesi yok (2026-11-20 yeniden okundu). Bu yüzden Trendyol FIYAT yeteneği açılamıyordu.
+- Kullanıcının paylaştığı satıcı paneli ekran görüntüsünde "Trendyol Satış Fiyatı" ile "Müşterinin Gördüğü Fiyat" aynı değer.
+
+**Karar:**
+- Kullanıcı onayıyla (seçenek: "Panel kanıtıyla KDV dahil kabul et") `TrendyolAdapter.DescribePriceUpdate()` → `VatIncluded: true`. Not ve kaynak alanı kararın kullanıcı onayı olduğunu ve resmi dokümanda ifade bulunmadığını açıkça söyler.
+- Beymen zaten KDV dahil (resmi dokümandan, ADR-028). Hepsiburada değişmedi: `CanEnable` false, FIYAT kapalı kalır.
+- Yetenek açmak bu karardan ayrıdır: deneme modunda yazma kilidi (`Kanallar__YazmaKapali`) açıkken hiçbir fiyat kanala gitmez. Canlıya geçişte kilit kalkınca FIYAT=ACIK olan kanallara gider.
+
+**Risk:** Trendyol ileride KDV hariç fiyat beklediğini belgelerse fiyatlar yanlış gider. Canlıda ilk gönderimden sonra satıcı panelinde birkaç ürünün "Müşterinin Gördüğü Fiyat"ı kontrol edilmeli (`docs/canliya-gecis-denetimi.md`).
+
+**Doğrulama:** `PriceContractTests` ve `TrendyolAdapterContractTests` (Trendyol `CanEnable` true).
+
+## ADR-042: İlan başına stok kuralı, kanal ürün görselleri ve tek yerden stok + fiyat düzenleme
+**Tarih:** 2026-11-20
+**Bağlam:** Kullanıcı (1) platform bazlı farklı stok göndermek, (2) yanlış eşleşmeyi görselle yakalamak için kanalların küçük resimlerini görmek, (3) pazaryeri panellerindeki gibi stok ve fiyatı tek yerden düzenlemek istedi. Eşleştirme ve tek defter ilkesi korunacak.
+
+**Karar:**
+- **Stok kuralı (kullanıcı seçimi: "İlan başına üst limit / sabit, defteri aşmaz"):** `ChannelListing.StokKuralTip` (`UST_LIMIT` | `SABIT` | NULL) + `StokKuralDeger`, `StokKuralDegistiren`, `StokKuralTarih` (migration `0017_ilan_stok_kurali_ve_gorsel.sql`; tip ve değer birlikte dolu/boş CHECK'i).
+  - Saf hesap `StockAllocator.Allocate(..., ListingStockRule? rule)`: önce düşük stok eşiği; `UST_LIMIT` → MIN(pay ve kanal limitiyle hesaplanan, X); `SABIT` → MIN(X, satılabilir, kanal üst limiti) (kanal payının yerine geçer). Sonuç defterdeki satılabilir stoğu asla aşmaz; oversell koruması değişmez.
+  - `SyncStore.ComputeTargetsAsync` kuralı uygular; böylece stok gönderimi, panel, mutabakat ve Kanal Stoğu → Defter aynı hedefi görür.
+  - API: `GET/PUT /api/stock/listings/{id}/rule` (yazma Yönetici). Değişiklik aynı transaction'da `EslestirmeDegisti` outbox olayı yazar → mevcut OutboxIsle → STOK kuyruğu → StokGonder. Uç nokta kanala çağrı yapmaz.
+  - Ayrı tablo yerine kolon: ilana özel fiyat (`FiyatOverride`) ile aynı yaklaşım; hedef sorgusuna join eklenmez.
+- **Görseller:** `ChannelCatalogEntry/ChannelCatalogItem.ImageUrl`; yalnızca mutlak https ve ≤1000 karakter (`ListingChannelData.HttpsOrNull`).
+  - Beymen: ürün listesi `images[].thumbnailPath` (yoksa `originalPath`), resmi örnek yanıttan.
+  - Trendyol: `filterApprovedProducts` içeriğinin `images[].url`. Dokümandaki örnek göreli yol; gerçek yanıt mutlak https (`cdn.dsmcdn.com`; 2026-11-20 deneme modu katalog okuması, 200/200 ilanda görsel). Göreli adres yine de alınmaz.
+  - Hepsiburada listing yanıtında görsel yok; gösterilmez.
+  - Eşleşen ilanda `KanalVerisi.gorsel`, eşleşmeyen üründe `UnmatchedChannelItem.GorselUrl`. Görsel kanalın CDN'inden tarayıcıda yüklenir (referrer gönderilmez); sunucu görsel indirmez/saklamaz.
+- **Panel:** Stok Listesi → kanal sekmesi her satırda kanal görseli, kanalda görünen fiyat, stok kuralı (Ortak havuz / Üst limit / Sabit) ve ilana özel fiyat; değişiklikler tek "Değişiklikleri kaydet" ile yazılır (fiyat mevcut `PUT /api/prices/listings/{id}/override`). Kanalın FIYAT yetenek durumu satırların üstünde yazar. "Eşleşmemiş kanal ürünlerini de göster" ile kanalın bağlanmamış ürünleri (görselli, salt okuma) aynı sekmede listelenir. SKU detayında bağlı ilanların görselleri yan yana; Stok Listesi defter sekmesinde ve Eşleştirme'de küçük resim.
+
+**Kapsam dışı:** Kanala doğrudan yazan "hemen gönder" düğmesi eklenmedi; gönderim yetenek durumuna ve yazma kilidine tabi mevcut hattan gider (kullanıcı seçimi: "Canlı kurulumda, kilit kalkınca"). Eşleşmemiş ürün için stok/fiyat düzenlenmez (defter esas; önce SKU'ya bağlanmalı).
+
+**Doğrulama:** unit 392/392 (yeni: ListingStockRuleTests 13, katalog görsel contract testleri, `gorsel` okuma), entegrasyon 151/151 (yeni: kural API → outbox → mock kanal, defteri aşmaz, geçersiz kural 400), Playwright 18/18 (yeni: kanal sekmesinde stok kuralı + fiyat kaydet/geri al).

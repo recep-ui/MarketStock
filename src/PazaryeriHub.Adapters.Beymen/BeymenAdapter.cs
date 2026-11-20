@@ -147,7 +147,26 @@ public sealed class BeymenAdapter(HttpClient http, IChannelCredentialStore crede
             VariantAttributes: attrs.Count > 0 ? string.Join("; ", attrs) : null,
             ProductUrl: null,
             SalePrice: PriceValue(i, "platformSalesPrice"),
-            ListPrice: PriceValue(i, "salesPrice"));
+            ListPrice: PriceValue(i, "salesPrice"),
+            ImageUrl: FirstThumbnail(i));
+    }
+
+    /// <summary>İlk görselin küçük resmi (images[].thumbnailPath, Beymen ürün listesi örnek yanıtı); yoksa originalPath.</summary>
+    private static string? FirstThumbnail(JsonElement e)
+    {
+        if (!e.TryGetProperty("images", out var images) || images.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+        foreach (var img in images.EnumerateArray())
+        {
+            if (img.ValueKind == JsonValueKind.Object && (Str(img, "thumbnailPath") ?? Str(img, "originalPath")) is { } url
+                && url.Trim().StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return url.Trim();
+            }
+        }
+        return null;
     }
 
     private static string? Named(JsonElement e, string name) =>

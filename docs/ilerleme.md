@@ -7,6 +7,17 @@
 
 ---
 
+## Tek yerden stok + fiyat, ilan stok kuralı, kanal görselleri, Trendyol/Beymen fiyat yeteneği (2026-11-20): TAMAM
+
+- **Fiyat (ADR-041):** Trendyol satış fiyatı kullanıcı onayıyla KDV dahil kabul edildi; Trendyol ve Beymen FIYAT yeteneği açılabilir. Deneme veritabanında Trendyol ve Beymen FIYAT = ACIK, Hepsiburada FIYAT = KAPALI yapıldı (önceden yanlışlıkla ACIK'tı). Yazma kilidi açık olduğu için deneme modunda kanala fiyat gitmez; canlı kurulumda kilit kalkınca gider.
+- **İlan stok kuralı (ADR-042):** Ortak havuz / Üst limit / Sabit; defteri asla aşmaz. Migration 0017. `GET/PUT /api/stock/listings/{id}/rule` → outbox → mevcut stok gönderim hattı.
+- **Görseller:** Trendyol (`images[].url`, gerçek yanıt mutlak https: deneme katalog okumasında 200/200 ilanda görsel) ve Beymen (`thumbnailPath`, 187/194). Hepsiburada listing yanıtında görsel yok.
+- **Panel:** Kanal sekmesinde görsel, kanalda görünen fiyat, stok kuralı ve ilan fiyatı aynı satırda; tek "Değişiklikleri kaydet". Eşleşmemiş kanal ürünleri aynı sekmede görselli listelenebilir. SKU detayında kanalların görselleri yan yana; Stok Listesi ve Eşleştirme'de küçük resim.
+- **Bilinen eksik:** Deneme veritabanındaki SKU'ların temel satış fiyatı boş ("SKU fiyatı yok"); fiyat yalnızca ilana özel fiyat girilen ilanlar için hesaplanır. Fiyat ekranından veya ilan fiyatıyla doldurulmalı.
+- **Testler:** unit 392/392, entegrasyon 151/151, Playwright 18/18. Deneme modunda gerçek verilerle ekran kontrolü (kırık görsel 0).
+
+---
+
 ## Kanalda bulunamayan ilan eski kanal stoğunu göstermiyor (2026-11-20): TAMAM
 
 - Denetim madde 5: son mutabakatta kanalda bulunamayan ilan eski kanal stoğunu güncel gibi gösteriyor, sapma eski değerle hesaplanıyordu.

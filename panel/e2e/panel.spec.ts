@@ -190,6 +190,43 @@ test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan 
   await expect(page.getByRole('button', { name: 'Doğru eşleşme, onayla' })).toHaveCount(0);
 });
 
+test('Kanal sekmesinde tek yerden stok kuralı ve ilan fiyatı kaydedilir; görsel alanı ve fiyat yeteneği görünür (ADR-042)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.goto('/stok?kanal=TRENDYOL');
+  const rows = page.getByTestId('channel-stock-row');
+  await page.getByLabel('Kanal ilanlarında bul').fill(d.skuCodes[0]);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  const row = rows.first();
+  await expect(row).toBeVisible();
+  await expect(page.getByTestId('price-capability')).toContainText('fiyat gönderimi');
+  // Demo ilanlarda kanal görseli yok: yer tutucu gösterilir (gerçek kanalda kanalın https görseli)
+  await expect(row.getByLabel('görsel yok')).toBeVisible();
+
+  // Üst limit 1 + ilana özel fiyat → tek "Kaydet"
+  await row.getByLabel('Stok kuralı').selectOption('UST_LIMIT');
+  await row.getByLabel('Stok adedi').fill('1');
+  await row.getByLabel('İlan satış fiyatı').fill('123,45');
+  await expect(page.getByTestId('save-bar')).toContainText('1 ilanda kaydedilmemiş değişiklik');
+  await page.getByTestId('save-all').click();
+  await expect(page.getByTestId('save-result')).toContainText('1 ilan kaydedildi');
+  await expect(row.getByTestId('listing-target')).toHaveText('1');
+  await expect(row.getByLabel('Stok kuralı')).toHaveValue('UST_LIMIT');
+  await expect(row.getByLabel('İlan satış fiyatı')).toHaveValue('123.45');
+
+  // Geçersiz değer kaydedilemez
+  await row.getByLabel('Stok adedi').fill('-3');
+  await expect(page.getByTestId('save-all')).toBeDisabled();
+
+  // Geri al: ortak havuz + fiyat boş (diğer senaryoları etkilemesin)
+  await row.getByLabel('Stok kuralı').selectOption('');
+  await row.getByLabel('İlan satış fiyatı').fill('');
+  await page.getByTestId('save-all').click();
+  await expect(page.getByTestId('save-result')).toContainText('1 ilan kaydedildi');
+  await expect(row.getByLabel('Stok kuralı')).toHaveValue('');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
 test('Kanal test ortamında ve eşleşmiş ilanı yoksa Kanal Stoğu ve Eşleştirme nedenini söyler (ADR-038)', async ({ page }) => {
   await login(page);
   const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();

@@ -209,6 +209,14 @@ internal sealed class ApprovedContent
     public string? Title { get; init; }
     public List<ContentAttribute> Attributes { get; init; } = [];
     public List<ApprovedVariant> Variants { get; init; } = [];
+
+    /// <summary>İçerik görselleri (dokümandaki images[].url). Dokümandaki örnek göreli yol; gerçek yanıtta mutlak https (2026-11-20 canlı okuma, ADR-042).</summary>
+    public List<ContentImage> Images { get; init; } = [];
+}
+
+internal sealed class ContentImage
+{
+    public string? Url { get; init; }
 }
 
 internal sealed class NamedRef

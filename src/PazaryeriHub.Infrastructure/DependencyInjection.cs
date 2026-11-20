@@ -78,6 +78,7 @@ public static class DependencyInjection
         services.AddSingleton<SyncStore>();
         services.AddTransient<Pricing.PriceStore>();
         services.AddScoped<PazaryeriHub.Application.Pricing.IPriceService, Pricing.PriceService>();
+        services.AddScoped<PazaryeriHub.Application.Stock.IListingStockRuleService, Stock.ListingStockRuleService>();
         services.AddScoped<ISyncService, SyncService>();
         services.AddScoped<PazaryeriHub.Application.Stock.IChannelIntakeService, Stock.ChannelIntakeService>();
 

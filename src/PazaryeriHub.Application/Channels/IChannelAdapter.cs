@@ -102,7 +102,8 @@ public sealed record ChannelCatalogEntry(
     string? VariantAttributes = null,
     string? ProductUrl = null,
     decimal? SalePrice = null,
-    decimal? ListPrice = null);
+    decimal? ListPrice = null,
+    string? ImageUrl = null);
 
 public sealed record ChannelCatalogPage(IReadOnlyList<ChannelCatalogEntry> Items, string? NextCursor);
 

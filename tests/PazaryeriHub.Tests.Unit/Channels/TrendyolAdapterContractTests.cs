@@ -268,11 +268,11 @@ public sealed class TrendyolAdapterContractTests
         TrendyolAdapter.Translate(HttpStatusCode.ServiceUnavailable, "", TrendyolCredentials.Stage).Message.Should().Contain("beyaz liste");
 
     [Fact]
-    public void Fiyat_uygulandi_ama_KDV_dogrulanmadigi_icin_yetenek_acilamaz()
+    public void Fiyat_KDV_dahil_kullanici_onayiyla_acilabilir()
     {
-        // ADR-015'in fiyat kısmı ADR-028 ile iptal edildi; Trendyol dokümanı KDV'yi belirtmiyor (ayrıntı: PriceContractTests).
+        // ADR-041: Trendyol dokümanı KDV'yi belirtmiyor; kullanıcı onayı (satıcı panelinde TSF = müşterinin gördüğü fiyat).
         var (adapter, _) = Create();
-        adapter.DescribePriceUpdate().CanEnable.Should().BeFalse();
+        adapter.DescribePriceUpdate().CanEnable.Should().BeTrue();
     }
 
     // ------------------------------------------------------------------ katalog (ADR-022)
@@ -285,6 +285,7 @@ public sealed class TrendyolAdapterContractTests
         http.Responses.Enqueue((HttpStatusCode.OK, """
             {"totalElements":2,"totalPages":2,"page":0,"size":100,"content":[
               {"contentId":1,"productMainId":"MDL-1","brand":{"id":1,"name":"Softcotton"},"category":{"id":2,"name":"Bornoz"},"title":"Deluxe Bornoz",
+               "images":[{"url":"https://cdn.example.com/deluxe/1.jpg"},{"url":"https://cdn.example.com/deluxe/2.jpg"}],
                "attributes":[{"attributeId":47,"attributeName":"Renk","attributeValues":[{"attributeValueId":1,"attributeValue":"Beyaz"}]}],
                "variants":[
                  {"variantId":11,"supplierId":12345,"barcode":" SC-1 ","stockCode":"STK-1","onSale":true,"archived":false,"locked":false,
@@ -300,8 +301,22 @@ public sealed class TrendyolAdapterContractTests
         page.NextCursor.Should().Be("p:1");
         page.Items.Should().HaveCount(2, "barkodsuz varyant atlanır");
         page.Items[0].Should().Be(new ChannelCatalogEntry(null, "SC-1", "STK-1", "MDL-1", "Beyaz", "M", "Deluxe Bornoz", "Softcotton", "Bornoz", "Satışta", false,
-            VariantKey: "c1|Beden=M", VariantAttributes: "Renk: Beyaz; Beden: M"));
+            VariantKey: "c1|Beden=M", VariantAttributes: "Renk: Beyaz; Beden: M", ImageUrl: "https://cdn.example.com/deluxe/1.jpg"));
         page.Items[1].Should().Match<ChannelCatalogEntry>(e => e.Size == "L" && e.Passive && e.ChannelStatus == "Arşivlendi" && e.VariantKey == "c1|Beden=L");
+    }
+
+    /// <summary>ADR-041: dokümandaki örnekte görsel adresi göreli ("/mediacenter-…"); tam adres kurallı değil → görsel alınmaz.</summary>
+    [Fact]
+    public async Task Katalog_goreli_gorsel_adresi_alinmaz()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"totalElements":1,"totalPages":1,"page":0,"size":100,"content":[
+              {"contentId":7,"productMainId":"M7","title":"Ürün","images":[{"url":"/mediacenter-stage3/stage/1.jpg"}],"attributes":[],
+               "variants":[{"barcode":"B7","stockCode":"S7","onSale":true,"attributes":[]}]}]}
+            """));
+
+        (await adapter.FetchCatalogAsync(null, Ct)).Items.Single().ImageUrl.Should().BeNull();
     }
 
     /// <summary>

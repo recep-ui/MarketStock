@@ -398,6 +398,7 @@ public sealed class ChannelCatalogService(
             row.Brand = item.Brand;
             row.Category = item.Category;
             row.ChannelStatus = item.ChannelStatus;
+            row.ImageUrl = item.ImageUrl;
             row.Reason = m.Reason!;
             row.ReasonDetail = Truncate(m.Detail, 400);
             row.SuggestedSkuId = m.Suggestion?.SkuId;
@@ -461,7 +462,8 @@ public sealed class ChannelCatalogService(
             x.u.Id, x.u.ChannelId, x.Code, x.u.Source, x.u.ChannelProductCode, x.u.ChannelBarcode, x.u.ChannelStockCode, x.u.ModelCode,
             x.u.Color, x.u.Size, x.u.ProductName, x.u.Brand, x.u.ChannelStatus, x.u.Reason, x.u.ReasonDetail,
             x.u.SuggestedSkuId, x.SkuCode, x.ProductName, x.u.SuggestionScore, x.u.Status,
-            Utc(x.u.FirstSeenUtc), Utc(x.u.LastSeenUtc), x.u.ResolvedBy, x.u.ResolvedAtUtc is { } r ? Utc(r) : null)).ToList(), total, p, size);
+            Utc(x.u.FirstSeenUtc), Utc(x.u.LastSeenUtc), x.u.ResolvedBy, x.u.ResolvedAtUtc is { } r ? Utc(r) : null,
+            x.u.ImageUrl)).ToList(), total, p, size);
     }
 
     public async Task<ListingDto> LinkUnmatchedAsync(int id, int skuId, string? user, CancellationToken ct)
@@ -577,7 +579,7 @@ public sealed class ChannelCatalogService(
     /// <summary>
     /// ChannelListing.KanalVerisi: yalnızca beyaz listedeki ürün alanları (kişisel veri yok). urunLinki, kanalSatisFiyati ve
     /// kanalListeFiyati kanalın kendi verisidir (salt okuma; ADR-031). urunAdi ve marka kanalın bildirdiği addır; yanlış
-    /// eşleştirme kontrolünde kullanılır (ADR-035).
+    /// eşleştirme kontrolünde kullanılır (ADR-035). gorsel kanalın küçük resmidir (yalnızca https; ADR-042).
     /// </summary>
     private static string ChannelData(ChannelCatalogItem item, string source) =>
         JsonSerializer.Serialize(new
@@ -585,7 +587,7 @@ public sealed class ChannelCatalogService(
             kaynak = source, kanalDurumu = item.ChannelStatus, modelKodu = item.ModelCode, stokKodu = item.StockCode,
             renk = item.Color, beden = item.Size, varyant = item.VariantAttributes, urunLinki = item.ProductUrl,
             kanalSatisFiyati = item.SalePrice, kanalListeFiyati = item.ListPrice,
-            urunAdi = Truncate(item.Name, 300), marka = Truncate(item.Brand, 100)
+            urunAdi = Truncate(item.Name, 300), marka = Truncate(item.Brand, 100), gorsel = item.ImageUrl
         });
 
     private static string ProductKey(string? modelCode, string? name, string? brand) =>

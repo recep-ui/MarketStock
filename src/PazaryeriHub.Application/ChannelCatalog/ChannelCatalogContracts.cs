@@ -183,7 +183,8 @@ public sealed record UnmatchedItemDto(
     DateTime FirstSeenUtc,
     DateTime LastSeenUtc,
     string? ResolvedBy,
-    DateTime? ResolvedAtUtc);
+    DateTime? ResolvedAtUtc,
+    string? ImageUrl = null);
 
 public static class UnmatchedStatuses
 {

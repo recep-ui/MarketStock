@@ -24,7 +24,8 @@ public sealed record ChannelCatalogItem(
     string? VariantAttributes = null,
     string? ProductUrl = null,
     decimal? SalePrice = null,
-    decimal? ListPrice = null)
+    decimal? ListPrice = null,
+    string? ImageUrl = null)
 {
     /// <summary>Renk veya beden biliniyor mu (model + renk + beden eşleşmesi/gruplaması ancak o zaman güvenilir).</summary>
     public bool HasColorOrSize => Color is not null || Size is not null;

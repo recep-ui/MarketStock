@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { get, post, qs, upload, type CatalogFetchStatus, type CatalogImportReport, type CatalogImportRow, type Channel, type ChannelStatus, type Paged, type UnmatchedItem } from '../api';
 import { CatalogNoMatchHelp, ChannelDataSourceNote } from '../components/ChannelDataSource';
-import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ErrorBox, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 
@@ -336,8 +336,9 @@ function UnmatchedRow({ item, canWrite, onLink, onIgnore }:
       <td><ChannelBadge code={item.channelCode} /></td>
       <td>{item.channelBarcode ?? '—'}{item.channelProductCode && <div className="muted">{item.channelProductCode}</div>}
         {item.channelStockCode && <div className="muted">stok: {item.channelStockCode}</div>}</td>
-      <td style={{ whiteSpace: 'normal', minWidth: 200 }}>{item.productName ?? '—'}{item.brand && <div className="muted">{item.brand}</div>}
-        {item.channelStatus && <div className="muted">kanal: {item.channelStatus}</div>}</td>
+      <td style={{ whiteSpace: 'normal', minWidth: 200 }}><div className="with-thumb"><Thumb url={item.imageUrl} alt={item.productName ?? 'ürün'} /><div>
+        {item.productName ?? '—'}{item.brand && <div className="muted">{item.brand}</div>}
+        {item.channelStatus && <div className="muted">kanal: {item.channelStatus}</div>}</div></div></td>
       <td>{[item.modelCode, item.color, item.size].filter(Boolean).join(' · ') || '—'}</td>
       <td style={{ whiteSpace: 'normal', minWidth: 220 }}>
         <span className="badge warn">{reasonLabels[item.reason] ?? item.reason}</span>

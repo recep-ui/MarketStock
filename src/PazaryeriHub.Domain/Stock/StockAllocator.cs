@@ -29,6 +29,26 @@ public static class StockAllocator
     public static int Allocate(IEnumerable<StockLevel> levels, decimal sharePercent, int? channelCap = null, int lowStockThreshold = 0) =>
         Allocate(TotalAvailable(levels), sharePercent, channelCap, lowStockThreshold);
 
+    /// <summary>
+    /// İlan başına kural ile (ADR-042). Kural yoksa <see cref="Allocate(long, decimal, int?, int)"/> ile aynıdır.
+    /// UST_LIMIT: MIN(hesaplanan, X). SABIT: MIN(X, satılabilir, kanal üst limiti); kanal payının yerine geçer.
+    /// Her iki durumda da düşük stok eşiği önce uygulanır ve sonuç defterdeki satılabilir stoğu asla aşmaz.
+    /// </summary>
+    public static int Allocate(long totalAvailable, decimal sharePercent, int? channelCap, int lowStockThreshold, ListingStockRule? rule)
+    {
+        var allocated = Allocate(totalAvailable, sharePercent, channelCap, lowStockThreshold);
+        if (rule is null || totalAvailable <= 0 || totalAvailable <= lowStockThreshold)
+        {
+            return allocated;
+        }
+        return rule.Type switch
+        {
+            ListingStockRuleType.UpperLimit => Math.Min(allocated, rule.Value),
+            ListingStockRuleType.Fixed => (int)Math.Min(Math.Min(rule.Value, totalAvailable), channelCap ?? int.MaxValue),
+            _ => allocated,
+        };
+    }
+
     /// <param name="totalAvailable">Tüm depoların toplam satılabilir stoğu.</param>
     /// <param name="sharePercent">Kanal payı (Channel.PayYuzde), 0–100 arası.</param>
     /// <param name="channelCap">Kanal üst limiti; null ise limit yok.</param>

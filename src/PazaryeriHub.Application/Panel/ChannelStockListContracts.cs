@@ -117,11 +117,20 @@ public sealed record MatchApproval(string? ApprovedBy, DateTime ApprovedAtUtc, b
 
 /// <summary>Kanal bazlı stok listesinde bir ilan: kanalın bildirdiği ↔ bağlandığı SKU (ADR-035).</summary>
 /// <param name="ChannelStock">Son mutabakatta kanaldan çekilen stok (hiç çekilmediyse veya son çekimde kanalda bulunamadıysa null).</param>
-/// <param name="Expected">Bu ilana gitmesi gereken (defterden hesaplanan) stok.</param>
+/// <param name="Expected">Bu ilana gitmesi gereken (defterden hesaplanan, ilan stok kuralı dahil) stok.</param>
+/// <param name="ImageUrl">Kanalın kendi API'sinden gelen küçük resim (yalnızca https; ADR-042). Görsel karşılaştırma içindir.</param>
+/// <param name="ChannelSalePrice">Son katalog çekiminde kanalda görünen satış fiyatı (salt okuma).</param>
+/// <param name="StockRuleType">İlan stok kuralı: UST_LIMIT | SABIT | null (ADR-042).</param>
+/// <param name="PriceOverride">İlana özel satış fiyatı (ADR-028); null ise SKU fiyatı + kanal kuralı.</param>
+/// <param name="SkuSalePrice">SKU'nun temel satış fiyatı.</param>
+/// <param name="LastSentSalePrice">Kanalın onayladığı son satış fiyatı.</param>
 public sealed record ChannelStockListRow(
     int ListingId, string Status, ChannelSide Channel, string? ProductUrl, int? ChannelStock, DateTime? FetchedAtUtc,
     int SkuId, string SkuCode, string? SkuBarcode, string ProductName, string? Color, string? Size,
-    int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings, MatchApproval? Approval = null)
+    int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings, MatchApproval? Approval = null,
+    string? ImageUrl = null, decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null,
+    string? StockRuleType = null, int? StockRuleValue = null,
+    decimal? PriceOverride = null, decimal? SkuSalePrice = null, decimal? LastSentSalePrice = null)
 {
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
 

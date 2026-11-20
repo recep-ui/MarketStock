@@ -24,7 +24,8 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
     /// stok girilmiş (bakiye satırı var). Stoğu hiç girilmemiş SKU kanala gönderilmez: kanal kataloğu içe alınırken
     /// oluşturulan SKU'lar pazaryerindeki stoğu 0'a çekmesin (ADR-020). Sayım ile 0 girilmişse gönderilir.
     /// Genel düşük stok eşiği (AppSetting DusukStokEsigi, ADR-023) aynı sorguda okunur ve allocator'a verilir.
-    /// Bir SKU'nun aynı kanaldaki her ilanı aynı hedefi alır (tam ortak havuz; stok bölünmez).
+    /// Bir SKU'nun aynı kanaldaki her ilanı aynı hedefi alır (tam ortak havuz; stok bölünmez); ilan stok kuralı varsa
+    /// (ChannelListing.StokKuralTip/Deger, ADR-042) o ilanın değeri kurala göre belirlenir, defteri asla aşmaz.
     /// </summary>
     public async Task<IReadOnlyList<ListingTarget>> ComputeTargetsAsync(SqlConnection connection, SqlTransaction? tx, IReadOnlyCollection<int> listingIds, CancellationToken ct)
     {
@@ -35,7 +36,7 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
 
         var rows = await connection.QueryAsync<TargetRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.SkuId, l.ChannelId, c.Kod AS ChannelCode, l.KanalUrunKodu, l.KanalBarkod,
-                   l.SonGonderilenStok, c.PayYuzde, c.Ayarlar, CAST(CASE WHEN l.Durum = 'AKTIF' AND c.Aktif = 1
+                   l.SonGonderilenStok, c.PayYuzde, c.Ayarlar, l.StokKuralTip, l.StokKuralDeger, CAST(CASE WHEN l.Durum = 'AKTIF' AND c.Aktif = 1
                                 AND EXISTS (SELECT 1 FROM dbo.StockBalance AS sb WHERE sb.SkuId = l.SkuId) THEN 1 ELSE 0 END AS bit) AS Syncable,
                    ISNULL((SELECT SUM(CAST(b.Satilabilir AS BIGINT)) FROM dbo.StockBalance b WHERE b.SkuId = l.SkuId), 0) AS TotalAvailable,
                    (SELECT TRY_CAST(s.Deger AS INT) FROM dbo.AppSetting s WHERE s.Anahtar = @thresholdKey) AS LowStockThreshold
@@ -46,7 +47,8 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
 
         return rows.Select(r => new ListingTarget(
             r.ListingId, r.SkuId, r.ChannelId, r.ChannelCode, r.KanalUrunKodu, r.KanalBarkod, r.SonGonderilenStok,
-            StockAllocator.Allocate(r.TotalAvailable, r.PayYuzde, ReadCap(r.Ayarlar, r.ChannelCode), Threshold(r.LowStockThreshold)), r.Syncable)).ToList();
+            StockAllocator.Allocate(r.TotalAvailable, r.PayYuzde, ReadCap(r.Ayarlar, r.ChannelCode), Threshold(r.LowStockThreshold), Rule(r)),
+            r.Syncable)).ToList();
     }
 
     /// <summary>
@@ -156,6 +158,10 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
         return null;
     }
 
+    /// <summary>İlan stok kuralı (ADR-042); tanınmayan tip veya negatif değer yok sayılır (veritabanı CHECK'i zaten engeller).</summary>
+    private ListingStockRule? Rule(TargetRow r) =>
+        ListingStockRule.ParseType(r.StokKuralTip) is { } type && r.StokKuralDeger is >= 0 ? new ListingStockRule(type, r.StokKuralDeger.Value) : null;
+
     private int Threshold(int? value)
     {
         if (value is < 0)
@@ -179,6 +185,8 @@ public sealed class SyncStore(ILogger<SyncStore> logger)
         public int? SonGonderilenStok { get; init; }
         public decimal PayYuzde { get; init; }
         public string? Ayarlar { get; init; }
+        public string? StokKuralTip { get; init; }
+        public int? StokKuralDeger { get; init; }
         public bool Syncable { get; init; }
         public long TotalAvailable { get; init; }
         public int? LowStockThreshold { get; init; }

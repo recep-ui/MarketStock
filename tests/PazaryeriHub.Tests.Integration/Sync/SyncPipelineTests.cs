@@ -199,6 +199,45 @@ public sealed class SyncPipelineTests(TestDatabase db)
         }
     }
 
+    /// <summary>ADR-042: ilan stok kuralı panelden değişince outbox → kuyruk → kanal; sonuç defteri asla aşmaz.</summary>
+    [Fact]
+    public async Task Ilan_stok_kurali_kanala_gider_ve_defteri_asmaz()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (_, listing, code) = await SkuWithListingAsync(channelId, 10);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(10);
+
+            // Üst limit 3 → kanala 3
+            var r = await db.Api.PutAsJsonAsync($"/api/stock/listings/{listing}/rule", new ListingStockRuleInput("UST_LIMIT", 3), Json, Ct);
+            r.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await r.Content.ReadFromJsonAsync<ListingStockRuleDto>(Json, Ct))!.Target.Should().Be(3);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(3);
+
+            // Sabit 25 istense de defterde 10 var → 10
+            r = await db.Api.PutAsJsonAsync($"/api/stock/listings/{listing}/rule", new ListingStockRuleInput("SABIT", 25), Json, Ct);
+            (await r.Content.ReadFromJsonAsync<ListingStockRuleDto>(Json, Ct))!.Should().Match<ListingStockRuleDto>(x => x.Type == "SABIT" && x.Value == 25 && x.Target == 10);
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(10);
+
+            // Geçersiz kural reddedilir; kural kaldırılınca pay ile hesaplanan değer döner
+            (await db.Api.PutAsJsonAsync($"/api/stock/listings/{listing}/rule", new ListingStockRuleInput("YUZDE", 5), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await db.Api.PutAsJsonAsync($"/api/stock/listings/{listing}/rule", new ListingStockRuleInput("SABIT", -1), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            r = await db.Api.PutAsJsonAsync($"/api/stock/listings/{listing}/rule", new ListingStockRuleInput(null, null), Json, Ct);
+            (await r.Content.ReadFromJsonAsync<ListingStockRuleDto>(Json, Ct))!.Should().Match<ListingStockRuleDto>(x => x.Type == null && x.Target == 10);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
     [Fact]
     public async Task Stogu_hic_girilmemis_sku_kanala_gonderilmez_stok_girilince_gonderilir()
     {
