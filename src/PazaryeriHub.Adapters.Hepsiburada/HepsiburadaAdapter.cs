@@ -385,7 +385,8 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
     /// Sipariş durumu bildirimi (ADR-026). Kaynak (2026-11-18 okundu): Sipariş Yönetimi → Paket Süreçleri → "Kalem veya Kalemleri Paketleme",
     /// <c>POST https://oms-external-sit.hepsiburada.com/packages/merchantid/{merchantId}</c> (canlıda "-sit" yok),
     /// gövde <c>{lineItemRequests:[{id, quantity}]}</c> (kalem id = sipariş listesindeki <c>items[].id</c>).
-    /// // TODO: doğrulanmalı — paketleme yanıt şeması (paket numarası) dokümanda gösterilmiyor.
+    /// Paketleme yanıtı SIT'te görüldü (2026-11-20; ADR-037): 201 <c>{"packageNumber":"…","barcode":"…"}</c> — "Kargoda" bildirimi için
+    /// paket numarası buradan alınabilir (henüz kullanılmıyor).
     /// Kargoda: "Mağaza hesabı teslimat statü iletimi (kargoda)" <c>POST …/packages/merchantid/{merchantId}/packagenumber/{packagenumber}/intransit</c>
     /// paket numarası ister; paketleme yanıtı doğrulanmadığı için paket numarası bilinmiyor → desteklenmiyor.
     /// </summary>

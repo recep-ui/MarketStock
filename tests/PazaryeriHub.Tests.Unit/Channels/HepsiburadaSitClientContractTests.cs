@@ -159,6 +159,25 @@ public sealed class HepsiburadaSitClientContractTests
         var withValues = Body(http.Requests[1]);
         withValues.GetProperty("OrderNumber").GetString().Should().Be("9123456789");
         withValues.GetProperty("LineItems")[0].GetProperty("DeliveryOptionId").GetInt32().Should().Be(1);
+        plain.GetProperty("LineItems")[0].TryGetProperty("CargoCompanyId", out _).Should().BeFalse();
+        plain.TryGetProperty("OrderDate", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Test_siparisi_destek_ornegindeki_kargo_firmasi_ve_siparis_tarihiyle_gonderilir()
+    {
+        var (client, http) = Create();
+
+        await client.CreateTestOrderAsync(new SitTestOrderLine("HBV1", "M1", 2, 150.7m, DeliveryOptionId: 1, CargoCompanyId: 21), Ct,
+            orderNumber: "4626777562", orderDate: "2026-11-20T10:00:00");
+
+        var body = Body(http.Requests.Single());
+        body.GetProperty("OrderNumber").GetString().Should().Be("4626777562");
+        body.GetProperty("OrderDate").GetString().Should().Be("2026-11-20T10:00:00");
+        var line = body.GetProperty("LineItems")[0];
+        line.GetProperty("CargoCompanyId").GetInt32().Should().Be(21);
+        line.GetProperty("DeliveryOptionId").GetInt32().Should().Be(1);
+        line.GetProperty("TotalPrice").GetProperty("Amount").GetDecimal().Should().Be(301.4m);
     }
 
     [Fact]

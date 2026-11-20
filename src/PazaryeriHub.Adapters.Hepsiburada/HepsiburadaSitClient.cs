@@ -68,9 +68,12 @@ public sealed record SitFastListingItem(string MerchantSku, string ProductName, 
 
 public sealed record SitInventoryItem(string HepsiburadaSku, string? MerchantSku, decimal Price, int AvailableStock);
 
-/// <param name="DeliveryOptionId">Dokümanda opsiyonel; verilmezse gönderilmez. // TODO: doğrulanmalı — test servisi "ShippingMethodId cannot be empty"
-/// diyor (dokümanda böyle bir alan yok); karşılığının DeliveryOptionId olduğu varsayımı doğrulanmadı.</param>
-public sealed record SitTestOrderLine(string HepsiburadaSku, string? MerchantSku, int Quantity, decimal UnitPrice, int? DeliveryOptionId = null);
+/// <param name="DeliveryOptionId">Dokümanda opsiyonel; verilmezse gönderilmez.</param>
+/// <param name="CargoCompanyId">Dokümanda opsiyonel; verilmezse gönderilmez. Hepsiburada desteğinin örnek isteğinde (2026-11-20)
+/// <c>CargoCompanyId: 21</c> ve <c>DeliveryOptionId: 1</c> var; test servisinin "ShippingMethodId cannot be empty" hatası bu alanlar
+/// olmadan alınıyordu (ADR-037).</param>
+public sealed record SitTestOrderLine(
+    string HepsiburadaSku, string? MerchantSku, int Quantity, decimal UnitPrice, int? DeliveryOptionId = null, int? CargoCompanyId = null);
 
 /// <summary>
 /// Hepsiburada <b>test ortamı (SIT)</b> doğrulama istemcisi (ADR-037): canlı API bilgisi almak için Hepsiburada'nın istediği
@@ -165,7 +168,8 @@ public sealed class HepsiburadaSitClient
     /// </summary>
     /// <param name="orderNumber">Dokümanda opsiyonel; verilmezse gönderilmez. Test servisi boş sipariş numarasını reddediyor
     /// ("'Order Number' must not be empty" / "Order Number is not valid"). // TODO: doğrulanmalı — geçerli biçim dokümanda yok.</param>
-    public Task<SitCall> CreateTestOrderAsync(SitTestOrderLine line, CancellationToken ct, string? orderNumber = null)
+    /// <param name="orderDate">Destek örneğindeki biçim: saat dilimsiz <c>yyyy-MM-ddTHH:mm:ss</c>; verilmezse gönderilmez.</param>
+    public Task<SitCall> CreateTestOrderAsync(SitTestOrderLine line, CancellationToken ct, string? orderNumber = null, string? orderDate = null)
     {
         ArgumentNullException.ThrowIfNull(line);
         var item = new Dictionary<string, object?>
@@ -181,6 +185,10 @@ public sealed class HepsiburadaSitClient
         {
             item["DeliveryOptionId"] = option;
         }
+        if (line.CargoCompanyId is { } cargo)
+        {
+            item["CargoCompanyId"] = cargo;
+        }
         var body = new Dictionary<string, object?>
         {
             ["Customer"] = new { Name = "PazaryeriHub Test Müşteri" },
@@ -190,6 +198,10 @@ public sealed class HepsiburadaSitClient
         if (orderNumber is not null)
         {
             body["OrderNumber"] = orderNumber;
+        }
+        if (orderDate is not null)
+        {
+            body["OrderDate"] = orderDate;
         }
         return SendAsync("Test siparişi oluşturma", HttpMethod.Post, $"{OrderStubBaseUrl}/orders/merchantId/{_creds.MerchantId}", body, PascalCase, ct);
     }

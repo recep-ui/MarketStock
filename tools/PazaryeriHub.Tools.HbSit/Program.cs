@@ -234,7 +234,11 @@ async Task OrderAsync(ListingInfo? l)
     recorder.CurrentStep = "Test siparişi oluşturma";
     // Test servisi sipariş numarası istiyor (dokümanda opsiyonel); 10 haneli sayısal numara kabul edildi (SIT, 2026-11-19). ShippingMethodId: ADR-037 açık soru.
     var testOrderNo = "9" + (DateTime.UtcNow.Ticks % 1_000_000_000).ToString("D9", CultureInfo.InvariantCulture);
-    var created = await sit.CreateTestOrderAsync(new SitTestOrderLine(l.HbSku, l.MerchantSku, 1, price), ct, testOrderNo);
+    // Hepsiburada desteğinin örnek isteğine göre (2026-11-20): CargoCompanyId 21, DeliveryOptionId 1, saat dilimsiz OrderDate
+    var orderDate = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Europe/Istanbul"))
+        .ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+    var created = await sit.CreateTestOrderAsync(new SitTestOrderLine(l.HbSku, l.MerchantSku, 1, price, DeliveryOptionId: 1, CargoCompanyId: 21),
+        ct, testOrderNo, orderDate);
     Show(created.Step, created.Status, created.ResponseBody);
     var orderNumber = created.Find("orderNumber") ?? (created.Success ? testOrderNo : null);
     findings.Add(("Sipariş", "Test siparişi oluşturma", $"HTTP {created.Status}, sipariş no {orderNumber ?? "—"}"));
