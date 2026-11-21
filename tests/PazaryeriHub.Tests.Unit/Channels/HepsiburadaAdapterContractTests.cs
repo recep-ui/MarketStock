@@ -178,6 +178,91 @@ public sealed class HepsiburadaAdapterContractTests
             .Should().OnlyContain(r => r.Uri.Query.Contains("limit=50") && r.Uri.Query.Contains("begindate="));
     }
 
+    // SIT'te kaydedilen gerçek yanıttan kısaltıldı (2026-11-21, "Saticiya Ait Paket Bilgilerini Listeleme"): kök dizi, paket başına items[].
+    private const string OpenPackage = """
+        {"id":"6b01ee32-9430-ca04-9e2d-e83d06060606","status":"Open","orderDate":"2026-11-21T22:16:59.437","barcode":"62750001308172",
+         "packageNumber":"5000130817","cargoCompany":"hepsiJET","shippingDistrict":"Test","shippingTown":"Test","shippingCity":"İstanbul",
+         "identityNo":"11111111111","totalPrice":{"currency":"TRY","amount":200},"customerName":"Test Alıcı",
+         "items":[{"lineItemId":"6b01ee2b-9430-ca04-9e2d-e77306060606","hbSku":"HBV00001136ES","merchantSku":"8682344069282","quantity":1,
+           "price":{"currency":"TRY","amount":200},"totalPrice":{"currency":"TRY","amount":200},"commission":{"currency":"TRY","amount":1},
+           "orderNumber":"9196103341","orderDate":"2026-11-21T22:16:59.437"}]}
+        """;
+
+    [Fact]
+    public async Task Paketlenmis_ama_kargoya_verilmemis_siparis_hazirlaniyor_olarak_gelir()
+    {
+        var (adapter, http) = Create();
+        http.Respond = uri => uri.AbsolutePath.EndsWith($"/packages/merchantid/{MerchantId}", StringComparison.Ordinal)
+            ? (HttpStatusCode.OK, "[" + OpenPackage + "," + OpenPackage
+                .Replace("\"Open\"", "\"Shipped\"", StringComparison.Ordinal).Replace("9196103341", "1111", StringComparison.Ordinal) + "]")
+            : (HttpStatusCode.OK, """{"items":[]}""");
+
+        var orders = await adapter.FetchOrdersAsync(DateTime.UtcNow.AddMinutes(-5), Ct);
+
+        var packaged = orders.Should().ContainSingle(o => o.ChannelOrderNo == "9196103341").Which;
+        packaged.Status.Should().Be(OrderStatus.Hazirlaniyor);
+        packaged.Lines.Should().ContainSingle().Which.Should().Be(
+            new NormalizedOrderLine("HBV00001136ES", null, "8682344069282", 1, 200m, 1m, ChannelLineId: "6b01ee2b-9430-ca04-9e2d-e77306060606"));
+        packaged.TotalAmount.Should().Be(200m);
+        packaged.OrderDateUtc.Should().Be(new DateTime(2026, 11, 21, 19, 16, 59, 437, DateTimeKind.Utc),
+            "SIT: 19:16:59 UTC'de oluşturulan sipariş orderDate 22:16:59 döndü → saat dilimsiz tarih Türkiye saatidir");
+        packaged.OrderDateUtc.Kind.Should().Be(DateTimeKind.Utc);
+        packaged.ChannelPackageId.Should().Be("5000130817", "'kargoda' bildirimi paket numarası ister");
+        packaged.Cargo.Should().Be(new CargoInfo("hepsiJET", "62750001308172", null));
+        packaged.Customer.Should().Be(new CustomerSummary("Test Alıcı", "İstanbul", "Test"), "kimlik no, telefon, adres alınmaz");
+        orders.Should().NotContain(o => o.ChannelOrderNo == "1111", "yalnızca SIT'te görülen 'Open' paket durumu tanınır; kargodakiler kendi listesinden gelir");
+
+        var request = http.Requests.Single(r => r.Uri.AbsolutePath.EndsWith($"/packages/merchantid/{MerchantId}", StringComparison.Ordinal));
+        request.Uri.Host.Should().Be("oms-external-sit.hepsiburada.com");
+        request.Uri.Query.Should().Be("?offset=0&limit=10", "doküman: en fazla ve varsayılan 10 paket; tarih filtresi verilmez (bekleyen tüm paketler)");
+    }
+
+    [Fact]
+    public async Task Paket_listesi_onar_onar_sayfalanir()
+    {
+        var (adapter, http) = Create();
+        http.Respond = uri =>
+        {
+            if (!uri.AbsolutePath.EndsWith($"/packages/merchantid/{MerchantId}", StringComparison.Ordinal))
+            {
+                return (HttpStatusCode.OK, """{"items":[]}""");
+            }
+            var count = uri.Query.Contains("offset=0", StringComparison.Ordinal) ? 10 : 3;
+            var offset = uri.Query.Contains("offset=0", StringComparison.Ordinal) ? 0 : 10;
+            var packages = Enumerable.Range(offset, count).Select(i => OpenPackage
+                .Replace("9196103341", $"P{i}", StringComparison.Ordinal)
+                .Replace("6b01ee2b-9430-ca04-9e2d-e77306060606", $"L{i}", StringComparison.Ordinal));
+            return (HttpStatusCode.OK, "[" + string.Join(',', packages) + "]");
+        };
+
+        var orders = await adapter.FetchOrdersAsync(DateTime.UtcNow.AddMinutes(-5), Ct);
+
+        orders.Count(o => o.Status == OrderStatus.Hazirlaniyor).Should().Be(13);
+        http.Requests.Where(r => r.Uri.AbsolutePath.EndsWith($"/packages/merchantid/{MerchantId}", StringComparison.Ordinal))
+            .Select(r => r.Uri.Query).Should().Equal("?offset=0&limit=10", "?offset=10&limit=10");
+    }
+
+    [Fact]
+    public async Task Kismen_paketlenmis_siparis_tek_sipariste_birlesir_ve_onaylandi_kalir()
+    {
+        var (adapter, http) = Create();
+        http.Respond = uri => uri.AbsolutePath switch
+        {
+            var p when p.EndsWith($"/orders/merchantid/{MerchantId}", StringComparison.Ordinal) => (HttpStatusCode.OK,
+                """{"items":[{"id":"L-2","sku":"HBV2","orderNumber":"9196103341","orderDate":"2026-11-21T22:16:59","quantity":2,"unitPrice":{"amount":50},"totalPrice":{"amount":100}}]}"""),
+            var p when p.EndsWith($"/packages/merchantid/{MerchantId}", StringComparison.Ordinal) => (HttpStatusCode.OK, "[" + OpenPackage + "]"),
+            _ => (HttpStatusCode.OK, """{"items":[]}""")
+        };
+
+        var orders = await adapter.FetchOrdersAsync(DateTime.UtcNow.AddMinutes(-5), Ct);
+
+        var order = orders.Should().ContainSingle(o => o.ChannelOrderNo == "9196103341",
+            "aynı sipariş iki ayrı kayıtla gelirse ilk gelen eksik satırla kaydedilirdi").Which;
+        order.Status.Should().Be(OrderStatus.Onaylandi, "paketlenmemiş kalem varken sipariş hazırlanıyor sayılmaz");
+        order.Lines.Select(l => l.ChannelLineId).Should().BeEquivalentTo(["L-2", "6b01ee2b-9430-ca04-9e2d-e77306060606"]);
+        order.TotalAmount.Should().Be(300m);
+    }
+
     [Fact]
     public void Tarih_pencereleri_24_saati_ve_son_ayi_asmaz()
     {

@@ -7,6 +7,16 @@
 
 ---
 
+## Hepsiburada: paketlenmiş siparişler çekiliyor, tarih Türkiye saati (2026-11-21)
+
+- **Sorun:** Paketlenmiş ama kargoya verilmemiş sipariş, ödemesi tamamlanmış listesinden çıkıyor ve kargo listesine henüz girmiyordu. HB satıcı panelinden çekimden önce paketlenen sipariş uygulamaya hiç gelmez, stok rezerve edilmezdi (SIT test siparişleri bu yüzden panelde yoktu).
+- **Çözüm:** Adaptör "Saticiya Ait Paket Bilgilerini Listeleme" (`GET {oms}/packages/merchantid/{merchantId}`, doküman: limit en fazla 10) listesini de 10'ar sayfalayarak okur. "Open" paket → Hazırlanıyor, kalemlerle (ilk kez görülen sipariş kaydedilip rezerve edilir); paket no `KanalPaketNo`'ya, kargo firması + barkod kargo bilgisine. Kimlik no, telefon, e-posta, fatura adresi alınmaz.
+- Kısmen paketlenmiş sipariş (kalemlerin bir kısmı açık listede) tek siparişte birleşir, Onaylandı kalır.
+- Paket durum değerleri dokümanda yok: yalnızca SIT'te görülen "Open" işlenir (TODO doğrulanmalı).
+- **Tarih:** SIT'te 19:16:59 UTC'de oluşturulan siparişin `orderDate`'i 22:16:59 döndü → saat dilimsiz HB tarihleri Türkiye saati kabul edilip UTC'ye çevrilir (önceki TODO kapandı; eskiden panelde 3 saat ileri görünüyordu). Daha önce kaydedilmiş iki HB test siparişinin tarihi (4626777562, 9196103341) 3 saat ileri kalır.
+- Panelde doğrulandı (deneme modu, HB SIT): "Kanaldan sipariş çek" → 9196103341 Hazırlanıyor olarak geldi (2 çekildi, 1 yeni; satırın SKU eşleşmesi yok). 9406263198'in paketi SIT paket listesinde artık yok, gelmedi.
+- Contract test 4 yeni senaryo (SIT'te kaydedilen paket yanıtı). Unit 414/414, entegrasyon 152/152.
+
 ## Hepsiburada SIT: sipariş entegrasyonu güncel kodla yeniden doğrulandı (2026-11-21)
 
 - HB "sonraki adım sipariş entegrasyonu" dedi. Sipariş adımı (`siparis --evet`) charset'siz başlıklı güncel kodla yeniden çalıştırıldı:

@@ -30,6 +30,8 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
     /// <summary>Ödemesi tamamlanmış siparişler: limit en fazla 100; diğer durum listeleri en fazla 50.</summary>
     private const int OpenPageSize = 100;
     private const int StatusPageSize = 50;
+    /// <summary>Paket listesi: dokümana göre en fazla ve varsayılan 10 paket.</summary>
+    private const int PackagePageSize = 10;
 
     /// <summary>
     /// begindate/enddate biçimi dokümanda yazmıyor. // TODO: doğrulanmalı (biçim ve saat dilimi). Pencere en fazla 24 saat
@@ -208,6 +210,7 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
     /// <summary>
     /// Hepsiburada sipariş modeli kalem bazlıdır ve durumlar ayrı uçlardan gelir. Birleştirilen kaynaklar:
     /// ödemesi beklenen (→ Yeni; dokümana göre stok rezerve edilmeli), ödemesi tamamlanmış (Open/Unpacked → Onaylandı),
+    /// paketlenmiş ama kargoya verilmemiş (paket listesi, "Open" → Hazırlanıyor; kalem taşır),
     /// kargoya verilen (→ Kargoda), teslim edilen (→ Teslim edildi), teslim edilemeyen (→ İade), iptal (→ İptal).
     /// Kargo/teslim/iptal listeleri satır taşımaz; yalnızca kayıtlı siparişin durumunu ilerletir.
     /// Kanal sipariş no = Hepsiburada <c>orderNumber</c>.
@@ -224,7 +227,10 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var awaiting = await PageAsync(creds, $"{baseUrl}/paymentawaiting", StatusPageSize, null, ct);
         result.AddRange(GroupLines(awaiting, OrderStatus.Yeni));
         var open = await PageAsync(creds, baseUrl, OpenPageSize, null, ct);
-        result.AddRange(GroupLines(open, OrderStatus.Onaylandi));
+        // Paketlenmiş ama kargoya verilmemiş siparişler (2026-11-21): ödemesi tamamlanmış listesinden çıkar, kargo listesine
+        // henüz girmez. Okunmazsa satıcı panelinden paketlenen sipariş uygulamaya hiç gelmez. Tarih filtresi verilmez.
+        var packages = await PageAsync(creds, packagesUrl, PackagePageSize, null, ct);
+        result.AddRange(MergeOpenAndPackaged(GroupLines(open, OrderStatus.Onaylandi).ToList(), PackagedOrders(packages).ToList()));
 
         // Durum listeleri (son 1 ay; 24 saatlik pencerelerle)
         foreach (var (start, end) in Windows(sinceUtc, now))
@@ -237,8 +243,8 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
             result.AddRange(StatusOnly(await PageAsync(creds, $"{baseUrl}/cancelled", StatusPageSize, dates, ct), OrderStatus.Iptal));
         }
 
-        logger.LogInformation("Hepsiburada: {Bekleyen} ödeme bekleyen, {Acik} açık kalem; toplam {Adet} sipariş güncellemesi.",
-            awaiting.Count, open.Count, result.Count);
+        logger.LogInformation("Hepsiburada: {Bekleyen} ödeme bekleyen, {Acik} açık kalem, {Paket} paket; toplam {Adet} sipariş güncellemesi.",
+            awaiting.Count, open.Count, packages.Count, result.Count);
         return result;
     }
 
@@ -264,6 +270,75 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
                     new CustomerSummary(Str(first, "customerName"), address is { } ad ? Str(ad, "city") : null, address is { } ad2 ? Str(ad2, "town") : null),
                     cargoName is null ? null : new CargoInfo(cargoName, null, null));
             });
+
+    /// <summary>Paket durumu "Open" (SIT'te paketlenmiş, kargoya verilmemiş pakette görüldü).</summary>
+    internal const string OpenPackageStatus = "Open";
+
+    /// <summary>
+    /// "Saticiya Ait Paket Bilgilerini Listeleme" <c>GET {oms}/packages/merchantid/{merchantId}?offset&amp;limit</c> (doküman 2026-11-21:
+    /// begindate/enddate/timespan opsiyonel, limit en fazla 10). Yanıt şeması dokümanda yok; SIT yanıtı (2026-11-21): kök dizi,
+    /// paket <c>{status, packageNumber, barcode, cargoCompany, shippingCity, shippingTown, customerName, items[]{lineItemId, hbSku,
+    /// merchantSku, quantity, price, totalPrice, commission, orderNumber, orderDate}}</c>. Paket → Hazırlanıyor (kalemlerle; ilk kez
+    /// görülen sipariş de kaydedilip stok rezerve edilir). Kimlik no, telefon, e-posta, fatura adresi alınmaz (KVKK).
+    /// TODO: doğrulanmalı — paket durum değerlerinin listesi dokümanda yok; yalnızca SIT'te görülen "Open" işlenir, diğerleri atlanır
+    /// (kargodakiler /shipped listesinden gelir).
+    /// </summary>
+    internal static IEnumerable<NormalizedOrder> PackagedOrders(IEnumerable<JsonElement> packages) =>
+        packages
+            .Where(p => string.Equals(Str(p, "status"), OpenPackageStatus, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(p => Items(p, "items").Select(i => (Package: p, Item: i, OrderNo: Str(i, "orderNumber"))))
+            .Where(x => !string.IsNullOrWhiteSpace(x.OrderNo))
+            .GroupBy(x => x.OrderNo!, StringComparer.Ordinal)
+            .Select(g =>
+            {
+                var package = g.First().Package;
+                var lines = g.Select(x => new NormalizedOrderLine(
+                    Str(x.Item, "hbSku"), null, Str(x.Item, "merchantSku"),
+                    Int(x.Item, "quantity") ?? 1,
+                    Amount(x.Item, "price") ?? 0,
+                    Amount(x.Item, "commission"),
+                    ChannelLineId: Str(x.Item, "lineItemId"))).ToList();
+                var total = g.Sum(x => Amount(x.Item, "totalPrice") ?? (Amount(x.Item, "price") ?? 0) * (Int(x.Item, "quantity") ?? 1));
+                var orderDate = g.Select(x => Date(x.Item, "orderDate") ?? Date(x.Package, "orderDate")).Where(d => d is not null)
+                    .DefaultIfEmpty(DateTime.UtcNow).Min()!.Value;
+                var cargoName = Str(package, "cargoCompany");
+                var barcode = Str(package, "barcode");
+                return new NormalizedOrder(g.Key, orderDate, OrderStatus.Hazirlaniyor, total, lines,
+                    new CustomerSummary(Str(package, "customerName"), Str(package, "shippingCity"), Str(package, "shippingTown")),
+                    cargoName is null && barcode is null ? null : new CargoInfo(cargoName, barcode, null),
+                    Str(package, "packageNumber"));
+            });
+
+    /// <summary>
+    /// Kısmen paketlenmiş sipariş: kalemlerin bir kısmı ödemesi tamamlanmış listesinde, bir kısmı pakette. İki ayrı kayıt gelirse
+    /// ilk gelen eksik satırla kaydedilirdi; bu yüzden tek siparişte birleştirilir ve paketlenmemiş kalem kaldıkça Onaylandı kalır.
+    /// </summary>
+    internal static IEnumerable<NormalizedOrder> MergeOpenAndPackaged(IReadOnlyList<NormalizedOrder> open, IReadOnlyList<NormalizedOrder> packaged)
+    {
+        var packagedByNo = packaged.ToDictionary(o => o.ChannelOrderNo, StringComparer.Ordinal);
+        foreach (var o in open)
+        {
+            if (packagedByNo.Remove(o.ChannelOrderNo, out var p))
+            {
+                yield return o with
+                {
+                    Lines = [.. o.Lines, .. p.Lines.Where(l => o.Lines.All(x => x.ChannelLineId != l.ChannelLineId))],
+                    TotalAmount = o.TotalAmount + p.TotalAmount,
+                    OrderDateUtc = o.OrderDateUtc < p.OrderDateUtc ? o.OrderDateUtc : p.OrderDateUtc,
+                    Cargo = o.Cargo ?? p.Cargo,
+                    ChannelPackageId = p.ChannelPackageId
+                };
+            }
+            else
+            {
+                yield return o;
+            }
+        }
+        foreach (var p in packaged.Where(p => packagedByNo.ContainsKey(p.ChannelOrderNo)))
+        {
+            yield return p;
+        }
+    }
 
     /// <summary>Satırsız durum güncellemesi (kayıtlı siparişin durumunu ilerletir).</summary>
     internal static IEnumerable<NormalizedOrder> StatusOnly(IEnumerable<JsonElement> items, OrderStatus status) =>
@@ -609,13 +684,24 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         Prop(e, name) is { ValueKind: JsonValueKind.Object } o && Prop(o, "amount") is { ValueKind: JsonValueKind.Number } a && a.TryGetDecimal(out var v) ? v : null;
 
     /// <summary>
-    /// Dokümandaki örnek "2018-12-21T09:34:47" (saat dilimi belirtilmemiş). Bölge bilgisi yoksa UTC kabul edilir.
-    /// // TODO: doğrulanmalı — değer Türkiye saati ise 3 saat kayar (sipariş listesinde gösterim etkilenir, stok etkilenmez).
+    /// Dokümandaki örnek "2018-12-21T09:34:47" (saat dilimi belirtilmemiş). Doğrulandı (SIT, 2026-11-21): 19:16:59 UTC'de oluşturulan
+    /// test siparişinin orderDate'i "2026-11-21T22:16:59.437" döndü → saat dilimsiz değer Türkiye saatidir ve UTC'ye çevrilir.
+    /// Bölge bilgisi taşıyan değer (Z / +03:00) olduğu gibi UTC'ye çevrilir.
     /// </summary>
-    private static DateTime? Date(JsonElement e, string name) =>
-        Str(e, name) is { } s && DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var d)
-            ? d
-            : null;
+    private static DateTime? Date(JsonElement e, string name)
+    {
+        if (Str(e, name) is not { } s
+            || !DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var d))
+        {
+            return null;
+        }
+        return d.Kind switch
+        {
+            DateTimeKind.Utc => d,
+            DateTimeKind.Local => d.ToUniversalTime(),
+            _ => TimeZoneInfo.ConvertTimeToUtc(d, Turkey)
+        };
+    }
 
     private sealed record StockUploadItem(string HepsiburadaSku, int AvailableStock);
 }
