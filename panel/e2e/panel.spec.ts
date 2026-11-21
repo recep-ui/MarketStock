@@ -114,6 +114,14 @@ test('Stok Listesi kanal sekmeleri: her pazaryerinin listesi ayrı; olası yanl�
   await page.getByLabel('Kanal ilanlarında bul').fill(`DEMO-${d.tag}`);
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(5);
+  // ADR-043: kanaldaki durum sütunu ve filtresi. Demo ilanlarda kanal durumu yok → "Bilinmiyor"; "Satışta" süzgeci boş döner
+  await expect(page.getByTestId('channel-stock-table').locator('th', { hasText: 'Kanaldaki durum' })).toBeVisible();
+  await expect(rows.first().getByTestId('channel-sale-state')).toContainText('Bilinmiyor');
+  await page.getByLabel('Kanaldaki durum').selectOption('SATISTA');
+  await expect(rows).toHaveCount(0);
+  await page.getByLabel('Kanaldaki durum').selectOption('BILINMIYOR');
+  await expect(rows).toHaveCount(5);
+  await page.getByLabel('Kanaldaki durum').selectOption('');
   await page.getByLabel('Yalnızca kontrol gerekenler').check();
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText(d.multiListingSkuCode);

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Dapper;
 using PazaryeriHub.Application.Auth;
+using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Panel;
 using PazaryeriHub.Tests.Integration.Excel;
 using PazaryeriHub.Tests.Integration.Infrastructure;
@@ -143,6 +144,57 @@ public sealed class ChannelStockListTests(TestDatabase db)
         using var support = await db.ApiHost.CreateClientAsAsync(Roles.Support);
         (await support.GetAsync($"/api/stock-overview/channels/{s.ChannelId}?search={s.Tag}", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
         (await db.Api.GetAsync("/api/stock-overview/channels/999999", Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Kanal_listesi_kanaldaki_durumu_gosterir_ve_satis_durumuna_gore_filtreler()
+    {
+        db.SkipIfUnavailable();
+        var tag = Unique();
+        var skuId = await db.CreateSkuAsync(Barcode());
+        int channelId;
+        var ids = new Dictionary<string, int>();
+        await using (var c = db.Open())
+        {
+            channelId = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = @Channel", new { Channel });
+            // ADR-043: kanal durumu ham metin olarak KanalVerisi.kanalDurumu'nda; ilan durumu (AKTIF) değişmez
+            foreach (var (key, status) in new[] { ("on", "Satışta"), ("oos", "Stoğu Tükendi"), ("off", "Kara listede"), ("none", (string?)null) })
+            {
+                ids[key] = await c.ExecuteScalarAsync<int>("""
+                    INSERT dbo.ChannelListing (SkuId, ChannelId, KanalUrunKodu, KanalBarkod, Durum, KanalVerisi)
+                    VALUES (@skuId, @channelId, @code, @barcode, 'AKTIF', @data);
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);
+                    """, new
+                {
+                    skuId, channelId, code = $"SC-{key.ToUpperInvariant()}-{tag}", barcode = Barcode(),
+                    data = JsonSerializer.Serialize(new { urunAdi = "Durum Testi " + tag, kanalDurumu = status })
+                });
+            }
+        }
+
+        var all = await GetAsync(channelId, $"?search={tag}");
+        all.Rows.Total.Should().Be(4);
+        var rows = all.Rows.Items.ToDictionary(r => r.ListingId);
+        rows[ids["on"]].ChannelStatus.Should().Be("Satışta");
+        rows[ids["on"]].SaleState.Should().Be(ChannelSaleState.OnSale);
+        rows[ids["oos"]].SaleState.Should().Be(ChannelSaleState.OutOfStock);
+        rows[ids["off"]].ChannelStatus.Should().Be("Kara listede");
+        rows[ids["off"]].SaleState.Should().Be(ChannelSaleState.OffSale);
+        rows[ids["off"]].Status.Should().Be("AKTIF", "kanal durumu ilanı pasif yapmaz");
+        rows[ids["none"]].ChannelStatus.Should().BeNull();
+        rows[ids["none"]].SaleState.Should().Be(ChannelSaleState.Unknown);
+
+        (await GetAsync(channelId, $"?search={tag}&saleState=SATISTA")).Rows.Items.Select(r => r.ListingId).Should().Equal(ids["on"]);
+        (await GetAsync(channelId, $"?search={tag}&saleState=STOK_YOK")).Rows.Items.Select(r => r.ListingId).Should().Equal(ids["oos"]);
+        (await GetAsync(channelId, $"?search={tag}&saleState=SATIS_DISI")).Rows.Items.Select(r => r.ListingId).Should().Equal(ids["off"]);
+        (await GetAsync(channelId, $"?search={tag}&saleState=BILINMIYOR")).Rows.Items.Select(r => r.ListingId).Should().Equal(ids["none"]);
+
+        // Sayılar kanalın tamamı içindir (filtre kutusundaki adetler)
+        all.SaleStateCounts.Should().ContainKeys(ChannelSaleState.All);
+        all.SaleStateCounts[ChannelSaleState.OnSale].Should().BeGreaterThanOrEqualTo(1);
+        all.SaleStateCounts.Values.Sum().Should().Be(all.TotalListings);
+
+        (await db.Api.GetAsync($"/api/stock-overview/channels/{channelId}?saleState=HEPSI", Ct)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

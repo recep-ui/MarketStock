@@ -124,14 +124,19 @@ public sealed record MatchApproval(string? ApprovedBy, DateTime ApprovedAtUtc, b
 /// <param name="PriceOverride">İlana özel satış fiyatı (ADR-028); null ise SKU fiyatı + kanal kuralı.</param>
 /// <param name="SkuSalePrice">SKU'nun temel satış fiyatı.</param>
 /// <param name="LastSentSalePrice">Kanalın onayladığı son satış fiyatı.</param>
+/// <param name="ChannelStatus">Son katalog çekiminde kanalın bildirdiği ürün durumu (ham metin; ADR-043).</param>
 public sealed record ChannelStockListRow(
     int ListingId, string Status, ChannelSide Channel, string? ProductUrl, int? ChannelStock, DateTime? FetchedAtUtc,
     int SkuId, string SkuCode, string? SkuBarcode, string ProductName, string? Color, string? Size,
     int Expected, int? LastSent, string MatchBasis, IReadOnlyList<MatchWarning> Warnings, MatchApproval? Approval = null,
     string? ImageUrl = null, decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null,
     string? StockRuleType = null, int? StockRuleValue = null,
-    decimal? PriceOverride = null, decimal? SkuSalePrice = null, decimal? LastSentSalePrice = null)
+    decimal? PriceOverride = null, decimal? SkuSalePrice = null, decimal? LastSentSalePrice = null,
+    string? ChannelStatus = null)
 {
+    /// <summary>Kanal durumunun sınıfı (ADR-043): SATISTA | STOK_YOK | SATIS_DISI | BILINMIYOR. Yalnızca gösterim/filtre.</summary>
+    public string SaleState => PazaryeriHub.Application.Channels.ChannelSaleState.Classify(ChannelStatus);
+
     public bool HasDeviation => ChannelStock is { } c && c != Expected;
 
     /// <summary>Son mutabakatta kanalda bulunamadı (çekim var, değer yok; ADR-040). Sapma sayılmaz.</summary>
@@ -145,10 +150,11 @@ public sealed record ChannelStockListRow(
 }
 
 /// <param name="UnmatchedCount">Kanalda görülen ama hiçbir SKU'ya bağlanmamış (bekleyen) ürün sayısı.</param>
+/// <param name="SaleStateCounts">Kanalın tüm ilanlarının satış durumu sınıfına göre adetleri (ADR-043; filtreden bağımsız).</param>
 public sealed record ChannelStockList(
     int ChannelId, string ChannelCode, PagedResult<ChannelStockListRow> Rows,
     int TotalListings, int DeviationCount, int ReviewCount, int NotFetchedCount, int UnmatchedCount, DateTime? LastFetchedUtc,
-    int ApprovedCount = 0, int MissingCount = 0);
+    int ApprovedCount = 0, int MissingCount = 0, IReadOnlyDictionary<string, int>? SaleStateCounts = null);
 
 /// <summary>"Doğru eşleşme" onayı (ADR-036). Eşleştirmeyi değiştirmez; yalnızca uyarıyı kapatır.</summary>
 public interface IListingMatchApprovalService

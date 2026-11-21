@@ -7,6 +7,14 @@
 
 ---
 
+## Kanal sekmesinde kanaldaki durum sütunu ve süzgeci (2026-11-21, ADR-043)
+
+- Soru: Trendyol/Beymen'den çekilen ürünler yalnızca satışta olanlar mı? Hayır: katalog çekimi süzgeçsiz, satış dışı ürünler de geliyor (deneme DB: Trendyol 412/584, Beymen 50/194 satışta).
+- Stok Listesi → kanal sekmesi: "Kanaldaki durum" sütunu (Satışta / Stoğu tükendi / Satış dışı / Bilinmiyor + kanalın metni) ve adetli süzgeç.
+- İlan durumu ve stok gönderimi değişmedi (otomatik pasif yapılmaz).
+- Testler: unit 410/410, entegrasyon 152/152, Playwright 18/18.
+- Bilinen: Beymen API ile çekilen "Beymen'e Seçilmedi" ilanlar PASIF yapılmaz (Excel içe aktarmada yapılır); tutarsızlık bilerek bırakıldı, istenirse hizalanır.
+
 ## Hepsiburada SIT: katalog ürün gönderimi tamam (2026-11-21)
 
 - Hepsiburada destek: "kategorileri listeleyip ardından özellikleri listeleyerek ürün gönderimi yapmanızı bekliyoruz".

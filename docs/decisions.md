@@ -911,3 +911,17 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 **Kapsam dışı:** Kanala doğrudan yazan "hemen gönder" düğmesi eklenmedi; gönderim yetenek durumuna ve yazma kilidine tabi mevcut hattan gider (kullanıcı seçimi: "Canlı kurulumda, kilit kalkınca"). Eşleşmemiş ürün için stok/fiyat düzenlenmez (defter esas; önce SKU'ya bağlanmalı).
 
 **Doğrulama:** unit 392/392 (yeni: ListingStockRuleTests 13, katalog görsel contract testleri, `gorsel` okuma), entegrasyon 151/151 (yeni: kural API → outbox → mock kanal, defteri aşmaz, geçersiz kural 400), Playwright 18/18 (yeni: kanal sekmesinde stok kuralı + fiyat kaydet/geri al).
+
+## ADR-043: Kanaldaki ürün durumu gösterilir ve süzülür; ilanı pasif yapmaz
+
+**Tarih:** 2026-11-21 · **Durum:** Kabul
+
+**Bağlam:** Trendyol (`filterApprovedProducts`) ve Beymen (`GET /products`) katalog çekimi durum süzgeci uygulamaz; satış dışı ürünler de gelir. Deneme modu veritabanında Trendyol 584 ilanın 412'si "Satışta" (79 kara listede, 68 satışta değil, 24 arşiv, 1 kilitli), Beymen 194 ilanın 50'si "Satışta" (72 satışta değil, 36 stoğu tükendi, 25 seçilmedi, 11 revize bekliyor). Kanal durumu `KanalVerisi.kanalDurumu`'nda saklanıyordu ama kanal sekmesinde görünmüyordu; yalnızca Trendyol "Arşivlendi" ilanı PASIF yapıyordu.
+
+**Karar:**
+- `ChannelSaleState.Classify` (saf fonksiyon): ham metin → `SATISTA | STOK_YOK | SATIS_DISI | BILINMIYOR`. Yalnızca gerçek yanıtlarda görülen metinler tanınır (Türkçe karakter/büyük-küçük harf/boşluk farkı önemsiz); tanınmayan metin BILINMIYOR (tahmin yok).
+- Kanal stok listesi satırında `ChannelStatus` (ham) + `SaleState`; listede kanalın tüm ilanları için `SaleStateCounts`. `GET /api/stock-overview/channels/{id}?saleState=…` ile süzülür; geçersiz değer 400.
+- Panel: kanal sekmesinde "Kanaldaki durum" sütunu (rozet + kanalın metni) ve adetli "Kanaldaki durum" süzgeci.
+- **İlan durumu (AKTIF/PASIF) ve stok gönderimi değişmez.** Satış dışı ilanı otomatik pasif yapmak, ürün yeniden satışa açıldığında stok/fiyat güncellemesini geciktirir; tam ortak havuzda satış dışı ilana gönderilen stok diğer kanalları azaltmaz.
+
+**Doğrulama:** unit 410/410 (yeni: ChannelSaleStateTests), entegrasyon 152/152 (yeni: durum alanları, 4 süzgeç, adetler, geçersiz değer 400), Playwright ADR-035 senaryosuna durum sütunu + süzgeç adımları eklendi (18/18; ilk koşuda yeni adımdaki seçici düzeltildi).

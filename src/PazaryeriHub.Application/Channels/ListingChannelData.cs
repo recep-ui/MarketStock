@@ -10,7 +10,7 @@ namespace PazaryeriHub.Application.Channels;
 public sealed record ListingChannelData(
     string? ProductUrl, decimal? SalePrice, decimal? ListPrice, string? Variant,
     string? Name = null, string? Brand = null, string? StockCode = null, string? Color = null, string? Size = null,
-    string? ImageUrl = null)
+    string? ImageUrl = null, string? ChannelStatus = null)
 {
     /// <summary>Kanal adresleri (ürün linki, görsel) yalnızca mutlak https ve en fazla 1000 karakterse kabul edilir.</summary>
     public static string? HttpsOrNull(string? url) =>
@@ -35,7 +35,7 @@ public sealed record ListingChannelData(
             var url = HttpsOrNull(Str(r, "urunLinki"));
             return new ListingChannelData(url, Dec(r, "kanalSatisFiyati"), Dec(r, "kanalListeFiyati"), Str(r, "varyant"),
                 Str(r, "urunAdi"), Str(r, "marka"), Str(r, "stokKodu"), Str(r, "renk"), Str(r, "beden"),
-                HttpsOrNull(Str(r, "gorsel")));
+                HttpsOrNull(Str(r, "gorsel")), Str(r, "kanalDurumu"));
         }
         catch (JsonException)
         {

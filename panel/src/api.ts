@@ -350,9 +350,13 @@ export type ChannelStockListRow = {
   imageUrl?: string | null; channelSalePrice?: number | null; channelListPrice?: number | null;
   stockRuleType?: StockRuleType | null; stockRuleValue?: number | null;
   priceOverride?: number | null; skuSalePrice?: number | null; lastSentSalePrice?: number | null;
+  /** ADR-043: kanalın bildirdiği ürün durumu (ham metin) ve sınıfı. Yalnızca gösterim/filtre; ilanı pasif yapmaz. */
+  channelStatus?: string | null; saleState?: SaleState;
 };
+export type SaleState = 'SATISTA' | 'STOK_YOK' | 'SATIS_DISI' | 'BILINMIYOR';
 export type ChannelStockList = {
   channelId: number; channelCode: string; rows: Paged<ChannelStockListRow>;
   totalListings: number; deviationCount: number; reviewCount: number; notFetchedCount: number; unmatchedCount: number; lastFetchedUtc: string | null;
   approvedCount: number; missingCount?: number;
+  saleStateCounts?: Partial<Record<SaleState, number>> | null;
 };

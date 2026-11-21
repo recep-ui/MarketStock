@@ -148,8 +148,13 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
     }
 
     public async Task<ChannelStockList> GetChannelStockListAsync(
-        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct)
+        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct,
+        string? saleState = null)
     {
+        var state = Text.Clean(saleState);
+        new PazaryeriHub.Application.Common.Validator()
+            .Must(state is null || PazaryeriHub.Application.Channels.ChannelSaleState.IsValid(state), "saleState", "Satış durumu SATISTA, STOK_YOK, SATIS_DISI veya BILINMIYOR olmalı.")
+            .ThrowIfInvalid();
         var (p, size) = Paging.Normalize(page, pageSize);
         await using var connection = await OpenAsync(ct);
         var channelCode = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
@@ -177,12 +182,17 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         {
             filtered = filtered.Where(r => r.NeedsReview);
         }
+        if (state is not null)
+        {
+            filtered = filtered.Where(r => r.SaleState == state);
+        }
         var matching = filtered.ToList();
 
         return new ChannelStockList(channelId, channelCode,
             new PagedResult<ChannelStockListRow>(matching.Skip((p - 1) * size).Take(size).ToList(), matching.Count, p, size),
             rows.Count, rows.Count(r => r.HasDeviation), rows.Count(r => r.NeedsReview), rows.Count(r => r.FetchedAtUtc is null), unmatched,
-            rows.Max(r => r.FetchedAtUtc), rows.Count(r => r.Approval is { Valid: true }), rows.Count(r => r.MissingInChannel));
+            rows.Max(r => r.FetchedAtUtc), rows.Count(r => r.Approval is { Valid: true }), rows.Count(r => r.MissingInChannel),
+            PazaryeriHub.Application.Channels.ChannelSaleState.All.ToDictionary(x => x, x => rows.Count(r => r.SaleState == x)));
     }
 
     /// <summary>
@@ -242,7 +252,8 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
                 l.SkuId, l.SkuCode, l.SkuBarcode, l.ProductName, l.Color, l.Size,
                 targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings, approval,
                 data.ImageUrl ?? PazaryeriHub.Application.Channels.ListingChannelData.HttpsOrNull(l.FallbackImageUrl),
-                data.SalePrice, data.ListPrice, l.StockRuleType, l.StockRuleValue, l.PriceOverride, l.SkuSalePrice, l.LastSentSalePrice);
+                data.SalePrice, data.ListPrice, l.StockRuleType, l.StockRuleValue, l.PriceOverride, l.SkuSalePrice, l.LastSentSalePrice,
+                data.ChannelStatus);
         }).ToList();
     }
 

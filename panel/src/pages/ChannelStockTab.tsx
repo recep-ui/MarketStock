@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockList, type ChannelStockListRow, type Paged, type UnmatchedItem } from '../api';
+import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockList, type ChannelStockListRow, type Paged, type SaleState, type UnmatchedItem } from '../api';
 import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
 import { ListingEditor, draftOf, draftProblem, isDirty, saveDraft, type ListingDraft } from '../components/ListingEditor';
@@ -30,8 +30,17 @@ const capabilityText: Record<string, string> = {
  * Stok Listesi → kanal sekmesi (ADR-035). Kanalın çekilen stok listesi: her satırda kanalın bildirdiği barkod/kod/ad/stok ve
  * bağlandığı SKU yan yana. Kanal bilgisi SKU ile uyuşmuyorsa "Kontrol et" (yanlış eşleştirme olabilir). Eşleştirmeyi değiştirmez.
  */
+/** ADR-043: kanal durumu sınıfları (filtre ve rozet). */
+const saleStateLabels: Record<SaleState, { text: string; tone?: string; title: string }> = {
+  SATISTA: { text: 'Satışta', tone: 'ok', title: 'Kanalda satışta.' },
+  STOK_YOK: { text: 'Stoğu tükendi', tone: 'warn', title: 'İlan açık ama kanalda stok yok; stok gönderilince satışa döner.' },
+  SATIS_DISI: { text: 'Satış dışı', tone: 'danger', title: 'Kanalda satışta değil (satışa kapalı, arşiv, kara liste, kilitli, seçilmedi veya revize bekliyor).' },
+  BILINMIYOR: { text: 'Bilinmiyor', title: 'Kanal durum bildirmedi veya durum metni tanınmıyor.' },
+};
+const saleStates: SaleState[] = ['SATISTA', 'STOK_YOK', 'SATIS_DISI', 'BILINMIYOR'];
+
 export function ChannelStockTab({ channel }: { channel: Channel }) {
-  const [form, setForm] = useState({ search: '', onlyDeviations: false, onlyReview: false });
+  const [form, setForm] = useState({ search: '', onlyDeviations: false, onlyReview: false, saleState: '' as SaleState | '' });
   const [applied, setApplied] = useState(form);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<number | null>(null);
@@ -48,7 +57,8 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
 
   const data = useLoad(
     () => get<ChannelStockList>(`/api/stock-overview/channels/${channel.id}${qs({
-      search: applied.search, onlyDeviations: applied.onlyDeviations, onlyReview: applied.onlyReview, page, pageSize: 50
+      search: applied.search, onlyDeviations: applied.onlyDeviations, onlyReview: applied.onlyReview,
+      saleState: applied.saleState || undefined, page, pageSize: 50
     })}`),
     [channel.id, applied, page]
   );
@@ -146,6 +156,13 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
           <label className="check">
             <input type="checkbox" checked={form.onlyDeviations} onChange={e => quick({ onlyDeviations: e.target.checked })} /> Yalnızca stok sapmaları
           </label>
+          <select aria-label="Kanaldaki durum" data-testid="sale-state-filter" value={form.saleState}
+            onChange={e => quick({ saleState: e.target.value as SaleState | '' })}>
+            <option value="">Kanaldaki durum: tümü</option>
+            {saleStates.map(s => (
+              <option key={s} value={s}>{saleStateLabels[s].text}{d?.saleStateCounts ? ` (${d.saleStateCounts[s] ?? 0})` : ''}</option>
+            ))}
+          </select>
           <button type="submit">Filtrele</button>
           {d && d.unmatchedCount > 0 && (
             <label className="check">
@@ -175,6 +192,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
               <thead>
                 <tr>
                   <th>{name}'de görünen ürün</th>
+                  <th>Kanaldaki durum</th>
                   <th className="num">Kanal stoğu</th>
                   <th aria-label="bağlı">→</th>
                   <th>Bağlı SKU (defter)</th>
@@ -204,6 +222,13 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                         <ChannelLink code={channel.code} url={r.productUrl} />
                       </div>
                     </div></div></td>
+                    <td data-testid="channel-sale-state">
+                      {(() => {
+                        const s = saleStateLabels[r.saleState ?? 'BILINMIYOR'];
+                        return <span className={`badge${s.tone ? ' ' + s.tone : ''}`} title={s.title}>{s.text}</span>;
+                      })()}
+                      {r.channelStatus && <div className="small muted">{r.channelStatus}</div>}
+                    </td>
                     <td className="num">
                       {r.channelStock ?? (r.missingInChannel
                         ? <span className="muted small" title="Son mutabakatta bu ilan kanalda bulunamadı; sapma hesabına girmez.">kanalda yok</span>
@@ -271,7 +296,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                   </tr>
                 ))}
                 {d.rows.items.length === 0 && (
-                  <tr><td colSpan={7} className="empty">
+                  <tr><td colSpan={8} className="empty">
                     {d.totalListings === 0 ? `${name} için henüz eşleşmiş ilan yok.` : 'Filtreye uyan ilan yok.'}
                   </td></tr>
                 )}

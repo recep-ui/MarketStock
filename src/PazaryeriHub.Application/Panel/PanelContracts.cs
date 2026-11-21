@@ -79,7 +79,8 @@ public interface IPanelQueryService
     /// Kanal yoksa <see cref="NotFoundException"/>.
     /// </summary>
     Task<ChannelStockList> GetChannelStockListAsync(
-        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct);
+        int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct,
+        string? saleState = null);
 
     /// <summary>SKU detay ekranı (ADR-034). SKU yoksa <see cref="NotFoundException"/>.</summary>
     Task<SkuDetail> GetSkuDetailAsync(int skuId, CancellationToken ct);
