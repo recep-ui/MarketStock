@@ -20,10 +20,14 @@ public sealed class HepsiburadaSitClientContractTests
     private sealed class FakeHandler : HttpMessageHandler
     {
         public List<(HttpMethod Method, Uri Uri, string? Auth, string? UserAgent, string? Body)> Requests { get; } = [];
+
+        /// <summary>İstek gövdesinin Content-Type başlığı (gövdesiz istekte null).</summary>
+        public List<string?> ContentTypes { get; } = [];
         public (HttpStatusCode Status, string Body) Response { get; set; } = (HttpStatusCode.OK, "{}");
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            ContentTypes.Add(request.Content?.Headers.ContentType?.ToString());
             Requests.Add((request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(),
                 string.Join(' ', request.Headers.GetValues("User-Agent")),
                 request.Content is null ? null : await request.Content.ReadAsStringAsync(ct)));
@@ -176,15 +180,24 @@ public sealed class HepsiburadaSitClientContractTests
     {
         var (client, http) = Create();
 
-        await client.InventoryUploadAsync([new SitInventoryItem("HBV00000AAA1", "MSKU-1", Price: 149.9m, AvailableStock: 7)], Ct);
+        await client.InventoryUploadAsync([new SitInventoryItem("HBV00000AAA1", "MSKU-1", Price: 149.9m, AvailableStock: 7, DispatchTime: 3, MaximumPurchasableQuantity: 10)], Ct);
         await client.InventoryUploadStatusAsync("inv-9", Ct);
 
         http.Requests[0].Uri.ToString().Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}/inventory-uploads");
         var item = Body(http.Requests[0]).EnumerateArray().Single();
         item.GetProperty("hepsiburadaSku").GetString().Should().Be("HBV00000AAA1");
         item.GetProperty("merchantSku").GetString().Should().Be("MSKU-1");
-        item.GetProperty("price").GetDecimal().Should().Be(149.9m);
+        // Hepsiburada destek yanıtı (2026-11-21): gövde sarmalayıcısız dizi, camelCase, price METİN ("310.00"), sayı gönderilince
+        // 400 "An error occurred while deserializing input data" dönüyordu.
+        item.GetProperty("price").ValueKind.Should().Be(JsonValueKind.String);
+        item.GetProperty("price").GetString().Should().Be("149.90");
         item.GetProperty("availableStock").GetInt32().Should().Be(7);
+        item.GetProperty("dispatchTime").GetInt32().Should().Be(3);
+        item.GetProperty("maximumPurchasableQuantity").GetInt32().Should().Be(10);
+        item.EnumerateObject().Select(p => p.Name).Should().Equal(
+            "hepsiburadaSku", "merchantSku", "price", "availableStock", "dispatchTime", "maximumPurchasableQuantity");
+        // "; charset=utf-8" ekiyle SIT aynı gövdeye 400 döndü, eksiz 200 + Done (2026-11-21, envanter raporu)
+        http.ContentTypes[0].Should().Be("application/json");
         http.Requests[1].Uri.ToString().Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}/inventory-uploads/id/inv-9");
     }
 

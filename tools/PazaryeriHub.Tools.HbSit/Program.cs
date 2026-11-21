@@ -14,7 +14,7 @@ using PazaryeriHub.Infrastructure.Persistence;
 using PazaryeriHub.Tools.HbSit;
 
 // Hepsiburada test ortamı (SIT) doğrulama aracı (ADR-037).
-// Kullanım: dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|siparis|hepsi> [--evet] [--hbsku HBSKU]
+// Kullanım: dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|envanter|siparis|hepsi> [--evet] [--hbsku HBSKU]
 //  - Kimlik bilgisi panelde girilen (PazaryeriHub_Test veritabanındaki, şifreli) Hepsiburada bilgisidir; ortamı "Test" olmalı.
 //  - Yalnızca *-sit.hepsiburada.com adreslerine istek gider (SitRecorder). Veritabanına hiçbir şey yazılmaz.
 //  - Her yazma adımı ne göndereceğini gösterip onay ister (--evet ile sorulmaz). Rapor: hb-sit-rapor/<zaman>/
@@ -22,7 +22,7 @@ Console.OutputEncoding = Encoding.UTF8;
 var step = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))?.ToLowerInvariant() ?? "kontrol";
 var autoYes = args.Contains("--evet");
 var hbSkuArg = args.SkipWhile(a => a != "--hbsku").Skip(1).FirstOrDefault();
-string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi", "katalog-kesif", "urun-gonder", "eslesme"];
+string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi", "katalog-kesif", "urun-gonder", "eslesme", "envanter"];
 string? Arg(string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
 var categoryArg = args.SkipWhile(a => a != "--kategori").Skip(1).FirstOrDefault();
 if (!known.Contains(step))
@@ -81,6 +81,8 @@ try
     var listing = await ChooseListingAsync();
     if (step is "katalog" or "hepsi") await CatalogAsync();
     if (step is "listeleme" or "hepsi") await ListingAsync(listing);
+    // Yalnızca envanter güncelleme + sonuç sorgulama (başka yazma adımı çalışmaz)
+    if (step is "envanter") await InventoryAsync(listing);
     if (step is "siparis" or "hepsi") await OrderAsync(listing);
     if (step is "katalog-kesif") await CatalogDiscoveryAsync();
     if (step is "urun-gonder") await ProductUploadAsync(Arg("--dosya") ?? throw new InvalidOperationException("--dosya <ürün json> gerekli"));
@@ -300,29 +302,9 @@ async Task CatalogAsync()
 async Task ListingAsync(ListingInfo? l)
 {
     if (l is null) return;
+    await InventoryAsync(l);
     var stock = l.Stock is > 0 ? l.Stock.Value : 5;
     var price = l.Price is > 0 ? l.Price.Value : 100m;
-
-    if (Confirm("Listing envanter güncelleme", $"HBSKU {l.HbSku}: stok {stock}, fiyat {price}"))
-    {
-        recorder.CurrentStep = "Listing envanter güncelleme";
-        var inv = await sit.InventoryUploadAsync([new SitInventoryItem(l.HbSku, l.MerchantSku, price, stock)], ct);
-        Show(inv.Step, inv.Status, inv.ResponseBody);
-        var id = inv.Find("id");
-        findings.Add(("Listeleme", "Envanter güncelleme", $"HTTP {inv.Status}, id {id ?? "—"}"));
-        if (id is not null)
-        {
-            recorder.CurrentStep = "Listing envanter güncelleme sorgulama";
-            for (var i = 0; i < 4; i++)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(3), ct);
-                var s = await sit.InventoryUploadStatusAsync(id, ct);
-                Show(s.Step + $" #{i + 1}", s.Status, s.ResponseBody);
-                if (s.Find("status") is { } st && st.Equals("Done", StringComparison.OrdinalIgnoreCase)) break;
-            }
-        }
-    }
-
     if (Confirm("Listing stok güncelleme (uygulamanın adaptörüyle)", $"HBSKU {l.HbSku}: stok {stock}"))
     {
         recorder.CurrentStep = "Listing stok güncelleme";
@@ -353,6 +335,37 @@ async Task ListingAsync(ListingInfo? l)
         Show(unlock.Step, unlock.Status, unlock.ResponseBody);
         findings.Add(("Listeleme", "Toplu kilit kaldırma", $"HTTP {unlock.Status}"));
     }
+}
+
+async Task InventoryAsync(ListingInfo? l)
+{
+    if (l is null) return;
+    var stock = l.Stock is > 0 ? l.Stock.Value : 5;
+    var price = l.Price is > 0 ? l.Price.Value : 100m;
+
+    // Kargoya veriliş süresi ve azami adet: listingin mevcut değerleri korunur (yoksa 3 gün / 0 = sınırsız)
+    var dispatch = l.DispatchTime is > 0 ? l.DispatchTime.Value : 3;
+    var maxQty = l.MaxQuantity is >= 0 ? l.MaxQuantity.Value : 0;
+    if (Confirm("Listing envanter güncelleme", $"HBSKU {l.HbSku}: stok {stock}, fiyat {price}, kargoya veriliş {dispatch} gün"))
+    {
+        recorder.CurrentStep = "Listing envanter güncelleme";
+        var inv = await sit.InventoryUploadAsync([new SitInventoryItem(l.HbSku, l.MerchantSku, price, stock, dispatch, maxQty)], ct);
+        Show(inv.Step, inv.Status, inv.ResponseBody);
+        var id = inv.Find("id");
+        findings.Add(("Listeleme", "Envanter güncelleme", $"HTTP {inv.Status}, id {id ?? "—"}"));
+        if (id is not null)
+        {
+            recorder.CurrentStep = "Listing envanter güncelleme sorgulama";
+            for (var i = 0; i < 4; i++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3), ct);
+                var s = await sit.InventoryUploadStatusAsync(id, ct);
+                Show(s.Step + $" #{i + 1}", s.Status, s.ResponseBody);
+                if (s.Find("status") is { } st && st.Equals("Done", StringComparison.OrdinalIgnoreCase)) break;
+            }
+        }
+    }
+
 }
 
 async Task BatchAsync(string name, Func<Task<BatchResult>> push)
@@ -532,7 +545,8 @@ static List<ListingInfo> ParseListings(string json)
         {
             var hb = Str(i, "hepsiburadaSku");
             if (hb is null) continue;
-            result.Add(new ListingInfo(hb, Str(i, "merchantSku"), Num(i, "availableStock") is { } s ? (int)s : null, Num(i, "price")));
+            result.Add(new ListingInfo(hb, Str(i, "merchantSku"), Num(i, "availableStock") is { } s ? (int)s : null, Num(i, "price"),
+                Num(i, "dispatchTime") is { } dt ? (int)dt : null, Num(i, "maximumPurchasableQuantity") is { } mq ? (int)mq : null));
         }
     }
     catch (JsonException)
@@ -616,7 +630,7 @@ static string? TestConnectionString()
 
 namespace PazaryeriHub.Tools.HbSit
 {
-    public sealed record ListingInfo(string HbSku, string? MerchantSku, int? Stock, decimal? Price);
+    public sealed record ListingInfo(string HbSku, string? MerchantSku, int? Stock, decimal? Price, int? DispatchTime = null, int? MaxQuantity = null);
 
     /// <summary>Adaptöre paneldeki (çözülmüş) kimlik bilgisini verir; yazma yapmaz.</summary>
     public sealed class FixedCredentials(string json) : IChannelCredentialStore

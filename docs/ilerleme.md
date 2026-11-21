@@ -7,6 +7,14 @@
 
 ---
 
+## Hepsiburada SIT: katalog testi kabul, envanter güncelleme çalıştı (2026-11-21)
+
+- HB destek: test ortamında "Eşleşen" statüsüne çekilemiyor; ürünlerin "İncelenecek"e düşmesi ve onay/red çağrılarının hatasız kayıtları yeterli → **katalog testi tamamlandı**.
+- `inventory-uploads` 400 çözüldü. HB'nin verdiği gövde (`price` metin, `dispatchTime`, `maximumPurchasableQuantity`) charset ekli başlıkla yine 400 döndü; `Content-Type: application/json` (eksiz) ile `200 {"id"}` → `Done`, hata yok (rapor `hb-sit-rapor/20261121-172909-envanter`, git dışı).
+- SIT istemcisi: envanter gövdesi HB örneğine göre, gövdeli isteklerde eksiz Content-Type. Araca yalnızca envanter yazan `envanter` adımı eklendi (listingin kendi stok/fiyat/kargoya veriliş değerleriyle).
+- Contract test: gövde alan sırası/tipleri ve Content-Type. Unit 410/410.
+- Uygulama adaptörü değişmedi (stok/fiyat `stock-uploads` / `price-uploads` ile, SIT'te zaten 200).
+
 ## Eşleştirme listesinde kanal ürünü ↔ SKU yan yana (2026-11-21, ADR-044)
 
 - Eşleştirme → "Eşleştirmeler" tablosu: kanaldaki görsel/ad/kodlar/varyant/durum → bağlı SKU'nun ürün adı/renk-beden/barkodu, eşleşme dayanağı rozeti; uyarılı satırdan kanal sekmesine bağlantı.

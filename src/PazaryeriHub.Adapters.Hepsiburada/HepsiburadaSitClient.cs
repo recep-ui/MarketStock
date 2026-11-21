@@ -66,7 +66,12 @@ public sealed record SitCall(string Step, string Method, string Url, string? Req
 
 public sealed record SitFastListingItem(string MerchantSku, string ProductName, string? Barcode, int? Stock = null, decimal? Price = null);
 
-public sealed record SitInventoryItem(string HepsiburadaSku, string? MerchantSku, decimal Price, int AvailableStock);
+/// <summary>
+/// Listing envanter güncelleme kalemi. Gövde biçimi Hepsiburada destek yanıtından (2026-11-21): sarmalayıcısız dizi, camelCase,
+/// <c>hepsiburadaSku</c> zorunlu, <c>price</c> metin ("310.00"), <c>dispatchTime</c> ve <c>maximumPurchasableQuantity</c> (0 = sınırsız) sayı.
+/// </summary>
+public sealed record SitInventoryItem(string HepsiburadaSku, string? MerchantSku, decimal Price, int AvailableStock,
+    int DispatchTime = 3, int MaximumPurchasableQuantity = 0);
 
 /// <param name="DeliveryOptionId">Dokümanda opsiyonel; verilmezse gönderilmez.</param>
 /// <param name="CargoCompanyId">Dokümanda opsiyonel; verilmezse gönderilmez. Hepsiburada desteğinin örnek isteğinde (2026-11-20)
@@ -188,7 +193,13 @@ public sealed class HepsiburadaSitClient
 
     public Task<SitCall> InventoryUploadAsync(IReadOnlyList<SitInventoryItem> items, CancellationToken ct) =>
         SendAsync("Listing envanter güncelleme", HttpMethod.Post, $"{Listings}/inventory-uploads",
-            items.Select(i => new { hepsiburadaSku = i.HepsiburadaSku, merchantSku = i.MerchantSku, price = i.Price, availableStock = i.AvailableStock }).ToList(),
+            items.Select(i => new
+            {
+                hepsiburadaSku = i.HepsiburadaSku, merchantSku = i.MerchantSku,
+                // Fiyat metin olarak gider; sayı gönderilince SIT 400 "deserializing input data" döndü (destek yanıtı 2026-11-21)
+                price = i.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+                availableStock = i.AvailableStock, dispatchTime = i.DispatchTime, maximumPurchasableQuantity = i.MaximumPurchasableQuantity
+            }).ToList(),
             CamelCase, ct);
 
     public Task<SitCall> InventoryUploadStatusAsync(string inventoryUploadId, CancellationToken ct) =>
@@ -268,6 +279,11 @@ public sealed class HepsiburadaSitClient
     {
         string? requestBody = body is null ? null : JsonSerializer.Serialize(body, options ?? CamelCase);
         var content = requestBody is null ? null : new StringContent(requestBody, Encoding.UTF8, "application/json");
+        if (content is not null)
+        {
+            // Destek yanıtındaki başlık birebir: "Content-Type: application/json" (charset eki yok; 2026-11-21 denemesi)
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        }
         return SendContentAsync(step, method, url, content, requestBody, ct);
     }
 
