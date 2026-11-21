@@ -13,7 +13,7 @@
 - Uygulama adaptörü (`HepsiburadaAdapter`) artık tüm gövdeli isteklerde charset'siz başlık gönderir (önce `JsonContent` ile `; charset=utf-8` gidiyordu; stok/fiyat yüklemesi SIT'te yine de 200 dönmüştü).
 - Sonuç kontrolü HB'nin tarifiyle aynı: yalnızca `Done` + `errors` boş (null / yok / boş dizi) tamam; diğer durumlar beklemede. Ek: dizi dışı dolu `errors` (nesne/metin) artık hata sayılır.
 - Contract test: stok ve fiyat isteklerinde başlık, fiyatın sayı olması, `errors` biçimleri. Unit 411/411, entegrasyon 152/152.
-- Adaptör değişikliği SIT'te ayrıca gönderimle denenmedi (HB başlığı teyit etti; SIT istemcisi aynı başlıkla 200 + Done aldı).
+- Adaptörün yeni hali SIT'te denendi (araçta yeni `adaptor-stok` adımı, `--stok N`): HBV00001136ES stok 5 → 6 → 5. İki gönderimde de başlık `application/json` (eksiz), `POST stock-uploads` 200 `{"id"}`, sonuç sorgusu `Done` + `errors: null`, listing yeniden okununca kaydedilen stok beklenenle aynı. Araç raporu artık her çağrının gönderilen Content-Type'ını da yazar.
 
 ## Hepsiburada SIT: katalog testi kabul, envanter güncelleme çalıştı (2026-11-21)
 

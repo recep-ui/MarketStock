@@ -14,7 +14,7 @@ using PazaryeriHub.Infrastructure.Persistence;
 using PazaryeriHub.Tools.HbSit;
 
 // Hepsiburada test ortamı (SIT) doğrulama aracı (ADR-037).
-// Kullanım: dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|envanter|siparis|hepsi> [--evet] [--hbsku HBSKU]
+// Kullanım: dotnet run --project tools/PazaryeriHub.Tools.HbSit -- <kontrol|katalog|listeleme|envanter|adaptor-stok|siparis|hepsi> [--stok N] [--evet] [--hbsku HBSKU]
 //  - Kimlik bilgisi panelde girilen (PazaryeriHub_Test veritabanındaki, şifreli) Hepsiburada bilgisidir; ortamı "Test" olmalı.
 //  - Yalnızca *-sit.hepsiburada.com adreslerine istek gider (SitRecorder). Veritabanına hiçbir şey yazılmaz.
 //  - Her yazma adımı ne göndereceğini gösterip onay ister (--evet ile sorulmaz). Rapor: hb-sit-rapor/<zaman>/
@@ -22,7 +22,7 @@ Console.OutputEncoding = Encoding.UTF8;
 var step = args.FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal))?.ToLowerInvariant() ?? "kontrol";
 var autoYes = args.Contains("--evet");
 var hbSkuArg = args.SkipWhile(a => a != "--hbsku").Skip(1).FirstOrDefault();
-string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi", "katalog-kesif", "urun-gonder", "eslesme", "envanter"];
+string[] known = ["kontrol", "katalog", "listeleme", "siparis", "hepsi", "katalog-kesif", "urun-gonder", "eslesme", "envanter", "adaptor-stok"];
 string? Arg(string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
 var categoryArg = args.SkipWhile(a => a != "--kategori").Skip(1).FirstOrDefault();
 if (!known.Contains(step))
@@ -83,6 +83,8 @@ try
     if (step is "listeleme" or "hepsi") await ListingAsync(listing);
     // Yalnızca envanter güncelleme + sonuç sorgulama (başka yazma adımı çalışmaz)
     if (step is "envanter") await InventoryAsync(listing);
+    // Yalnızca uygulamanın adaptörüyle stok gönderimi + sonuç sorgusu + kalan stoğun yeniden okunması
+    if (step is "adaptor-stok") await AdapterStockAsync(listing);
     if (step is "siparis" or "hepsi") await OrderAsync(listing);
     if (step is "katalog-kesif") await CatalogDiscoveryAsync();
     if (step is "urun-gonder") await ProductUploadAsync(Arg("--dosya") ?? throw new InvalidOperationException("--dosya <ürün json> gerekli"));
@@ -369,6 +371,28 @@ async Task InventoryAsync(ListingInfo? l)
 
 }
 
+async Task AdapterStockAsync(ListingInfo? l)
+{
+    if (l is null) return;
+    // --stok ile açık değer; yoksa listingin mevcut stoğu (değer değişmez, yalnızca gönderim yolu denenir)
+    var stock = Arg("--stok") is { } s ? int.Parse(s, CultureInfo.InvariantCulture) : l.Stock is >= 0 ? l.Stock.Value : 5;
+    if (!Confirm("Stok güncelleme (uygulamanın adaptörüyle)", $"HBSKU {l.HbSku}: stok {l.Stock?.ToString(CultureInfo.InvariantCulture) ?? "—"} → {stock}")) return;
+
+    recorder.CurrentStep = "Adaptör stok güncelleme";
+    await BatchAsync("Adaptör stok güncelleme", () => adapter.PushStockAsync([new StockUpdate(l.HbSku, null, stock)], ct));
+    var sent = recorder.Calls.LastOrDefault(c => c.Method == "POST");
+    findings.Add(("Listeleme", "Gönderilen Content-Type", sent?.RequestContentType ?? "—"));
+    Console.WriteLine($"Gönderilen Content-Type: {sent?.RequestContentType ?? "—"}");
+
+    // Kaydedilen değeri doğrula: listing yeniden okunur
+    recorder.CurrentStep = "Listing yeniden sorgulama";
+    var after = await sit.ListingsAsync(ct);
+    var now = ParseListings(after.ResponseBody).FirstOrDefault(x => x.HbSku == l.HbSku);
+    var verdict = now?.Stock == stock ? "eşleşiyor" : "EŞLEŞMİYOR";
+    findings.Add(("Listeleme", "Kaydedilen stok", $"{now?.Stock?.ToString(CultureInfo.InvariantCulture) ?? "—"} (beklenen {stock}, {verdict}); fiyat {now?.Price?.ToString(CultureInfo.InvariantCulture) ?? "—"}"));
+    Console.WriteLine($"Kaydedilen stok: {now?.Stock?.ToString(CultureInfo.InvariantCulture) ?? "—"} (beklenen {stock}, {verdict}); fiyat {now?.Price?.ToString(CultureInfo.InvariantCulture) ?? "—"}");
+}
+
 async Task BatchAsync(string name, Func<Task<BatchResult>> push)
 {
     try
@@ -520,11 +544,11 @@ void WriteReport()
     md.AppendLine();
     md.AppendLine("## Çağrılar");
     md.AppendLine();
-    md.AppendLine("| Zaman (UTC) | Adım | Metot | Uç | HTTP | Süre (ms) |");
-    md.AppendLine("|---|---|---|---|---|---|");
+    md.AppendLine("| Zaman (UTC) | Adım | Metot | Uç | Content-Type | HTTP | Süre (ms) |");
+    md.AppendLine("|---|---|---|---|---|---|---|");
     foreach (var c in recorder.Calls)
     {
-        md.AppendLine($"| {c.AtUtc:HH:mm:ss} | {c.Step} | {c.Method} | {c.Url} | {c.Status} | {c.ElapsedMs} |");
+        md.AppendLine($"| {c.AtUtc:HH:mm:ss} | {c.Step} | {c.Method} | {c.Url} | {c.RequestContentType ?? "—"} | {c.Status} | {c.ElapsedMs} |");
     }
     md.AppendLine();
     md.AppendLine("Ham istek ve yanıt gövdeleri: `cagrilar.json`.");
