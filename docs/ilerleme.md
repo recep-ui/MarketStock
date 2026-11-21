@@ -7,6 +7,12 @@
 
 ---
 
+## Eşleştirme listesinde kanal ürünü ↔ SKU yan yana (2026-11-21, ADR-044)
+
+- Eşleştirme → "Eşleştirmeler" tablosu: kanaldaki görsel/ad/kodlar/varyant/durum → bağlı SKU'nun ürün adı/renk-beden/barkodu, eşleşme dayanağı rozeti; uyarılı satırdan kanal sekmesine bağlantı.
+- Arama ürün adı ve kanaldaki adı da kapsar.
+- Testler: unit 410/410, entegrasyon 152/152, Playwright 19/19.
+
 ## Kanal sekmesinde kanaldaki durum sütunu ve süzgeci (2026-11-21, ADR-043)
 
 - Soru: Trendyol/Beymen'den çekilen ürünler yalnızca satışta olanlar mı? Hayır: katalog çekimi süzgeçsiz, satış dışı ürünler de geliyor (deneme DB: Trendyol 412/584, Beymen 50/194 satışta).

@@ -925,3 +925,17 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - **İlan durumu (AKTIF/PASIF) ve stok gönderimi değişmez.** Satış dışı ilanı otomatik pasif yapmak, ürün yeniden satışa açıldığında stok/fiyat güncellemesini geciktirir; tam ortak havuzda satış dışı ilana gönderilen stok diğer kanalları azaltmaz.
 
 **Doğrulama:** unit 410/410 (yeni: ChannelSaleStateTests), entegrasyon 152/152 (yeni: durum alanları, 4 süzgeç, adetler, geçersiz değer 400), Playwright ADR-035 senaryosuna durum sütunu + süzgeç adımları eklendi (18/18; ilk koşuda yeni adımdaki seçici düzeltildi).
+
+## ADR-044: Eşleştirme listesinde kanaldaki ürün ↔ bağlı SKU yan yana
+
+**Tarih:** 2026-11-21 · **Durum:** Kabul
+
+**Bağlam:** Eşleştirme sayfasındaki "Eşleştirmeler" tablosu yalnızca kodları (SKU, kanal ürün kodu, barkod) gösteriyordu; hangi kanal ürününün hangi ürüne bağlandığını görmek için Stok Listesi kanal sekmesine gitmek gerekiyordu.
+
+**Karar:**
+- `GET /api/listings` satırı (`ListingDto`) kanalın bildirdiği ad, görsel, durum ile bağlı SKU'nun ürün adı, barkodu, renk/bedenini taşır; eşleşme dayanağı (`MatchBasis`) ve uyarı sayısı ADR-035'teki `ListingMatchCheck` ile hesaplanır (tek kural).
+- Arama ürün adı ve kanaldaki ada da bakar. Kanaldaki ad `KanalVerisi` JSON'unda Türkçe karakterleri kaçışlı saklanabildiği için düz LIKE değil `JSON_VALUE(KanalVerisi,'$.urunAdi')` kullanılır.
+- Panel: tablo "Kanaldaki ürün (görsel, ad, kodlar, varyant, kanal durumu, link) → Bağlı SKU (ürün adı, renk/beden, barkod) · Eşleşme" düzeninde. Uyarılı satırda "N uyarı, kontrol et" bağlantısı Stok Listesi kanal sekmesine götürür; onay ve ayrıntılı uyarılar orada kalır (tek yer).
+- Eski ilanlarda (kanal verisinde ad yok) bu listede eşleşmeyenler kaydından yedek ad okunmaz; kanal sekmesi okur. Bilinçli: liste sayfalı EF sorgusu, ek join gerekmesin.
+
+**Doğrulama:** unit 410/410, entegrasyon 152/152 (eşleştirme API testi: karşılaştırma alanları + kanaldaki ada göre arama), Playwright 19/19 (yeni: Eşleştirme listesi iki taraf + uyarıdan kanal sekmesine geçiş).

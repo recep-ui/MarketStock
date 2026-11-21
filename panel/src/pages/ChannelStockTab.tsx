@@ -7,7 +7,7 @@ import { ListingEditor, draftOf, draftProblem, isDirty, saveDraft, type ListingD
 import { Card, ChannelLink, ErrorBox, Stat, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatRelative } from '../format';
 
-const basisLabels: Record<ChannelStockListRow['matchBasis'], { text: string; title: string; tone?: 'ok' }> = {
+export const basisLabels: Record<ChannelStockListRow['matchBasis'], { text: string; title: string; tone?: 'ok' }> = {
   BARKOD: { text: '✓ Barkod', title: 'Kanalın barkodu SKU barkoduyla aynı', tone: 'ok' },
   STOK_KODU: { text: '✓ Stok kodu', title: 'Kanalın stok kodu SKU koduyla aynı (barkod farklı ya da bilinmiyor)', tone: 'ok' },
   DIGER: { text: 'Kodla doğrulanamadı', title: 'Barkod ve stok kodu eşleşmeyi doğrulamıyor (elle bağlama, model eşleşmesi veya kanal kodu bilinmiyor)' }
@@ -18,7 +18,7 @@ const warningLabels: Record<string, string> = {
   BEDEN_FARKLI: 'Beden farklı', AD_BENZEMIYOR: 'Ad benzemiyor'
 };
 
-const variantText = (color: string | null, size: string | null) => [color, size].filter(Boolean).join(' / ');
+export const variantText = (color: string | null, size: string | null) => [color, size].filter(Boolean).join(' / ');
 
 const capabilityText: Record<string, string> = {
   ACIK: 'açık: kaydedilen fiyat kanala gönderilir',

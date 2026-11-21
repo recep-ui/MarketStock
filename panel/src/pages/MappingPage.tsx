@@ -3,24 +3,69 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { download, get, put, qs, upload, type Channel, type ImportReport, type Listing, type Paged } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
-import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, useLoad } from '../components/ui';
+import { Link } from 'react-router-dom';
+import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ChannelCatalogFetch, ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
+import { basisLabels, variantText } from './ChannelStockTab';
 
+// ADR-044: her satırda kanalın bildirdiği ürün (görsel, ad, kodlar, varyant) ↔ bağlı SKU (ürün adı, renk/beden, barkod) yan yana
 const columns: ColumnDef<Listing>[] = [
-  { header: 'SKU', accessorKey: 'skuCode' },
   { header: 'Kanal', cell: ({ row }) => <ChannelBadge code={row.original.channelCode} /> },
-  { header: 'Kanal ürün kodu', cell: ({ row }) => row.original.channelProductCode ?? '—' },
-  { header: 'Kanal barkod', cell: ({ row }) => row.original.channelBarcode ?? '—' },
   {
-    header: 'Kanalda',
-    cell: ({ row }) => (
-      <>
-        <ChannelLink code={row.original.channelCode} url={row.original.productUrl} />
-        {row.original.variant && <div className="muted small">{row.original.variant}</div>}
-      </>
-    )
+    header: 'Kanaldaki ürün',
+    cell: ({ row }) => {
+      const r = row.original;
+      return (
+        <div className="with-thumb" data-testid="listing-channel-side"><Thumb url={r.imageUrl} alt={r.channelName ?? r.skuCode} size={44} /><div>
+          <div><strong>{r.channelName ?? <span className="muted">(kanal adı bilinmiyor)</span>}</strong></div>
+          <div className="small muted">
+            {[r.channelBarcode && `Barkod ${r.channelBarcode}`, r.channelProductCode && `Kod ${r.channelProductCode}`].filter(Boolean).join(' · ') || '—'}
+          </div>
+          {r.variant && <div className="small">{r.variant}</div>}
+          <div className="small">
+            {r.channelStatus && <span className="muted">{r.channelStatus} </span>}
+            <ChannelLink code={r.channelCode} url={r.productUrl} />
+          </div>
+        </div></div>
+      );
+    }
+  },
+  { id: 'arrow', header: () => <span aria-label="bağlı">→</span>, cell: () => <span className="muted" aria-hidden="true">→</span> },
+  {
+    header: 'Bağlı SKU',
+    cell: ({ row }) => {
+      const r = row.original;
+      return (
+        <div data-testid="listing-sku-side">
+          <div><Link to={`/stok/${r.skuId}`}>{r.skuCode}</Link></div>
+          {r.productName && <div className="small">{r.productName}</div>}
+          <div className="small muted">
+            {[variantText(r.skuColor ?? null, r.skuSize ?? null), r.skuBarcode && `Barkod ${r.skuBarcode}`].filter(Boolean).join(' · ')}
+          </div>
+        </div>
+      );
+    }
+  },
+  {
+    header: 'Eşleşme',
+    cell: ({ row }) => {
+      const r = row.original;
+      const basis = r.matchBasis ? basisLabels[r.matchBasis] : null;
+      return (
+        <div data-testid="listing-match">
+          {basis && <span className={`badge${basis.tone ? ' ' + basis.tone : ''}`} title={basis.title}>{basis.text}</span>}
+          {(r.warningCount ?? 0) > 0 && (
+            <div className="small">
+              <Link to={`/stok?kanal=${r.channelCode}`} title="Stok Listesi → kanal sekmesinde uyarıları ve onay durumunu görün">
+                ⚠ {r.warningCount} uyarı, kontrol et
+              </Link>
+            </div>
+          )}
+        </div>
+      );
+    }
   },
   { header: 'Durum', accessorKey: 'status' },
   { header: 'Son gönderilen', cell: ({ row }) => row.original.lastSentStock ?? '—' },
@@ -61,7 +106,7 @@ export function MappingPage() {
             <option value="">Tüm kanallar</option>
             {(channels.data ?? []).map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}</option>)}
           </select>
-          <input placeholder="SKU / kanal kodu / barkod" value={search} onChange={e => setSearch(e.target.value)} aria-label="Ara" />
+          <input placeholder="SKU, kanal kodu, barkod, ürün adı veya kanaldaki ad" value={search} onChange={e => setSearch(e.target.value)} aria-label="Ara" />
           <button type="submit">Ara</button>
         </form>
         <ErrorBox error={listings.error} />

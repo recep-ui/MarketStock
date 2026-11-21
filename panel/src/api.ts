@@ -239,6 +239,10 @@ export type Listing = {
   id: number; skuId: number; skuCode: string; channelId: number; channelCode: string; channelProductCode: string | null;
   channelBarcode: string | null; status: string; lastSentStock: number | null; lastSyncUtc: string | null;
   productUrl?: string | null; variant?: string | null;
+  /** ADR-044: kanalın bildirdiği ↔ bağlı SKU karşılaştırması. */
+  channelName?: string | null; imageUrl?: string | null; channelStatus?: string | null;
+  productName?: string | null; skuBarcode?: string | null; skuColor?: string | null; skuSize?: string | null;
+  matchBasis?: 'BARKOD' | 'STOK_KODU' | 'DIGER' | null; warningCount?: number;
 };
 export type Warehouse = { id: number; name: string };
 export type SkuItem = { id: number; skuCode: string; barcode: string | null; productName: string; physical: number; available: number };

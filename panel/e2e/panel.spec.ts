@@ -154,6 +154,28 @@ test('Stok Listesi kanal sekmeleri: her pazaryerinin listesi ayrı; olası yanl�
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
+test('Eşleştirme listesi kanaldaki ürünü bağlı SKU ile yan yana gösterir; uyarılı eşleşmeden kanal sekmesine gidilir (ADR-044)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Eşleştirme', exact: true }).click();
+  const card = page.locator('section, .card').filter({ has: page.getByRole('heading', { name: 'Eşleştirmeler' }) }).first();
+  await card.getByLabel('Kanal').selectOption({ label: 'Trendyol' });
+  await card.getByLabel('Ara').fill(`DEMO-${d.tag}`);
+  await card.getByRole('button', { name: 'Ara' }).click();
+  const rows = page.getByTestId('listing-row');
+  await expect(rows).toHaveCount(5);
+  // Her satırda iki taraf ve eşleşme dayanağı
+  await expect(rows.first().getByTestId('listing-channel-side')).toBeVisible();
+  await expect(rows.first().getByTestId('listing-sku-side')).toContainText(`DEMO-${d.tag}`);
+  await expect(rows.first().getByTestId('listing-match').locator('.badge')).toBeVisible();
+  // Çoklanan ilan: barkod farklı → uyarı bağlantısı kanal sekmesine götürür
+  const multi = rows.filter({ hasText: d.multiListingSkuCode }).filter({ has: page.getByText(/uyarı, kontrol et/) });
+  await expect(multi).toHaveCount(1);
+  await multi.getByText(/uyarı, kontrol et/).click();
+  await expect(page).toHaveURL(/\/stok\?kanal=TRENDYOL/);
+  await expect(page.getByTestId('channel-stock-table')).toBeVisible();
+});
+
 test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan görünür, geri alınınca döner; Destek onaylayamaz (ADR-036)', async ({ page }) => {
   const d = demo();
   await login(page);

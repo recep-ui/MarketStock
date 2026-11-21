@@ -60,7 +60,13 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
         }
         if (term is not null)
         {
-            query = query.Where(l => l.Sku.SkuCode.StartsWith(term) || l.ChannelProductCode == term || l.ChannelBarcode == term);
+            // Kanaldaki ad KanalVerisi JSON'unda (Türkçe karakterler kaçışlı saklanabilir) → JSON_VALUE ile okunur (ADR-044)
+            var pattern = "%" + term.Replace("[", "[[]", StringComparison.Ordinal).Replace("%", "[%]", StringComparison.Ordinal)
+                .Replace("_", "[_]", StringComparison.Ordinal) + "%";
+            var byChannelName = db.Database.SqlQuery<int>(
+                $"SELECT Id AS [Value] FROM dbo.ChannelListing WHERE JSON_VALUE(KanalVerisi, '$.urunAdi') LIKE {pattern}");
+            query = query.Where(l => l.Sku.SkuCode.StartsWith(term) || l.ChannelProductCode == term || l.ChannelBarcode == term
+                || l.Sku.Product.Name.Contains(term) || byChannelName.Contains(l.Id));
         }
 
         var total = await query.CountAsync(ct);
@@ -70,13 +76,23 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
             {
                 Dto = new ListingDto(l.Id, l.SkuId, l.Sku.SkuCode, l.ChannelId, l.Channel.Code,
                     l.ChannelProductCode, l.ChannelBarcode, l.Status, l.LastSentStock, l.LastSyncUtc, null, null),
-                l.ChannelDataJson
+                l.ChannelDataJson,
+                ProductName = l.Sku.Product.Name, Brand = l.Sku.Product.Brand, SkuBarcode = l.Sku.Barcode, l.Sku.Color, l.Sku.Size
             })
             .ToListAsync(ct);
         var items = rows.Select(r =>
         {
             var data = ListingChannelData.Parse(r.ChannelDataJson);
-            return r.Dto with { ProductUrl = data.ProductUrl, Variant = data.Variant };
+            // Eşleşme dayanağı ve uyarı sayısı kanal sekmesindeki kontrolle aynı kuraldan (ADR-035); onay durumu orada izlenir
+            var check = PazaryeriHub.Application.Panel.ListingMatchCheck.Evaluate(
+                new(r.Dto.ChannelBarcode, r.Dto.ChannelProductCode, data.StockCode, data.Name, data.Brand, data.Color, data.Size, data.Variant),
+                new(r.Dto.SkuCode, r.SkuBarcode, r.ProductName, r.Brand, r.Color, r.Size));
+            return r.Dto with
+            {
+                ProductUrl = data.ProductUrl, Variant = data.Variant, ChannelName = data.Name, ImageUrl = data.ImageUrl,
+                ChannelStatus = data.ChannelStatus, ProductName = r.ProductName, SkuBarcode = r.SkuBarcode, SkuColor = r.Color, SkuSize = r.Size,
+                MatchBasis = check.Basis, WarningCount = check.Warnings.Count
+            };
         }).ToList();
 
         return new PagedResult<ListingDto>(items, total, p, size);

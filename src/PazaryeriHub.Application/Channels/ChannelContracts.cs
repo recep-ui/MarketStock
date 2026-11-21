@@ -14,11 +14,17 @@ public static class ListingStatus
     public static readonly string[] All = [Active, Passive];
 }
 
-/// <summary>SKU ↔ kanal ürün eşleştirmesi (ChannelListing).</summary>
+/// <summary>
+/// SKU ↔ kanal ürün eşleştirmesi (ChannelListing). Liste görünümünde (ADR-044) kanalın bildirdiği ad/görsel/durum ile bağlı SKU'nun
+/// ürün adı, barkodu, renk/bedeni yan yana gelir; <paramref name="MatchBasis"/> eşleşmenin dayanağıdır (BARKOD | STOK_KODU | DIGER).
+/// </summary>
 public sealed record ListingDto(
     int Id, int SkuId, string SkuCode, int ChannelId, string ChannelCode,
     string? ChannelProductCode, string? ChannelBarcode, string Status,
-    int? LastSentStock, DateTime? LastSyncUtc, string? ProductUrl = null, string? Variant = null);
+    int? LastSentStock, DateTime? LastSyncUtc, string? ProductUrl = null, string? Variant = null,
+    string? ChannelName = null, string? ImageUrl = null, string? ChannelStatus = null,
+    string? ProductName = null, string? SkuBarcode = null, string? SkuColor = null, string? SkuSize = null,
+    string? MatchBasis = null, int WarningCount = 0);
 
 /// <summary>
 /// Eşleştirme ekle/güncelle. Bir SKU bir kanalda birden fazla ilana sahip olabilir (ADR-023); ilan kanal içinde barkod veya

@@ -186,6 +186,32 @@ public sealed class CatalogApiTests(TestDatabase db)
         var found = await ReadAsync<PagedResult<ListingDto>>(await db.Api.GetAsync($"/api/listings?channelId={trendyol.Id}&search=TY-{code}", ct), HttpStatusCode.OK);
         found.Items.Should().ContainSingle().Which.SkuCode.Should().Be(code);
 
+        // ADR-044: liste, kanalın bildirdiği ad/görsel/varyant ile bağlı SKU'nun ürün adı/renk/bedenini yan yana verir
+        await using (var c = db.Open())
+        {
+            await c.ExecuteAsync("UPDATE dbo.ChannelListing SET KanalVerisi = @data WHERE Id = @id", new
+            {
+                id = created.Id,
+                data = JsonSerializer.Serialize(new
+                {
+                    urunAdi = "Kanaldaki Kimono " + code, renk = "Beyaz", beden = "M", marka = "Marka",
+                    gorsel = "https://cdn.example.test/k.jpg", kanalDurumu = "Satışta"
+                })
+            });
+        }
+        var compared = (await ReadAsync<PagedResult<ListingDto>>(
+            await db.Api.GetAsync($"/api/listings?channelId={trendyol.Id}&search=TY-{code}", ct), HttpStatusCode.OK)).Items.Single();
+        compared.ChannelName.Should().Be("Kanaldaki Kimono " + code);
+        compared.ImageUrl.Should().Be("https://cdn.example.test/k.jpg");
+        compared.ChannelStatus.Should().Be("Satışta");
+        compared.ProductName.Should().Be("API Ürünü");
+        compared.SkuColor.Should().Be("Beyaz");
+        compared.SkuSize.Should().Be("M");
+        compared.MatchBasis.Should().NotBeNullOrEmpty();
+        // Arama kanaldaki ada ve ürün adına da bakar
+        (await ReadAsync<PagedResult<ListingDto>>(await db.Api.GetAsync($"/api/listings?search=Kanaldaki Kimono {code}", ct), HttpStatusCode.OK))
+            .Items.Should().ContainSingle(x => x.Id == created.Id);
+
         (await db.Api.DeleteAsync($"/api/listings/{created.Id}", ct)).StatusCode.Should().Be(HttpStatusCode.NoContent);
         await using var connection = db.Open();
         (await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.ChannelListing WHERE Id = @id", new { id = created.Id })).Should().Be(0);
