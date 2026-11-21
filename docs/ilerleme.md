@@ -7,6 +7,17 @@
 
 ---
 
+## Hepsiburada SIT: katalog ürün gönderimi tamam (2026-11-21)
+
+- Hepsiburada destek: "kategorileri listeleyip ardından özellikleri listeleyerek ürün gönderimi yapmanızı bekliyoruz".
+- Araçla sırayla çalıştırıldı (yalnızca SIT): `katalog-kesif` (kategori ağacı → Bornoz 60005084) → `katalog-kesif --kategori 60005084` (özellikler + enum değerleri) → `urun-gonder`.
+- Royal Kimono: trackingId `821a7185-…`, `importStatus=SUCCESS`, ürün **İncelenecek**. Kod değişmedi; dünkü 3003 "File not found" aynı istekle bugün oluşmadı.
+- Eşleşme testi (dokümandaki 3 test barkodu): trackingId `c579a029-…`, üçü de SUCCESS / İncelenecek. Onay (…0114) ve red (…0155) uçları 200; ürünler "Eşleşen" olmadığı için durum değişmedi. "Eşleşen" durumuna geçiş HB tarafında; HB'ye soruldu.
+- Doküman yeni portala taşınmış (developers.hepsiburada.com/tr/companies/hepsiburada); uç ve biçim değişmemiş.
+- Raporlar: `hb-sit-rapor/20261121-*` (git dışı).
+
+---
+
 ## Tek yerden stok + fiyat, ilan stok kuralı, kanal görselleri, Trendyol/Beymen fiyat yeteneği (2026-11-20): TAMAM
 
 - **Fiyat (ADR-041):** Trendyol satış fiyatı kullanıcı onayıyla KDV dahil kabul edildi; Trendyol ve Beymen FIYAT yeteneği açılabilir. Deneme veritabanında Trendyol ve Beymen FIYAT = ACIK, Hepsiburada FIYAT = KAPALI yapıldı (önceden yanlışlıkla ACIK'tı). Yazma kilidi açık olduğu için deneme modunda kanala fiyat gitmez; canlı kurulumda kilit kalkınca gider.
