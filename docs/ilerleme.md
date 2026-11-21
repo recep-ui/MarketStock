@@ -7,6 +7,14 @@
 
 ---
 
+## Hepsiburada SIT: sipariş entegrasyonu güncel kodla yeniden doğrulandı (2026-11-21)
+
+- HB "sonraki adım sipariş entegrasyonu" dedi. Sipariş adımı (`siparis --evet`) charset'siz başlıklı güncel kodla yeniden çalıştırıldı:
+  - Test siparişi 9196103341 oluştu (201), ödemesi tamamlanmış siparişler listesinde göründü (200), uygulamanın adaptörü siparişi çekti.
+  - Adaptörle paketleme 201: paket 5000130817, barkod 62750001308172; paket listesinde `Open`, hepsiJET.
+  - "Aynı pakete konulabilecek kalemler" sorgusu yine 404 (tek kalemli sipariş; HB'ye soruldu).
+- HB yanıt taslağı: `hb-sit-rapor/hepsiburada-siparis-yaniti.md` (istek/yanıt gövdeleri, kimlik bilgisi yok).
+
 ## Hepsiburada destek teyidi: charset'siz başlık, sayısal fiyat, sonuç sorgusu (2026-11-21)
 
 - HB destek iki bulguyu doğruladı: `Content-Type: application/json` charset'siz gönderilmeli; fiyat sayı olmalı (örnekteki metin hatalıymış).
