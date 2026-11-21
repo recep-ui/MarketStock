@@ -10,9 +10,10 @@
 ## Hepsiburada SIT: katalog testi kabul, envanter güncelleme çalıştı (2026-11-21)
 
 - HB destek: test ortamında "Eşleşen" statüsüne çekilemiyor; ürünlerin "İncelenecek"e düşmesi ve onay/red çağrılarının hatasız kayıtları yeterli → **katalog testi tamamlandı**.
-- `inventory-uploads` 400 çözüldü. HB'nin verdiği gövde (`price` metin, `dispatchTime`, `maximumPurchasableQuantity`) charset ekli başlıkla yine 400 döndü; `Content-Type: application/json` (eksiz) ile `200 {"id"}` → `Done`, hata yok (rapor `hb-sit-rapor/20261121-172909-envanter`, git dışı).
-- SIT istemcisi: envanter gövdesi HB örneğine göre, gövdeli isteklerde eksiz Content-Type. Araca yalnızca envanter yazan `envanter` adımı eklendi (listingin kendi stok/fiyat/kargoya veriliş değerleriyle).
-- Contract test: gövde alan sırası/tipleri ve Content-Type. Unit 410/410.
+- `inventory-uploads` 400 çözüldü: neden `Content-Type`'taki `; charset=utf-8` eki; eksiz `application/json` ile `200 {"id"}` → `Done`.
+- **Fiyat tipi:** destek örneğindeki metin `"200.00"` kabul edildi ama test listinginin fiyatı **20000** oldu (nokta binlik ayırıcı sayıldı). Uç sayfasındaki şema gibi sayı `200` doğru kaydedildi. Test listingi 200'e geri alındı, okunarak doğrulandı. Raporlar `hb-sit-rapor/20261121-1729*`, `-1736*`, `-1737*` (git dışı).
+- SIT istemcisi: fiyat yalnızca sayı, gövdeli isteklerde eksiz Content-Type. Araca yalnızca envanter yazan `envanter` adımı (`--fiyat` ile açık fiyat) eklendi.
+- Contract test: gövde alanları/tipleri (price sayı) ve Content-Type. Unit 410/410.
 - Uygulama adaptörü değişmedi (stok/fiyat `stock-uploads` / `price-uploads` ile, SIT'te zaten 200).
 
 ## Eşleştirme listesinde kanal ürünü ↔ SKU yan yana (2026-11-21, ADR-044)

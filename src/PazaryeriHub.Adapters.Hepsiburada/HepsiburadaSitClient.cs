@@ -67,8 +67,8 @@ public sealed record SitCall(string Step, string Method, string Url, string? Req
 public sealed record SitFastListingItem(string MerchantSku, string ProductName, string? Barcode, int? Stock = null, decimal? Price = null);
 
 /// <summary>
-/// Listing envanter güncelleme kalemi. Gövde biçimi Hepsiburada destek yanıtından (2026-11-21): sarmalayıcısız dizi, camelCase,
-/// <c>hepsiburadaSku</c> zorunlu, <c>price</c> metin ("310.00"), <c>dispatchTime</c> ve <c>maximumPurchasableQuantity</c> (0 = sınırsız) sayı.
+/// Listing envanter güncelleme kalemi (uç sayfası op=uploadInventory + destek yanıtı, 2026-11-21): sarmalayıcısız dizi, camelCase,
+/// <c>price</c> sayı (metin "200.00" 20000 olarak kaydedildi), <c>dispatchTime</c>, <c>maximumPurchasableQuantity</c> (0 = sınırsız).
 /// </summary>
 public sealed record SitInventoryItem(string HepsiburadaSku, string? MerchantSku, decimal Price, int AvailableStock,
     int DispatchTime = 3, int MaximumPurchasableQuantity = 0);
@@ -191,13 +191,16 @@ public sealed class HepsiburadaSitClient
     public Task<SitCall> ListingsAsync(CancellationToken ct) =>
         SendAsync("Listing bilgilerini sorgulama", HttpMethod.Get, $"{Listings}?offset=0&limit=100", null, null, ct);
 
+    /// <summary>
+    /// Fiyat uç sayfasındaki şema gibi SAYI gönderilir. Destek örneğindeki metin ("200.00") SIT'te 200 dönse de fiyatı 20000 olarak
+    /// kaydetti (nokta binlik ayırıcı sayıldı; 2026-11-21) — metin fiyat bilerek desteklenmez.
+    /// </summary>
     public Task<SitCall> InventoryUploadAsync(IReadOnlyList<SitInventoryItem> items, CancellationToken ct) =>
         SendAsync("Listing envanter güncelleme", HttpMethod.Post, $"{Listings}/inventory-uploads",
             items.Select(i => new
             {
                 hepsiburadaSku = i.HepsiburadaSku, merchantSku = i.MerchantSku,
-                // Fiyat metin olarak gider; sayı gönderilince SIT 400 "deserializing input data" döndü (destek yanıtı 2026-11-21)
-                price = i.Price.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture),
+                price = i.Price,
                 availableStock = i.AvailableStock, dispatchTime = i.DispatchTime, maximumPurchasableQuantity = i.MaximumPurchasableQuantity
             }).ToList(),
             CamelCase, ct);

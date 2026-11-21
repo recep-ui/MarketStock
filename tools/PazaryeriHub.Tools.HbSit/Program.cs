@@ -341,7 +341,8 @@ async Task InventoryAsync(ListingInfo? l)
 {
     if (l is null) return;
     var stock = l.Stock is > 0 ? l.Stock.Value : 5;
-    var price = l.Price is > 0 ? l.Price.Value : 100m;
+    // --fiyat ile açık fiyat (ör. hatalı yüklenen fiyatı geri almak için); yoksa listingin mevcut fiyatı
+    var price = Arg("--fiyat") is { } p ? decimal.Parse(p, CultureInfo.InvariantCulture) : l.Price is > 0 ? l.Price.Value : 100m;
 
     // Kargoya veriliş süresi ve azami adet: listingin mevcut değerleri korunur (yoksa 3 gün / 0 = sınırsız)
     var dispatch = l.DispatchTime is > 0 ? l.DispatchTime.Value : 3;

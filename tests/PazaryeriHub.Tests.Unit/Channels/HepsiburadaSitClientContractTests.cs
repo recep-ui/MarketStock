@@ -187,10 +187,9 @@ public sealed class HepsiburadaSitClientContractTests
         var item = Body(http.Requests[0]).EnumerateArray().Single();
         item.GetProperty("hepsiburadaSku").GetString().Should().Be("HBV00000AAA1");
         item.GetProperty("merchantSku").GetString().Should().Be("MSKU-1");
-        // Hepsiburada destek yanıtı (2026-11-21): gövde sarmalayıcısız dizi, camelCase, price METİN ("310.00"), sayı gönderilince
-        // 400 "An error occurred while deserializing input data" dönüyordu.
-        item.GetProperty("price").ValueKind.Should().Be(JsonValueKind.String);
-        item.GetProperty("price").GetString().Should().Be("149.90");
+        // Uç sayfası: price number (double). Destek örneğindeki metin "200.00" SIT'te 20000 olarak kaydedildi (2026-11-21) → asla metin değil
+        item.GetProperty("price").ValueKind.Should().Be(JsonValueKind.Number);
+        item.GetProperty("price").GetDecimal().Should().Be(149.9m);
         item.GetProperty("availableStock").GetInt32().Should().Be(7);
         item.GetProperty("dispatchTime").GetInt32().Should().Be(3);
         item.GetProperty("maximumPurchasableQuantity").GetInt32().Should().Be(10);
