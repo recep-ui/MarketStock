@@ -97,14 +97,29 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
             return new BatchStatus(batchId, BatchState.Pending, []);
         }
 
+        // HB destek (2026-11-21): işlem ancak "Done" + errors boş (null / yok / boş dizi) ise hatasız tamamlanmıştır.
+        // Dizi dışında dolu bir errors (nesne, metin) beklenmeyen biçimdir → tamam sayılmaz, hata olarak yazılır.
         var errors = new List<BatchItemError>();
-        if (r.TryGetProperty("errors", out var list) && list.ValueKind == JsonValueKind.Array)
+        if (r.TryGetProperty("errors", out var list))
         {
-            foreach (var e in list.EnumerateArray())
+            if (list.ValueKind == JsonValueKind.Array)
             {
-                var hbSku = Str(e, "hepsiburadaSku");
-                var message = Str(e, "message") ?? Str(e, "description") ?? e.ToString();
-                errors.Add(new BatchItemError(hbSku, null, $"Hepsiburada: {message}"));
+                foreach (var e in list.EnumerateArray())
+                {
+                    var hbSku = e.ValueKind == JsonValueKind.Object ? Str(e, "hepsiburadaSku") : null;
+                    var message = (e.ValueKind == JsonValueKind.Object ? Str(e, "message") ?? Str(e, "description") : null)
+                        ?? (e.ValueKind == JsonValueKind.String ? e.GetString() : e.ToString());
+                    errors.Add(new BatchItemError(hbSku, null, $"Hepsiburada: {message}"));
+                }
+            }
+            else if (list.ValueKind is JsonValueKind.Object or JsonValueKind.String)
+            {
+                var message = list.ValueKind == JsonValueKind.String ? list.GetString()
+                    : Str(list, "message") ?? Str(list, "description") ?? list.ToString();
+                if (!string.IsNullOrWhiteSpace(message))
+                {
+                    errors.Add(new BatchItemError(null, null, $"Hepsiburada: {message}"));
+                }
             }
         }
 
@@ -455,7 +470,10 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (body is not null)
         {
-            request.Content = JsonContent.Create(body, options: Json);
+            // HB destek (2026-11-21): Content-Type charset parametresi olmadan ("application/json"); charset ekli başlık
+            // inventory-uploads'ta 400 "deserializing input data" döndürdü. Gövde yine UTF-8.
+            request.Content = new StringContent(JsonSerializer.Serialize(body, Json), Encoding.UTF8);
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
         }
 
         HttpResponseMessage response;

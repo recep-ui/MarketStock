@@ -21,10 +21,14 @@ public sealed class HepsiburadaAdapterContractTests
     private sealed class FakeHandler : HttpMessageHandler
     {
         public List<(HttpMethod Method, Uri Uri, string? Auth, string? UserAgent, string? Body)> Requests { get; } = [];
+
+        /// <summary>Gövdeli isteklerin Content-Type başlığı (gövdesizde null).</summary>
+        public List<string?> ContentTypes { get; } = [];
         public Func<Uri, (HttpStatusCode, string)> Respond { get; set; } = _ => (HttpStatusCode.OK, "[]");
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            ContentTypes.Add(request.Content?.Headers.ContentType?.ToString());
             Requests.Add((request.Method, request.RequestUri!, request.Headers.Authorization?.ToString(),
                 string.Join(' ', request.Headers.GetValues("User-Agent")),
                 request.Content is null ? null : await request.Content.ReadAsStringAsync(ct)));
@@ -81,6 +85,23 @@ public sealed class HepsiburadaAdapterContractTests
         body.RootElement.EnumerateArray().Select(i => (i.GetProperty("hepsiburadaSku").GetString(), i.GetProperty("availableStock").GetInt32()))
             .Should().Equal(("HBV0000106NM0", 7), ("HBV0000106NLG", 0));
         r.Body.Should().NotContain("price");
+        // HB destek (2026-11-21): Content-Type charset parametresi olmadan gönderilmeli
+        http.ContentTypes.Single().Should().Be("application/json");
+    }
+
+    [Fact]
+    public async Task Fiyat_sayi_olarak_ve_charsetsiz_content_type_ile_gonderilir()
+    {
+        var (adapter, http) = Create();
+        http.Respond = _ => (HttpStatusCode.OK, """{"id":"p-1"}""");
+
+        await adapter.PushPriceAsync([new PriceUpdate("HBV0000106NM0", null, 199.90m, 199.90m)], Ct);
+
+        using var body = JsonDocument.Parse(http.Requests.Single().Body!);
+        var price = body.RootElement[0].GetProperty("price");
+        price.ValueKind.Should().Be(JsonValueKind.Number, "HB destek: fiyat sayı (metin \"200.00\" 20000 kaydedildi)");
+        price.GetDecimal().Should().Be(199.90m);
+        http.ContentTypes.Single().Should().Be("application/json");
     }
 
     [Fact]
@@ -96,6 +117,14 @@ public sealed class HepsiburadaAdapterContractTests
             J("""{"id":"1","status":"Done","total":2,"errors":[{"hepsiburadaSku":"HBV0000106NLG","message":"Listing bulunamadı"}]}"""));
         partial.State.Should().Be(BatchState.PartiallyFailed);
         partial.Errors.Should().ContainSingle().Which.Should().Be(new BatchItemError("HBV0000106NLG", null, "Hepsiburada: Listing bulunamadı"));
+
+        // HB destek (2026-11-21): tamamlandı ancak "Done" + errors BOŞ ise. Boş dizi tamam; dizi olmayan dolu errors hata sayılır.
+        HepsiburadaAdapter.MapUploadStatus("1", J("""{"id":"1","status":"Done","total":1,"errors":[]}""")).State.Should().Be(BatchState.Completed);
+        HepsiburadaAdapter.MapUploadStatus("1", J("""{"id":"1","status":"Done","total":1}""")).State.Should().Be(BatchState.Completed);
+        var odd = HepsiburadaAdapter.MapUploadStatus("1", J("""{"id":"1","status":"Done","total":1,"errors":{"code":"X","message":"Beklenmeyen"}}"""));
+        odd.State.Should().Be(BatchState.Failed);
+        odd.Errors.Should().ContainSingle().Which.Message.Should().Contain("Beklenmeyen");
+        HepsiburadaAdapter.MapUploadStatus("1", J("""{"id":"1","status":"Done","total":1,"errors":"Hata metni"}""")).State.Should().Be(BatchState.Failed);
     }
 
     private const string OpenItems = """

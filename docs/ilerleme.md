@@ -7,6 +7,14 @@
 
 ---
 
+## Hepsiburada destek teyidi: charset'siz başlık, sayısal fiyat, sonuç sorgusu (2026-11-21)
+
+- HB destek iki bulguyu doğruladı: `Content-Type: application/json` charset'siz gönderilmeli; fiyat sayı olmalı (örnekteki metin hatalıymış).
+- Uygulama adaptörü (`HepsiburadaAdapter`) artık tüm gövdeli isteklerde charset'siz başlık gönderir (önce `JsonContent` ile `; charset=utf-8` gidiyordu; stok/fiyat yüklemesi SIT'te yine de 200 dönmüştü).
+- Sonuç kontrolü HB'nin tarifiyle aynı: yalnızca `Done` + `errors` boş (null / yok / boş dizi) tamam; diğer durumlar beklemede. Ek: dizi dışı dolu `errors` (nesne/metin) artık hata sayılır.
+- Contract test: stok ve fiyat isteklerinde başlık, fiyatın sayı olması, `errors` biçimleri. Unit 411/411, entegrasyon 152/152.
+- Adaptör değişikliği SIT'te ayrıca gönderimle denenmedi (HB başlığı teyit etti; SIT istemcisi aynı başlıkla 200 + Done aldı).
+
 ## Hepsiburada SIT: katalog testi kabul, envanter güncelleme çalıştı (2026-11-21)
 
 - HB destek: test ortamında "Eşleşen" statüsüne çekilemiyor; ürünlerin "İncelenecek"e düşmesi ve onay/red çağrılarının hatasız kayıtları yeterli → **katalog testi tamamlandı**.
