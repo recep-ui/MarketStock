@@ -999,3 +999,27 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
   - Panel açıldı, giriş 200, İşlem Geçmişi giriş kaydını gösterdi.
   - Anahtar dosyası DPAPI ile şifreli (düz anahtar yok); log yapılandırılan klasöre yazıldı.
   - Geçici veritabanı ve klasör sonra silindi.
+
+
+## ADR-046: Eski bilgisayardan veri taşıma (yedekle → kur.ps1 -VeriYedegi)
+
+**Tarih:** 2026-11-22
+**Bağlam:** Kullanıcı deneme modunda girdiği tüm veriyi (ürünler, eşleştirmeler, stok defteri, siparişler, kullanıcılar) kendi kuracağı bilgisayara taşımak istiyor. Bu veri geliştirme bilgisayarında `PazaryeriHub_Test` veritabanında (SQL Server 2025 Express, sürüm 17), SQL kullanıcısıyla (`ms`) erişiliyor. Hedefte servis Windows kimliğiyle bağlanıyor (ADR-045). Kanal API bilgileri bu bilgisayarın Data Protection anahtarıyla şifreli.
+
+**Karar:**
+- Taşıma birimi **tam veritabanı yedeği** (.bak, COPY_ONLY + CHECKSUM, RESTORE VERIFYONLY ile doğrulanır). Tablo tablo dışa aktarma yerine seçildi: şema, indeksler, saklı yordamlar, veritabanı ayarları (READ_COMMITTED_SNAPSHOT), Hangfire tabloları ve DbUp sürüm tablosu birebir gelir; kimlik (IDENTITY) değerleri ve ilişkiler bozulmaz.
+- `kurulum/veri-yedekle.ps1` (eski bilgisayar): yedeği sunucunun yedek klasörüne alır, `dagitim/`e kopyalar, kaynak sürümü yazar. Kaynağa yazmaz.
+- `kurulum/veri-geri-yukle.ps1` (pakette), `kur.ps1 -VeriYedegi` ile yalnızca **ilk kurulumda**, `--kurulum` adımından (boş veritabanı oluşturmadan) önce çağrılır:
+  - Aynı adlı veritabanı varsa durur; üzerine yazmaz.
+  - Yedek sunucudan yeni sürümdense anlaşılır hata verir (SQL Server eski sürüme geri yüklemez).
+  - Dosyaları hedef sunucunun varsayılan veri/log klasörlerine taşır.
+  - Temizlik (yalnızca yeni kopyada): eşleşen login'i olmayan eski SQL kullanıcıları çıkarılır; `Channel.KimlikSifreli` NULL yapılır (burada çözülemez, panelden yeniden girilir); eski `HangFire.Server` kayıtları silinir; veritabanı sahibi `sa` yapılır.
+- **Tohum kullanıcı, kurulum modunda:** taşınan veritabanında kullanıcı olduğu için eski kural ("üretimde yalnızca hiç kullanıcı yoksa") `kur.ps1`'de girilen Yöneticiyi atlıyordu; kullanıcı deneme modunun rastgele parolalı `demo-yonetici`siyle kilitli kalırdı. Artık `--kurulum` modunda eksik tohum kullanıcı **eklenir**, var olanın parolasına **dokunulmaz**. Normal üretim başlangıcı değişmedi.
+- SQL kullanıcı/parola taşınmaz: hedefte Windows kimliği (`NT SERVICE\PazaryeriHub`) kullanılır, yetkiyi `kur.ps1` verir.
+
+**Sonuç / bilinen sınırlar:**
+- Hedefe en az kaynak sürüm (şu an SQL Server 2025 Express) kurulmalı; kılavuz güncellendi.
+- Geri yükleme SQL Server hedefle aynı bilgisayardayken çalışır.
+- Deneme veritabanındaki deneme kayıtları (ör. HB SIT siparişleri, `demo-yonetici`) de taşınır; panelden temizlenebilir.
+
+**Doğrulama:** Entegrasyon testleri `SetupSeedUserTests` (2 test: normal üretim başlangıcı eklemez; kurulum modu ekler, var olanın parolasını değiştirmez). Bu bilgisayarda: `PazaryeriHub_Test` yedeklendi (39 MB) → `PazaryeriHub_AktarimDeneme` olarak geri yüklendi (184 ürün, 740 SKU, 6 sipariş, 3 kanalın API bilgisi temizlendi); ikinci geri yükleme reddedildi; yeni paketin `--kurulum`'u şemayı güncelledi, `yonetici`yi ekledi, giriş 200, sipariş listesi 200. Deneme veritabanı silindi. Eşleşmeyen SQL kullanıcısının çıkarılması burada denenemedi (aynı sunucuda `ms` login'i var).

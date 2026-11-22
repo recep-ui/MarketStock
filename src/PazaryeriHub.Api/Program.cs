@@ -105,7 +105,7 @@ try
     // Tohum kullanıcılar (Kimlik:SeedUsers; parolalar user-secrets/ortam değişkeninden). Veritabanı yoksa uygulamayı düşürmez.
     try
     {
-        await app.Services.GetRequiredService<UserService>().SeedAsync(app.Environment, app.Lifetime.ApplicationStopping);
+        await app.Services.GetRequiredService<UserService>().SeedAsync(app.Environment, InstalledHosting.IsSetup(args), app.Lifetime.ApplicationStopping);
     }
     catch (Microsoft.Data.SqlClient.SqlException ex)
     {

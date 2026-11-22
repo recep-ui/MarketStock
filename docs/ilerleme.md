@@ -1,4 +1,4 @@
-﻿# İlerleme Denetimi: Devir Raporu
+# İlerleme Denetimi: Devir Raporu
 
 **Tarih:** 2026-11-16
 **Denetleyen:** Claude Code (Antigravity'den devralma)
@@ -7,6 +7,13 @@
 
 ---
 
+## Eski bilgisayardan veri taşıma (2026-11-22, ADR-046)
+
+- `kurulum/veri-yedekle.ps1` (eski bilgisayar) → doğrulanmış `.bak`; yeni bilgisayarda `kur.ps1 -VeriYedegi <dosya>` ilk kurulumda geri yükler, sonra şemayı günceller.
+- Taşınır: tüm tablolar ve veriler, panel kullanıcıları. Taşınmaz: SQL kullanıcıları (servis Windows kimliğiyle bağlanır), kanal API bilgileri (yeniden girilir).
+- Kurulum modunda eksik ilk Yönetici, kullanıcılar olsa da eklenir; var olanın parolası değişmez.
+- Testler: `SetupSeedUserTests` 2/2 + `UserAdminAndAuditTests` 4/4. Bu bilgisayarda yedek → geri yükleme → `--kurulum` → giriş uçtan uca denendi.
+- Hedefe en az kaynak SQL Server sürümü (2025 Express) kurulmalı.
 ## Kendi bilgisayarına kurulum: Windows servisi, ağ erişimi, kullanıcı silme, İşlem Geçmişi (2026-11-22, ADR-045)
 
 - **Kurulum paketi:** `kurulum/paket-olustur.ps1` → `dagitim/PazaryeriHub-<tarih>.zip` (≈55 MB, .NET gerekmez).

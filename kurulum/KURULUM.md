@@ -12,13 +12,13 @@ Panel bir web sayfasıdır. Bu bilgisayardan ve aynı ağdaki diğer cihazlardan
 | | |
 |---|---|
 | İşletim sistemi | Windows 10 / 11 (64 bit) veya Windows Server 2019+ |
-| Veritabanı | **SQL Server 2019 veya 2022 Express** (ücretsiz; veritabanı başına 10 GB sınırı) ya da Standard |
+| Veritabanı | **SQL Server Express** (ücretsiz; veritabanı başına 10 GB sınırı) ya da Standard. Boş kurulumda 2019 ve sonrası yeter; **eski veriyi taşıyacaksanız eski bilgisayardaki sürüm ya da daha yenisi** (6. bölüm) |
 | .NET | Gerekmez; paket kendi çalışma zamanını içerir |
 | Ağ | Bilgisayarın ağ profili **Özel (Private)** olmalı; mümkünse sabit IP veya DHCP rezervasyonu |
 | Yetki | Kurulum için Windows **yönetici** hesabı |
 
 ### SQL Server Express kurulumu
-1. Microsoft'un sitesinden "SQL Server 2022 Express"i indirin ve **Temel (Basic)** kurulumu seçin.
+1. Microsoft'un sitesinden SQL Server Express'i indirin ve **Temel (Basic)** kurulumu seçin. Veri taşıyacaksanız eski bilgisayardaki sürümü seçin; `veri-yedekle.ps1` bu sürümü ekrana yazar (geliştirme bilgisayarında SQL Server 2025 Express, sürüm 17).
 2. Örnek adı varsayılan olarak `SQLEXPRESS` olur. Kurulumu yapan Windows kullanıcısı SQL Server'da otomatik olarak yönetici olur.
 3. Kurulumu PazaryeriHub'ı kuracak aynı Windows kullanıcısıyla yapın.
 
@@ -50,6 +50,7 @@ Panel bir web sayfasıdır. Bu bilgisayardan ve aynı ağdaki diğer cihazlardan
 | `-Veritabani` | `PazaryeriHub` | |
 | `-Port` | `5090` | Port başka bir programda kullanılıyorsa |
 | `-YoneticiKullanici` | `yonetici` | İlk yöneticinin kullanıcı adı |
+| `-VeriYedegi` | (boş = boş veritabanı) | Eski bilgisayardan taşınan `.bak` dosyası; yalnızca ilk kurulumda (6. bölüm) |
 
 Örnek (SQL Server ağdaki başka bir sunucuda):
 ```powershell
@@ -135,14 +136,30 @@ powershell -ExecutionPolicy Bypass -File .\kanal-ayari.ps1 -Yazma Kilitli
 
 ## 6. Mevcut verileri taşıma (isteğe bağlı)
 
-Deneme ortamındaki ürünler, eşleştirmeler ve stok defteri bu kuruluma taşınabilir. Kurulumdan önce:
-1. Deneme veritabanının yedeğini alın: SQL Server Management Studio → veritabanı → Tasks → Back Up.
-2. Yedeği bu bilgisayarda `PazaryeriHub` adıyla geri yükleyin.
-3. Ardından `kur.ps1`'i çalıştırın. Şema güncellenir.
+Eski bilgisayardaki tüm veri bu kuruluma taşınabilir: ürünler, SKU'lar, eşleştirmeler, stok defteri ve hareketleri, siparişler, fiyat geçmişi, panel kullanıcıları ve ayarlar. Tablolar, indeksler ve saklı yordamlar yedeğin içindedir; ayrıca bir şey kurulmaz.
 
-İlk Yönetici yalnızca veritabanında hiç kullanıcı yoksa oluşturulur. Taşınan veritabanında eski kullanıcılarla giriş yapılır.
+**Eski bilgisayarda** (geliştirme/deneme bilgisayarı), proje klasöründe normal PowerShell:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\kurulum\veri-yedekle.ps1
+```
+- Varsayılan olarak deneme modunun veritabanı `PazaryeriHub_Test` yedeklenir. Başkası için `-Veritabani <ad>` verin.
+- Yedek `dagitim\PazaryeriHub-veri-<tarih>.bak` olarak çıkar ve doğrulanır. Kaynak veritabanına hiçbir şey yazılmaz.
+- Ekrana kaynak SQL Server sürümü yazılır. Yeni bilgisayara **en az bu sürümü** kurun; yeni sürümün yedeği eski sürüme geri yüklenemez.
+- Deneme modunu yedekten önce kapatmak gerekmez; o anki veri yedeklenir. Yedekten sonra deneme modunda yaptığınız değişiklikler taşınmaz.
 
-Kanal API bilgileri yeniden girilmelidir (5. bölüm, Adım 1).
+**Yeni bilgisayarda:** `.bak` dosyasını paket klasörüne kopyalayın ve kurulumu bununla başlatın (Yönetici PowerShell):
+```powershell
+powershell -ExecutionPolicy Bypass -File .\kur.ps1 -VeriYedegi .\PazaryeriHub-veri-<tarih>.bak
+```
+Kurulum veritabanını boş oluşturmak yerine yedekten geri yükler, sonra şemayı günceller. Ardından:
+- **Kullanıcılar:** eski kullanıcılar ve parolaları taşınır. Betiğin sorduğu `yonetici` kullanıcısı eksikse eklenir. Aynı adla bir kullanıcı zaten varsa parolasına dokunulmaz.
+- **SQL kullanıcıları ve parolaları:** taşınmaz, gerekmez. Servis SQL Server'a kendi Windows hesabıyla (`NT SERVICE\PazaryeriHub`) bağlanır ve kurulum bu hesaba yetkiyi verir. Eski bilgisayarın SQL kullanıcıları (ör. `ms`) yeni kopyadan çıkarılır.
+- **Kanal API bilgileri** temizlenir: eski bilgisayarın anahtarıyla şifrelidir, burada çözülemez. Panelden yeniden girin (5. bölüm, Adım 1).
+- Kanallar yine Mock ve yazma kilitli başlar; canlıya geçiş 5. bölümdeki gibi.
+
+Güvenlik: `-VeriYedegi` yalnızca ilk kurulumda çalışır. Yeni bilgisayarda aynı adlı veritabanı varsa kurulum durur, üzerine yazmaz. `.bak` dosyası müşteri bilgisi içerir; taşıdıktan sonra USB'den/paylaşımdan silin.
+
+Elle yapmak isterseniz (SSMS): eski bilgisayarda Tasks → Back Up (Copy-only), yeni bilgisayarda `PazaryeriHub` adıyla Restore, sonra `kur.ps1`. Bu yolda kanal API bilgileri ve eski SQL kullanıcıları elle temizlenmelidir.
 
 ## 7. Güncelleme
 

@@ -25,6 +25,11 @@
 
 .PARAMETER Port
     Panelin portu. Diğer cihazlardan http://<bilgisayar-adı>:<port> ile açılır.
+
+.PARAMETER VeriYedegi
+    Yalnızca İLK kurulumda: eski bilgisayarda veri-yedekle.ps1 ile alınan .bak dosyası. Veritabanı boş oluşturulmak yerine
+    bu yedekten geri yüklenir (ürünler, stok defteri, siparişler, eşleştirmeler, kullanıcılar), sonra şema güncellenir.
+    Hedefte aynı adlı veritabanı varsa kurulum durur (üzerine yazılmaz). Kanal API bilgileri yeniden girilir (ADR-046).
 #>
 [CmdletBinding()]
 param(
@@ -33,7 +38,8 @@ param(
     [string]$SqlKullanici = '',
     [ValidateRange(1024, 65535)][int]$Port = 5090,
     [string]$YoneticiKullanici = 'yonetici',
-    [string]$KurulumKlasoru = (Join-Path $env:ProgramFiles 'PazaryeriHub')
+    [string]$KurulumKlasoru = (Join-Path $env:ProgramFiles 'PazaryeriHub'),
+    [string]$VeriYedegi = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,6 +66,11 @@ if (-not (Test-Path (Join-Path $Source 'PazaryeriHub.Api.exe'))) {
 $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 $firstInstall = -not (Test-Path $SettingsFile)
 if ($firstInstall) { Write-Step 'İlk kurulum' } else { Write-Step 'Güncelleme (mevcut ayarlar ve veriler korunur)' }
+if ($VeriYedegi) {
+    if (-not $firstInstall) { throw '-VeriYedegi yalnızca ilk kurulumda kullanılır; kurulu sistemin verisinin üzerine yazılmaz.' }
+    if (-not (Test-Path $VeriYedegi -PathType Leaf)) { throw "Yedek dosyası bulunamadı: $VeriYedegi" }
+    $VeriYedegi = (Resolve-Path $VeriYedegi).Path
+}
 
 # ---------------------------------------------------------------- Ayarlar (yalnızca ilk kurulumda yazılır)
 $sqlPassword = $null
@@ -113,6 +124,11 @@ if ($firstInstall) {
             BEYMEN = [ordered]@{ Mod = 'Mock' }
             SOFTCOTTON = [ordered]@{ Mod = 'Mock' }
         }
+    }
+    # Eski bilgisayardan taşınan veri: veritabanı boş oluşturulmadan ÖNCE yedekten geri yüklenir (şema sonra güncellenir)
+    if ($VeriYedegi) {
+        Write-Step "Eski veriler geri yükleniyor: $VeriYedegi"
+        & (Join-Path $PSScriptRoot 'veri-geri-yukle.ps1') -YedekDosyasi $VeriYedegi -BaglantiDizesi $connection
     }
     [IO.File]::WriteAllText($SettingsFile, ($settings | ConvertTo-Json -Depth 10), (New-Object Text.UTF8Encoding($false)))
     $sqlPassword = $null

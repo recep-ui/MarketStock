@@ -185,8 +185,13 @@ public sealed class UserService(
             new { id, hash = Hasher.HashPassword(name, password) }, cancellationToken: ct));
     }
 
-    /// <summary>Tohum kullanıcıları uygular (bkz. <see cref="IdentityOptions"/>). Parola değerleri loglanmaz.</summary>
-    public async Task SeedAsync(IHostEnvironment environment, CancellationToken ct)
+    /// <summary>
+    /// Tohum kullanıcıları uygular (bkz. <see cref="IdentityOptions"/>). Parola değerleri loglanmaz.
+    /// Geliştirme/test: ekler ya da günceller. Üretim: yalnızca hiç kullanıcı yoksa ekler.
+    /// Kurulum modu (<paramref name="setupMode"/>, --kurulum): kullanıcılar olsa da (taşınan veritabanı) EKSİK olanı ekler,
+    /// var olan kullanıcıya dokunmaz (ADR-046).
+    /// </summary>
+    public async Task SeedAsync(IHostEnvironment environment, bool setupMode, CancellationToken ct)
     {
         var seeds = options.Value.SeedUsers.Where(s => !string.IsNullOrWhiteSpace(s.UserName) && !string.IsNullOrEmpty(s.Password)).ToList();
         if (seeds.Count == 0)
@@ -197,7 +202,7 @@ public sealed class UserService(
         await using var connection = await OpenAsync(ct);
         var anyUser = await connection.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) FROM dbo.AppUser", cancellationToken: ct)) > 0;
         var upsert = environment.IsDevelopment() || environment.IsEnvironment("Testing");
-        if (anyUser && !upsert)
+        if (anyUser && !upsert && !setupMode)
         {
             return; // üretimde tohum yalnızca ilk kurulumda
         }
@@ -209,18 +214,28 @@ public sealed class UserService(
                 logger.LogWarning("Tohum kullanıcı {KullaniciAdi} atlandı: geçersiz rol.", seed.UserName);
                 continue;
             }
-            await connection.ExecuteAsync(new CommandDefinition("""
-                UPDATE dbo.AppUser SET AdSoyad = @fullName, Rol = @role, SifreHash = @hash, Aktif = 1, BasarisizGiris = 0, KilitBitis = NULL
-                 WHERE KullaniciAdi = @userName;
-                IF @@ROWCOUNT = 0
-                    INSERT dbo.AppUser (KullaniciAdi, AdSoyad, Rol, SifreHash) VALUES (@userName, @fullName, @role, @hash);
-                """, new
+            var sql = upsert
+                ? """
+                  UPDATE dbo.AppUser SET AdSoyad = @fullName, Rol = @role, SifreHash = @hash, Aktif = 1, BasarisizGiris = 0, KilitBitis = NULL
+                   WHERE KullaniciAdi = @userName;
+                  IF @@ROWCOUNT = 0
+                      INSERT dbo.AppUser (KullaniciAdi, AdSoyad, Rol, SifreHash) VALUES (@userName, @fullName, @role, @hash);
+                  """
+                : """
+                  IF NOT EXISTS (SELECT 1 FROM dbo.AppUser WITH (UPDLOCK, HOLDLOCK) WHERE KullaniciAdi = @userName)
+                      INSERT dbo.AppUser (KullaniciAdi, AdSoyad, Rol, SifreHash) VALUES (@userName, @fullName, @role, @hash);
+                  """;
+            var affected = await connection.ExecuteAsync(new CommandDefinition(sql, new
                 {
                     userName = seed.UserName.Trim(),
                     fullName = string.IsNullOrWhiteSpace(seed.FullName) ? seed.UserName.Trim() : seed.FullName.Trim(),
                     role = seed.Role,
                     hash = Hasher.HashPassword(seed.UserName.Trim(), seed.Password)
                 }, cancellationToken: ct));
+            if (!upsert && affected <= 0)
+            {
+                logger.LogWarning("Tohum kullanıcı {KullaniciAdi} zaten var; parolası değiştirilmedi.", seed.UserName.Trim());
+            }
         }
         logger.LogInformation("{Adet} tohum kullanıcı uygulandı.", seeds.Count);
     }

@@ -36,7 +36,7 @@ Remove-Item (Join-Path $app 'appsettings.Development.json') -ErrorAction Silentl
 Remove-Item (Join-Path $app 'logs') -Recurse -Force -ErrorAction SilentlyContinue
 
 Copy-Item (Join-Path $root 'panel\dist') (Join-Path $app 'panel') -Recurse
-foreach ($f in 'kur.ps1', 'kaldir.ps1', 'kanal-ayari.ps1', 'KURULUM.md') {
+foreach ($f in 'kur.ps1', 'kaldir.ps1', 'kanal-ayari.ps1', 'veri-geri-yukle.ps1', 'KURULUM.md') {
     Copy-Item (Join-Path $PSScriptRoot $f) $package
 }
 
