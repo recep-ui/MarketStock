@@ -49,8 +49,15 @@ public interface IUserService
     Task<LoginResult> ValidateAsync(string userName, string password, CancellationToken ct);
     Task<IReadOnlyList<UserDto>> GetUsersAsync(CancellationToken ct);
     Task<UserDto> CreateAsync(CreateUserRequest request, CancellationToken ct);
-    Task<UserDto> UpdateAsync(int id, UpdateUserRequest request, CancellationToken ct);
+    /// <param name="actingUserId">İşlemi yapan yönetici: kendini pasife alamaz, yönetici yetkisini düşüremez (ADR-045).</param>
+    Task<UserDto> UpdateAsync(int id, UpdateUserRequest request, int? actingUserId, CancellationToken ct);
     Task SetPasswordAsync(int id, string password, CancellationToken ct);
+
+    /// <summary>Kullanıcıyı siler (geçmiş kayıtlardaki kullanıcı adı metin olarak kalır). Kendini ve son aktif yöneticiyi silemez.</summary>
+    Task DeleteAsync(int id, int? actingUserId, CancellationToken ct);
+
+    /// <summary>Açık oturum doğrulaması: kullanıcı yoksa veya pasifse null; değilse güncel rol.</summary>
+    Task<string?> GetActiveRoleAsync(int id, CancellationToken ct);
 }
 
 /// <summary>

@@ -86,6 +86,7 @@ public static class DependencyInjection
         services.AddOptions<PazaryeriHub.Application.Auth.IdentityOptions>().BindConfiguration(PazaryeriHub.Application.Auth.IdentityOptions.SectionName);
         services.AddSingleton<UserService>();
         services.AddSingleton<IUserService>(sp => sp.GetRequiredService<UserService>());
+        services.AddSingleton<PazaryeriHub.Application.Audit.IAuditLog, PazaryeriHub.Infrastructure.Audit.AuditLogStore>();
         services.AddScoped<PanelQueryService>();
         services.AddScoped<IPanelQueryService>(sp => sp.GetRequiredService<PanelQueryService>());
         // "Doğru eşleşme" onayı (ADR-036)

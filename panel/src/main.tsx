@@ -16,6 +16,7 @@ import { QuestionsPage } from './pages/QuestionsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { SkuDetailPage } from './pages/SkuDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { AuditPage } from './pages/AuditPage';
 import { GlobalSearch } from './components/GlobalSearch';
 import './styles.css';
 
@@ -31,11 +32,12 @@ const nav = [
   { to: '/fiyat', label: 'Fiyat' },
   { to: '/sorular', label: 'Soru-Cevap' },
   { to: '/senkron', label: 'Senkron Merkezi' },
-  { to: '/ayarlar', label: 'Ayarlar' }
+  { to: '/ayarlar', label: 'Ayarlar' },
+  { to: '/islem-gecmisi', label: 'İşlem Geçmişi', admin: true }
 ];
 
 function Layout() {
-  const { me, loading, logout } = useAuth();
+  const { me, loading, logout, can } = useAuth();
   if (loading) return <div className="loading full">Yükleniyor…</div>;
   if (!me) return <Navigate to="/giris" replace />;
   return (
@@ -43,7 +45,7 @@ function Layout() {
       <aside className="sidebar">
         <div className="brand">PazaryeriHub</div>
         <nav>
-          {nav.map(n => (
+          {nav.filter(n => !('admin' in n) || can('admin')).map(n => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? 'active' : undefined)}>
               {n.label}
             </NavLink>
@@ -86,6 +88,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="sorular" element={<QuestionsPage />} />
             <Route path="senkron" element={<SyncPage />} />
             <Route path="ayarlar" element={<SettingsPage />} />
+            <Route path="islem-gecmisi" element={<AuditPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

@@ -542,7 +542,8 @@ public sealed class SyncPipelineTests(TestDatabase db)
 
             // Kanal sekmesi: "kanalda yok" sayılır, "hiç çekilmemiş" sayılmaz
             var list = (await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Panel.ChannelStockList>(
-                $"/api/stock-overview/channels/{channelId}?pageSize=500", Json, Ct))!;
+                $"/api/stock-overview/channels/{channelId}?search={goneCode}&pageSize=500", Json, Ct))!;
+            // Kalıcı test veritabanında ilan sayısı sayfa sınırını aşabilir: ilan kodu ile aranır (yalnızca ilk sayfaya güvenilmez)
             list.Rows.Items.Single(r => r.ListingId == gone).Should()
                 .Match<PazaryeriHub.Application.Panel.ChannelStockListRow>(r => r.MissingInChannel && !r.HasDeviation && r.ChannelStock == null);
             list.MissingCount.Should().BeGreaterThanOrEqualTo(1);

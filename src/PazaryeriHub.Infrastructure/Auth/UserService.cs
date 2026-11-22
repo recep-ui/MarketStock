@@ -101,7 +101,7 @@ public sealed class UserService(
         }
     }
 
-    public async Task<UserDto> UpdateAsync(int id, UpdateUserRequest request, CancellationToken ct)
+    public async Task<UserDto> UpdateAsync(int id, UpdateUserRequest request, int? actingUserId, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         var v = new Validator();
@@ -110,14 +110,64 @@ public sealed class UserService(
         v.ThrowIfInvalid();
 
         await using var connection = await OpenAsync(ct);
-        var affected = await connection.ExecuteAsync(new CommandDefinition(
-            "UPDATE dbo.AppUser SET AdSoyad = @fullName, Rol = @role, Aktif = @active WHERE Id = @id",
-            new { id, fullName = request.FullName.Trim(), role = request.Role, active = request.Active }, cancellationToken: ct));
-        if (affected == 0)
+        await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var current = await LockAsync(connection, tx, id, ct);
+        var losesAdmin = current.Rol == Roles.Admin && current.Aktif && (request.Role != Roles.Admin || !request.Active);
+        if (losesAdmin && actingUserId == id)
         {
-            throw new NotFoundException($"Kullanıcı bulunamadı (Id={id}).");
+            throw new ConflictException("Kendi hesabınızı pasife alamaz veya yönetici yetkinizi kaldıramazsınız. Başka bir yönetici yapmalı.");
         }
+        if (losesAdmin)
+        {
+            await EnsureAnotherActiveAdminAsync(connection, tx, id, ct);
+        }
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE dbo.AppUser SET AdSoyad = @fullName, Rol = @role, Aktif = @active WHERE Id = @id",
+            new { id, fullName = request.FullName.Trim(), role = request.Role, active = request.Active }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
         return await GetAsync(connection, id, ct);
+    }
+
+    public async Task DeleteAsync(int id, int? actingUserId, CancellationToken ct)
+    {
+        if (actingUserId == id)
+        {
+            throw new ConflictException("Kendi hesabınızı silemezsiniz. Başka bir yönetici silmeli.");
+        }
+        await using var connection = await OpenAsync(ct);
+        await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(System.Data.IsolationLevel.Serializable, ct);
+        var current = await LockAsync(connection, tx, id, ct);
+        if (current.Rol == Roles.Admin && current.Aktif)
+        {
+            await EnsureAnotherActiveAdminAsync(connection, tx, id, ct);
+        }
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM dbo.AppUser WHERE Id = @id", new { id }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        logger.LogInformation("Kullanıcı silindi: {KullaniciAdi} (Id {Id}).", current.KullaniciAdi, id);
+    }
+
+    public async Task<string?> GetActiveRoleAsync(int id, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        return await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+            "SELECT Rol FROM dbo.AppUser WHERE Id = @id AND Aktif = 1", new { id }, cancellationToken: ct));
+    }
+
+    private static async Task<UserRow> LockAsync(SqlConnection connection, SqlTransaction tx, int id, CancellationToken ct) =>
+        await connection.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(
+            "SELECT * FROM dbo.AppUser WITH (UPDLOCK, ROWLOCK) WHERE Id = @id", new { id }, tx, cancellationToken: ct))
+        ?? throw new NotFoundException($"Kullanıcı bulunamadı (Id={id}).");
+
+    /// <summary>Sistemde en az bir aktif yönetici kalmalı (yoksa panele kimse yönetici olarak giremez).</summary>
+    private static async Task EnsureAnotherActiveAdminAsync(SqlConnection connection, SqlTransaction tx, int exceptId, CancellationToken ct)
+    {
+        var others = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT COUNT(*) FROM dbo.AppUser WITH (UPDLOCK, HOLDLOCK) WHERE Rol = @admin AND Aktif = 1 AND Id <> @exceptId",
+            new { admin = Roles.Admin, exceptId }, tx, cancellationToken: ct));
+        if (others == 0)
+        {
+            throw new ConflictException("Son aktif yönetici silinemez, pasife alınamaz veya yetkisi düşürülemez. Önce başka bir yönetici ekleyin.");
+        }
     }
 
     public async Task SetPasswordAsync(int id, string password, CancellationToken ct)

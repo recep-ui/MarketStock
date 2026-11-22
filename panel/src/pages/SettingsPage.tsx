@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { api, get, post, put, type Channel, type ChannelStatus, type User, type Warehouse } from '../api';
+import { Link, useSearchParams } from 'react-router-dom';
+import { api, del, get, post, put, type Channel, type ChannelStatus, type User, type Warehouse } from '../api';
 import { roleLabels, useAuth, type Role } from '../auth';
 import { ChannelStatusGrid } from '../components/ChannelStatus';
 import { Card, ErrorBox, Field, Notice, useLoad } from '../components/ui';
@@ -399,6 +399,7 @@ function SafetyStockForm({ onSaved }: { onSaved: (m: string) => void }) {
 }
 
 function UserSettings({ onSaved }: { onSaved: (m: string) => void }) {
+  const { me } = useAuth();
   const users = useLoad(() => get<User[]>('/api/users'), []);
   const [form, setForm] = useState({ userName: '', fullName: '', role: 'Depo' as Role, password: '' });
   const [error, setError] = useState<unknown>(null);
@@ -418,6 +419,7 @@ function UserSettings({ onSaved }: { onSaved: (m: string) => void }) {
   return (
     <Card title="Kullanıcılar ve roller">
       <p className="muted small">Yönetici: tüm işlemler · Depo: stok, sipariş durumu, iade girişi · Muhasebe: yalnızca okuma · Destek: okuma, müşteri bilgisi maskeli.</p>
+      <p className="muted small">Pasife alınan veya silinen kullanıcının açık oturumu hemen kapanır; rol değişikliği anında geçerli olur. Kendi hesabınızı silemez, pasife alamaz, yönetici yetkinizi kaldıramazsınız; son aktif yönetici de kaldırılamaz. Kim ne yaptı: <Link to="/islem-gecmisi">İşlem Geçmişi</Link>.</p>
       <ErrorBox error={error ?? users.error} />
       <table className="table">
         <thead><tr><th>Kullanıcı</th><th>Ad soyad</th><th>Rol</th><th>Aktif</th><th>Son giriş</th><th /></tr></thead>
@@ -441,7 +443,12 @@ function UserSettings({ onSaved }: { onSaved: (m: string) => void }) {
                 <button className="small" onClick={() => {
                   const password = window.prompt(`${u.userName} için yeni parola (en az 10 karakter):`);
                   if (password) run(() => post(`/api/users/${u.id}/password`, { password }), `${u.userName} parolası değiştirildi.`);
-                }}>Parola</button>
+                }}>Parola</button>{' '}
+                <button className="small danger" disabled={u.userName === me?.userName} title={u.userName === me?.userName ? 'Kendi hesabınızı silemezsiniz' : undefined}
+                  onClick={() => {
+                    if (window.confirm(`${u.fullName} (${u.userName}) silinsin mi? Açık oturumu hemen kapanır. Geçmiş kayıtlarda adı kalır.`))
+                      run(() => del(`/api/users/${u.id}`), `${u.userName} silindi.`);
+                  }}>Sil</button>
               </td>
             </tr>
           ))}

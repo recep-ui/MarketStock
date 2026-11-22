@@ -939,3 +939,63 @@ SELECT 'KanalUrunKodu', c.Kod, l.KanalUrunKodu, COUNT(*),
 - Eski ilanlarda (kanal verisinde ad yok) bu listede eşleşmeyenler kaydından yedek ad okunmaz; kanal sekmesi okur. Bilinçli: liste sayfalı EF sorgusu, ek join gerekmesin.
 
 **Doğrulama:** unit 410/410, entegrasyon 152/152 (eşleştirme API testi: karşılaştırma alanları + kanaldaki ada göre arama), Playwright 19/19 (yeni: Eşleştirme listesi iki taraf + uyarıdan kanal sekmesine geçiş).
+
+## ADR-045: Kendi bilgisayarına kurulum — Windows servisi, yerel ağ erişimi, kullanıcı yönetimi ve işlem geçmişi
+
+**Bağlam:** Kullanıcı uygulamayı kendi bilgisayarına (geliştirme makinesinden ayrı bir cihaza) kendisi kuracak. İstenenler:
+- Uygulama kendiliğinden çalışsın.
+- Aynı yerel ağdaki diğer cihazlar panele erişebilsin.
+- Yönetici kullanıcı ekleyip çıkarabilsin ve tüm kayıtları (kim ne yaptı) inceleyebilsin.
+
+docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı olmayan anahtar ve loglar; canlıya geçiş denetimi madde 3 ve 9).
+
+**Karar — çalışma biçimi:**
+- **Windows servisi** (`Microsoft.Extensions.Hosting.WindowsServices`), exe değil.
+  - Gecikmeli otomatik başlar, oturum açılmasa da çalışır, çökünce yeniden başlar (sc failure).
+  - Panel aynı süreçten servis edilir; tek port.
+- **Hesap:** Servis sanal hesapla çalışır (`NT SERVICE\PazaryeriHub`). Yönetici hakkı yoktur, parola saklanmaz.
+- **SQL:** Varsayılan aynı bilgisayardaki SQL Server Express. Windows kimlik doğrulamasıyla bağlanır; servis hesabına yalnızca bu veritabanında `db_owner` verilir. SQL Server başka bir bilgisayardaysa SQL kullanıcısı kullanılır.
+- **Klasörler:** Program `C:\Program Files\PazaryeriHub`. Ayarlar, şifreleme anahtarları ve loglar `C:\ProgramData\PazaryeriHub` altında; bu klasöre yalnızca SYSTEM, Yöneticiler ve servis erişir. Güncelleme program klasörünü değiştirir, veriler korunur.
+- **Şifreleme anahtarları:** Kalıcı klasörde tutulur ve ayrıca **DPAPI (makine düzeyi)** ile korunur. Dosya kopyalansa da başka bilgisayarda açılmaz. Bu yüzden taşınan veritabanında kanal API bilgileri yeniden girilir.
+- **Ayar dosyası:** `ayarlar.json` yalnızca kurulu çalışmada okunur (servis, `--kurulum`, `--kurulu`). Geliştirme ve deneme modu bu dosyayı okumaz; bu makineye kurulmuş bir kopya varsa deneme modu ona bağlanmaz. Kurulu çalışmada içerik kökü ve çalışma klasörü program klasörüdür (servisler System32'de başlar).
+- **Kurulum adımı:** `PazaryeriHub.Api.exe --kurulum` tek seferliktir: veritabanını oluşturur, şemayı günceller, ilk Yöneticiyi ekler ve çıkar. Hata olursa çıkış kodu 1 döner. İlk Yöneticinin parolası yalnızca o sürecin ortam değişkeninde bulunur.
+- **Ağ:** Kestrel `http://*:<port>` (varsayılan 5090) dinler. Güvenlik duvarı kuralı yalnızca **Özel ve Etki alanı** profillerinde açılır; Genel ağda kurulum uyarı verir.
+  - Yerel ağda HTTP kullanılır, çerez yine HttpOnly ve SameSite=Strict.
+  - HTTPS sertifikası yerel ağda her cihazda uyarı çıkaracağı için şimdilik yok; internete açılmaması kılavuzda yazılı.
+- **Güvenli başlangıç:** Kurulumdan sonra kanala yazma KİLİTLİ, tüm kanallar Mock. `kanal-ayari.ps1` kanal modunu ve yazma kilidini değiştirip servisi yeniden başlatır (adım adım canlıya geçiş; KURULUM.md §5). softcotton gerçek moda alınamaz.
+- **Paket:** `kurulum/paket-olustur.ps1` self-contained win-x64 yayınlar (hedefte .NET gerekmez), paneli, kur/kaldır/kanal-ayarı betiklerini ve KURULUM.md'yi tek zip'te toplar. Pakette parola, bağlantı bilgisi veya anahtar yoktur.
+  - Betikler BOM'lu UTF-8'dir: Windows PowerShell 5.1 BOM'suz dosyadaki Türkçe karakterleri bozuk okuyor.
+
+**Karar — kullanıcı yönetimi:**
+- Kullanıcı **silme** eklendi: `DELETE /api/users/{id}`. Kayıtlardaki kullanıcı adı metin olduğu için geçmiş bozulmaz.
+- **Oturum her istekte doğrulanır** (çerez `OnValidatePrincipal`):
+  - Silinen veya pasife alınan kullanıcının açık oturumu hemen geçersiz olur.
+  - Rol değişikliği beklemeden uygulanır.
+  - Maliyet: istek başına birincil anahtarla tek okuma. Az kullanıcılı yerel kurulumda önemsiz.
+- **Yönetici kendini koruyamaz hale getiremez:**
+  - Yönetici kendini silemez, pasife alamaz, yönetici yetkisini kaldıramaz.
+  - **Son aktif yönetici** kaldırılamaz (serializable transaction + UPDLOCK).
+
+**Karar — işlem geçmişi:**
+- Yeni tablo `dbo.AuditLog` (migration 0018). Kaydedilenler:
+  - /api altındaki her yazma isteği (GET dışı): kullanıcı, rol, metot, yol, HTTP sonucu, IP, süre.
+  - Başarılı ve başarısız girişler (denenen kullanıcı adıyla), çıkışlar.
+- **Kaydedilmeyenler:** İstek gövdesi ve sorgu dizesi (parola, API anahtarı, müşteri verisi olabilir).
+- Kayıt yazılamazsa asıl işlem bozulmaz; yalnızca log düşülür.
+- `GET /api/audit` yalnızca Yönetici; kullanıcı, tip, tarih, yol ve "yalnızca hatalı" filtreleri var.
+- Panelde "İşlem Geçmişi" menüsü yalnızca Yöneticiye görünür. Yol, anlaşılır işlem adına çevrilir (ör. "Kullanıcılar · silme").
+
+**Bilinen eksikler:**
+- HTTPS yok (yerel ağ HTTP).
+- Otomatik veritabanı yedeği yok; SQL Express'te Agent olmadığı için kılavuzda elle veya Görev Zamanlayıcı öneriliyor.
+- İşlem geçmişinin saklama süresi sınırsız (tablo küçük satırlı).
+- `kur.ps1` ve `kaldir.ps1` geliştirme makinesinde **servis olarak kurulup denenmedi**: bu makinede servis ve güvenlik duvarı değiştirilmedi. Yayınlanan paket bu makinede geçici ayar dosyası ve geçici veritabanıyla konsol modunda denendi.
+
+**Doğrulama:**
+- Otomatik testler: unit 414/414, entegrasyon 156/156 (yeni 4 test). Playwright: önceki 19 senaryo tam çalıştırmada geçti; yeni senaryo (kullanıcı ekle/sil, açık oturumun kapanması, İşlem Geçmişi) düzeltmeden sonra ayrıca çalıştırıldı ve geçti.
+- Paket denemesi (`--kurulum` + `--kurulu`), hepsi doğrulandı:
+  - Kurulum adımı geçici veritabanı oluşturdu, şemayı kurdu, ilk Yöneticiyi ekledi; çıkış kodu 0.
+  - `/health` localhost'ta ve makinenin ağ IP'sinde 200 döndü.
+  - Panel açıldı, giriş 200, İşlem Geçmişi giriş kaydını gösterdi.
+  - Anahtar dosyası DPAPI ile şifreli (düz anahtar yok); log yapılandırılan klasöre yazıldı.
+  - Geçici veritabanı ve klasör sonra silindi.

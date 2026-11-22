@@ -649,3 +649,42 @@ test('Raporlar: bugünün satışları, kanal karşılaştırması, en çok sata
   await expect(page.getByTestId('sku-detail').getByRole('heading', { level: 1 })).toContainText(code);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
+
+test('Kullanıcı yönetimi: Yönetici kullanıcı ekler, siler; silinenin açık oturumu kapanır; İşlem Geçmişi kaydı gösterir (ADR-045)', async ({ page, browser }) => {
+  const userName = 'e2e-gecici-' + Date.now().toString(36);
+  const password = process.env.E2E_PASSWORD!;
+  await login(page);
+  await page.goto('/ayarlar?sekme=kullanicilar');
+  const form = page.locator('form', { has: page.getByRole('button', { name: 'Oluştur' }) });
+  await form.getByLabel('Kullanıcı adı').fill(userName);
+  await form.getByLabel('Ad soyad').fill('E2E Geçici');
+  await form.getByLabel('Parola').fill(password);
+  await form.getByRole('button', { name: 'Oluştur' }).click();
+  const row = page.locator('tr', { hasText: userName });
+  await expect(row).toBeVisible();
+  // Kendi satırında Sil devre dışı
+  await expect(page.locator('tr', { hasText: 'e2e-yonetici' }).getByRole('button', { name: 'Sil' })).toBeDisabled();
+
+  // Yeni kullanıcı başka bir tarayıcıda oturum açar
+  const other = await browser.newContext();
+  const otherPage = await other.newPage();
+  await login(otherPage, userName);
+  await expect(otherPage.locator('aside nav').getByRole('link', { name: 'İşlem Geçmişi' })).toHaveCount(0); // Depo rolü görmez
+
+  page.once('dialog', d => d.accept());
+  await row.getByRole('button', { name: 'Sil' }).click();
+  await expect(page.locator('tr', { hasText: userName })).toHaveCount(0);
+
+  // Silinen kullanıcının oturumu hemen kapanır: bir sonraki istekte giriş ekranı
+  await otherPage.goto('/siparisler');
+  await expect(otherPage).toHaveURL(/\/giris/);
+  await other.close();
+
+  await page.locator('aside nav').getByRole('link', { name: 'İşlem Geçmişi' }).click();
+  await page.getByLabel('Yol').fill('users');
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  const deleted = page.getByTestId('audit-row').filter({ hasText: 'Kullanıcılar · silme' }).first();
+  await expect(deleted).toBeVisible();
+  await expect(deleted).toContainText('e2e-yonetici');
+  await expect(deleted).toContainText('Başarılı (204)');
+});

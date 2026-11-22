@@ -9,6 +9,7 @@ using PazaryeriHub.Api.Auth;
 using PazaryeriHub.Api.Channels;
 using PazaryeriHub.Api.Dev;
 using PazaryeriHub.Api.Health;
+using PazaryeriHub.Api.Hosting;
 using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Infrastructure.Auth;
 using PazaryeriHub.Application.Channels;
@@ -28,7 +29,13 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    var builder = WebApplication.CreateBuilder(args);
+    // Kurulu çalışmada içerik kökü programın klasörüdür (servis System32'de başlar; appsettings.json oradan okunmalı).
+    var builder = WebApplication.CreateBuilder(InstalledHosting.IsInstalled(args)
+        ? new WebApplicationOptions { Args = args, ContentRootPath = AppContext.BaseDirectory }
+        : new WebApplicationOptions { Args = args });
+
+    // Windows servisi / kurulu çalışma (ADR-045): ayarlar %ProgramData%\PazaryeriHub\ayarlar.json'dan
+    InstalledHosting.Configure(builder, args);
 
     builder.Services.AddSerilog(
         (services, lc) => lc
@@ -50,6 +57,12 @@ try
     if (builder.Configuration["DataProtection:KeysPath"] is { Length: > 0 } keysPath)
     {
         dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+        // Kurulu çalışmada anahtar dosyaları ayrıca Windows DPAPI (makine düzeyi) ile korunur: dosya kopyalansa da başka
+        // bilgisayarda açılamaz (ADR-045).
+        if (OperatingSystem.IsWindows() && builder.Configuration.GetValue<bool>("DataProtection:DpapiMachine"))
+        {
+            dataProtection.ProtectKeysWithDpapi(protectToLocalMachine: true);
+        }
     }
 
     // Panel kimlik doğrulama ve rol tabanlı yetki (ADR-014)
@@ -76,7 +89,11 @@ try
     });
 
     // Geliştirme ortamında veritabanı yoksa oluşturulur (Database:AutoCreate). Hata uygulamayı düşürmez.
-    await app.Services.GetRequiredService<DatabaseBootstrapper>().TryEnsureDatabaseAsync(app.Lifetime.ApplicationStopping);
+    var databaseReady = await app.Services.GetRequiredService<DatabaseBootstrapper>().TryEnsureDatabaseAsync(app.Lifetime.ApplicationStopping);
+    if (InstalledHosting.IsSetup(args) && !databaseReady)
+    {
+        throw new InvalidOperationException("Kurulum: veritabanı oluşturulamadı veya bağlanılamadı (ayrıntı yukarıdaki logda).");
+    }
 
     // Şema migration'ları (Database:MigrateOnStartup). Başarısızsa uygulama başlamaz: şemasız çalışmak anlamsız.
     if (app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value.MigrateOnStartup)
@@ -93,10 +110,22 @@ try
     catch (Microsoft.Data.SqlClient.SqlException ex)
     {
         app.Logger.LogError("Tohum kullanıcılar uygulanamadı (SQL hata {HataNo}).", ex.Number);
+        if (InstalledHosting.IsSetup(args))
+        {
+            throw;
+        }
+    }
+
+    if (InstalledHosting.IsSetup(args))
+    {
+        // Kurulum adımı burada biter: veritabanı, şema ve ilk yönetici hazır. Servis ayrıca başlatılır.
+        app.Logger.LogInformation("Kurulum adımı tamamlandı: veritabanı ve şema hazır.");
+        return 0;
     }
 
     var panelServed = app.UsePanelStaticFiles();
     app.UseAuthentication();
+    app.UseMiddleware<AuditMiddleware>();
     app.UseAuthorization();
 
     app.MapPazaryeriHubHealthChecks();
@@ -128,10 +157,15 @@ try
     }
 
     await app.RunAsync();
+    return 0;
 }
 catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "Uygulama beklenmedik şekilde sonlandı.");
+    if (InstalledHosting.IsSetup(args))
+    {
+        return 1; // kur.ps1 çıkış koduna bakar
+    }
     throw;
 }
 finally

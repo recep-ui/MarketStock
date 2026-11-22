@@ -7,6 +7,23 @@
 
 ---
 
+## Kendi bilgisayarına kurulum: Windows servisi, ağ erişimi, kullanıcı silme, İşlem Geçmişi (2026-11-22, ADR-045)
+
+- **Kurulum paketi:** `kurulum/paket-olustur.ps1` → `dagitim/PazaryeriHub-<tarih>.zip` (≈55 MB, .NET gerekmez).
+  - Hedef bilgisayarda `kur.ps1` (Yönetici PowerShell): servis kurulur, veritabanı ve ilk Yönetici hazırlanır, güvenlik duvarı (yalnızca Özel/Etki alanı) açılır.
+  - Panel adresleri yazılır: `http://<bilgisayar>:5090`. Kılavuz: `kurulum/KURULUM.md`.
+- **Güvenli başlangıç:** kanala yazma kilitli, kanallar Mock. Canlıya geçiş `kanal-ayari.ps1` ile adım adım: önce okuma, sonra kilidi kaldırıp yetenekleri DENEME ile açma.
+- **Kullanıcılar:**
+  - Silme eklendi.
+  - Silinen veya pasife alınan kullanıcının açık oturumu hemen kapanır; rol değişikliği anında geçerli.
+  - Kendini ve son aktif yöneticiyi kaldırma engelli.
+- **İşlem Geçmişi** (Yönetici menüsü): tüm yazma işlemleri, girişler ve hatalı girişler; kullanıcı, tarih, tip, yol ve hatalı filtresi. İçerik ve parola kaydedilmez. Migration 0018.
+- **Kararsız test düzeltildi:** `Son_cekimde_kanalda_bulunamayan…` kalıcı test veritabanında ilan sayısı sayfa sınırını aşınca ara sıra kalıyordu; ilan koduyla arıyor.
+- **Testler:** unit 414/414, entegrasyon 156/156. Playwright: 19 senaryo tam çalıştırmada geçti, yeni kullanıcı yönetimi senaryosu ayrıca geçti.
+- **Paket denemesi:** yayınlanan exe geçici ayar ve geçici veritabanıyla konsol modunda çalıştırıldı.
+  - Doğrulananlar: kurulum adımı, localhost ve ağ IP'sinden sağlık kontrolü, panel, giriş, İşlem Geçmişi, DPAPI'li anahtar, log klasörü.
+  - **Denenmeyenler:** Servis kurulumu ve güvenlik duvarı bu makinede değiştirilmedi; `kur.ps1` ilk kez hedef bilgisayarda çalışacak.
+
 ## Hepsiburada: paketlenmiş siparişler çekiliyor, tarih Türkiye saati (2026-11-21)
 
 - **Sorun:** Paketlenmiş ama kargoya verilmemiş sipariş, ödemesi tamamlanmış listesinden çıkıyor ve kargo listesine henüz girmiyordu. HB satıcı panelinden çekimden önce paketlenen sipariş uygulamaya hiç gelmez, stok rezerve edilmezdi (SIT test siparişleri bu yüzden panelde yoktu).

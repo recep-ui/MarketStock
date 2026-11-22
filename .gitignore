@@ -492,3 +492,6 @@ $RECYCLE.BIN/
 
 # Hepsiburada SIT doğrulama raporları (ADR-037): hesap kimliği ve ham yanıtlar içerir, repoya girmez
 hb-sit-rapor/
+
+# Kurulum paketi çıktısı (kurulum/paket-olustur.ps1)
+dagitim/

@@ -60,6 +60,7 @@ export async function api<T>(method: string, url: string, body?: unknown): Promi
 export const get = <T>(url: string) => api<T>('GET', url);
 export const post = <T>(url: string, body?: unknown) => api<T>('POST', url, body);
 export const put = <T>(url: string, body?: unknown) => api<T>('PUT', url, body);
+export const del = <T>(url: string) => api<T>('DELETE', url);
 
 export async function upload<T>(url: string, file: File): Promise<T> {
   const form = new FormData();
@@ -102,6 +103,10 @@ export function qs(params: Record<string, string | number | boolean | undefined 
 // ----------------------------------------------------------------- tipler (API sözleşmeleri)
 
 export type Paged<T> = { items: T[]; total: number; page: number; pageSize: number };
+export type AuditEntry = {
+  id: number; atUtc: string; userName: string | null; role: string | null; type: 'ISTEK' | 'GIRIS' | 'GIRIS_HATALI' | 'CIKIS';
+  method: string | null; path: string | null; status: number | null; ipAddress: string | null; durationMs: number | null;
+};
 export type OrderStatus = 'Yeni' | 'Onaylandi' | 'Hazirlaniyor' | 'Kargoda' | 'TeslimEdildi' | 'Iptal' | 'Iade';
 export type ReturnListItem = {
   id: number; channelId: number; channelCode: string; returnNo: string; channelOrderNo: string; orderId: number | null; channelStatus: string | null;
