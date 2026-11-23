@@ -231,6 +231,33 @@ public sealed class TrendyolAdapterContractTests
         r.Reason.Should().Be("Beden olmadı");
     }
 
+    /// <summary>
+    /// Canlı hesapta görüldü (2026-11-23): dönemde iade yokken veya kalem bilgisi eksikken Trendyol listeleri boş dizi yerine
+    /// null döndürebiliyor; iade çekme "Value cannot be null (source)" ile düşüyordu.
+    /// </summary>
+    [Fact]
+    public async Task Iade_yaniti_null_listelerle_gelirse_hata_vermez()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """{"totalElements":0,"totalPages":0,"page":0,"size":200,"content":null}"""));
+
+        (await adapter.FetchReturnsAsync(DateTime.UtcNow.AddDays(-1), Ct)).Should().BeEmpty();
+
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"totalElements":1,"totalPages":1,"page":0,"size":200,"content":[
+              {"id":"c1","claimId":"c1","orderNumber":"80869231","orderShipmentPackageId":11650604,"claimDate":1700100000000,"items":null},
+              {"id":"c2","claimId":"c2","orderNumber":"80869232","claimDate":1700100000000,
+               "items":[{"orderLine":{"id":2,"barcode":"8680000001"},"claimItems":null}]}
+            ]}
+            """));
+
+        var returns = await adapter.FetchReturnsAsync(DateTime.UtcNow.AddDays(-1), Ct);
+
+        returns.Should().HaveCount(2);
+        returns[0].Lines.Should().BeEmpty();
+        returns[1].Lines.Should().ContainSingle().Which.Quantity.Should().Be(1);
+    }
+
     [Fact]
     public async Task Kanal_stogu_50lik_barkod_parcalariyla_okunur()
     {

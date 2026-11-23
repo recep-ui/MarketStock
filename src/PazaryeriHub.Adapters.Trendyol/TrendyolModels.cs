@@ -1,6 +1,7 @@
-namespace PazaryeriHub.Adapters.Trendyol;
+﻿namespace PazaryeriHub.Adapters.Trendyol;
 
 // Trendyol API v2.0 yanıt/istek modelleri. Yalnızca resmi dokümanda adı geçen ve bizim kullandığımız alanlar.
+// Liste alanları null'a dayanıklıdır (init => value ?? []): canlı API boş liste yerine null döndürebiliyor (2026-11-23, getclaims).
 // Kaynaklar (developers.trendyol.com/v2.0/reference/...): updatepriceandinventory, getbatchrequestresult,
 // getshipmentpackages, getclaims, filterapprovedproductsinventoryandprice, filterapprovedproducts.
 
@@ -44,7 +45,7 @@ internal sealed class BatchRequestResult
 
     public int? ItemCount { get; init; }
     public int? FailedItemCount { get; init; }
-    public List<BatchRequestItem> Items { get; init; } = [];
+    public List<BatchRequestItem> Items { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class BatchRequestItem
@@ -55,7 +56,7 @@ internal sealed class BatchRequestItem
     /// <summary>SUCCESS | FAILED</summary>
     public string? Status { get; init; }
 
-    public List<string> FailureReasons { get; init; } = [];
+    public List<string> FailureReasons { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class PagedResponse<T>
@@ -65,7 +66,7 @@ internal sealed class PagedResponse<T>
     public int TotalPages { get; init; }
     public long TotalElements { get; init; }
     public string? NextPageToken { get; init; }
-    public List<T> Content { get; init; } = [];
+    public List<T> Content { get; init => field = value ?? []; } = [];
 }
 
 /// <summary>
@@ -104,11 +105,11 @@ internal sealed class ShipmentPackage
     /// <summary>Dokümanda string; bazı yanıtlarda sayı gelebilir. // TODO: doğrulanmalı</summary>
     public System.Text.Json.JsonElement? CargoTrackingNumber { get; init; }
     public string? CargoTrackingLink { get; init; }
-    public List<PackageHistory> PackageHistory { get; init; } = [];
+    public List<PackageHistory> PackageHistory { get; init => field = value ?? []; } = [];
 
     /// <summary>V2 adı.</summary>
-    public List<PackageHistory> PackageHistories { get; init; } = [];
-    public List<OrderLine> Lines { get; init; } = [];
+    public List<PackageHistory> PackageHistories { get; init => field = value ?? []; } = [];
+    public List<OrderLine> Lines { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class Address
@@ -165,13 +166,13 @@ internal sealed class Claim
 
     /// <summary>Epoch ms ("timestamp in GMT").</summary>
     public long? ClaimDate { get; init; }
-    public List<ClaimItemGroup> Items { get; init; } = [];
+    public List<ClaimItemGroup> Items { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class ClaimItemGroup
 {
     public ClaimOrderLine? OrderLine { get; init; }
-    public List<ClaimItem> ClaimItems { get; init; } = [];
+    public List<ClaimItem> ClaimItems { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class ClaimOrderLine
@@ -207,11 +208,11 @@ internal sealed class ApprovedContent
     public NamedRef? Brand { get; init; }
     public NamedRef? Category { get; init; }
     public string? Title { get; init; }
-    public List<ContentAttribute> Attributes { get; init; } = [];
-    public List<ApprovedVariant> Variants { get; init; } = [];
+    public List<ContentAttribute> Attributes { get; init => field = value ?? []; } = [];
+    public List<ApprovedVariant> Variants { get; init => field = value ?? []; } = [];
 
     /// <summary>İçerik görselleri (dokümandaki images[].url). Dokümandaki örnek göreli yol; gerçek yanıtta mutlak https (2026-11-20 canlı okuma, ADR-042).</summary>
-    public List<ContentImage> Images { get; init; } = [];
+    public List<ContentImage> Images { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class ContentImage
@@ -227,7 +228,7 @@ internal sealed class NamedRef
 internal sealed class ContentAttribute
 {
     public string? AttributeName { get; init; }
-    public List<AttributeValueRef> AttributeValues { get; init; } = [];
+    public List<AttributeValueRef> AttributeValues { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class AttributeValueRef
@@ -243,7 +244,7 @@ internal sealed class ApprovedVariant
     public bool? Locked { get; init; }
     public bool? Archived { get; init; }
     public bool? Blacklisted { get; init; }
-    public List<VariantAttribute> Attributes { get; init; } = [];
+    public List<VariantAttribute> Attributes { get; init => field = value ?? []; } = [];
 
     /// <summary>Ürünün trendyol.com sayfası (dokümandaki variants[].productUrl).</summary>
     public string? ProductUrl { get; init; }
@@ -264,7 +265,7 @@ internal sealed class VariantAttribute
 
 internal sealed class ApprovedProduct
 {
-    public List<ProductVariant> Variants { get; init; } = [];
+    public List<ProductVariant> Variants { get; init => field = value ?? []; } = [];
 }
 
 internal sealed class ProductVariant

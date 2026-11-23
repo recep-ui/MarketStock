@@ -7,6 +7,12 @@
 
 ---
 
+## Trendyol iade çekme: null liste hatası (2026-11-23)
+
+- **Belirti:** Canlı Trendyol hesabında iade çekme "İşlem tamamlanamadı" ile duruyordu.
+- **Kök neden (canlıda, yalnızca okumayla yakalandı):** getclaims yanıtı boş dönemde `content` alanını boş dizi yerine `null` döndürüyor; `Select` null kaynakta `ArgumentNullException` atıyordu.
+- **Düzeltme:** Trendyol modellerindeki tüm liste alanları null'a dayanıklı (`init => field = value ?? []`); sipariş, katalog, toplu işlem sonucu ve iade yanıtları aynı korumayı aldı.
+- **Doğrulama:** Yeni sözleşme testi (null `content`, null `items`, null `claimItems`) önce kırmızı, sonra yeşil; birim testleri 415/415. Bu bilgisayarda deneme modu + gerçek Trendyol (yazma kilitli): iade çekme başarılı, mutabakat başarılı (560 eşleştirme, 485 bulundu, 25 sapma).
 ## Eski bilgisayardan veri taşıma (2026-11-22, ADR-046)
 
 - `kurulum/veri-yedekle.ps1` (eski bilgisayar) → doğrulanmış `.bak`; yeni bilgisayarda `kur.ps1 -VeriYedegi <dosya>` ilk kurulumda geri yükler, sonra şemayı günceller.
