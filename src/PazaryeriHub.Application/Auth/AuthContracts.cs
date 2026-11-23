@@ -71,6 +71,12 @@ public sealed class IdentityOptions
 
     public List<SeedUser> SeedUsers { get; set; } = [];
 
+    /// <summary>
+    /// Unutulan parola (kur.ps1 -YoneticiParolaSifirla, ADR-047): YALNIZCA kurulum adımında (--kurulum) geçerlidir; tohum
+    /// kullanıcının parolası değiştirilir, hesap etkinleştirilir, kilidi kaldırılır ve rolü tohumdaki rol yapılır.
+    /// </summary>
+    public bool SeedPasswordReset { get; set; }
+
     public int MaxFailedLogins { get; set; } = 5;
 
     public int LockoutMinutes { get; set; } = 5;

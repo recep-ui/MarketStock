@@ -1023,3 +1023,15 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - Deneme veritabanındaki deneme kayıtları (ör. HB SIT siparişleri, `demo-yonetici`) de taşınır; panelden temizlenebilir.
 
 **Doğrulama:** Entegrasyon testleri `SetupSeedUserTests` (2 test: normal üretim başlangıcı eklemez; kurulum modu ekler, var olanın parolasını değiştirmez). Bu bilgisayarda: `PazaryeriHub_Test` yedeklendi (39 MB) → `PazaryeriHub_AktarimDeneme` olarak geri yüklendi (184 ürün, 740 SKU, 6 sipariş, 3 kanalın API bilgisi temizlendi); ikinci geri yükleme reddedildi; yeni paketin `--kurulum`'u şemayı güncelledi, `yonetici`yi ekledi, giriş 200, sipariş listesi 200. Deneme veritabanı silindi. Eşleşmeyen SQL kullanıcısının çıkarılması burada denenemedi (aynı sunucuda `ms` login'i var).
+
+## ADR-047: Unutulan yönetici parolası (kur.ps1 -YoneticiParolaSifirla)
+
+**Tarih:** 2026-11-23
+**Bağlam:** Kurulu sistemde yönetici parolası unutulursa (veya taşınan veritabanında `yonetici` hiç oluşmadıysa) panelden çıkış yolu yoktu: üretimde tohum kullanıcı yalnızca eksikse eklenir, var olanın parolasına dokunulmaz (ADR-046). Bu bilgisayardaki kurulumda ayar klasörü silinmeden yeniden çalıştırılan kur.ps1 "güncelleme" sayıldı ve `yonetici` hiç eklenmedi.
+
+**Karar:**
+- `kur.ps1 -YoneticiParolaSifirla [-YoneticiKullanici <ad>]`: yeni parolayı iki kez sorar (eşleşmezse hiçbir şey değişmez) ve kurulum adımına (`--kurulum`) `Kimlik:SeedPasswordReset=true` ile tohum kullanıcıyı verir.
+- `UserService.SeedAsync`: sıfırlama bayrağı YALNIZCA kurulum modunda geçerlidir; ekle-veya-güncelle uygulanır (parola, Aktif=1, kilit ve hatalı giriş sayacı sıfır, rol = tohumdaki rol, yani Yönetici). Normal servis başlangıcında bayrak yok sayılır.
+- Yetki modeli: sıfırlama yalnızca makinenin Windows yöneticisi tarafından yapılabilir (betik yönetici ister, parola ortam değişkeniyle yalnızca kurulum sürecine verilir ve hemen silinir). Panelde "parolamı unuttum" yok; yerel ağ uygulamasında e-posta doğrulaması gibi bir kanal yok.
+
+**Doğrulama:** Entegrasyon: `SetupSeedUserTests` 4/4 (sıfırlama parolayı değiştirir, pasif/kilitli/Destek rolündeki hesabı açıp Yönetici yapar; bayrak normal başlangıçta yok sayılır). Yayınlanan paketle (taşınan veritabanı kopyasında): `yonetici` yokken sıfırlama oluşturdu (giriş 200); bayraksız kurulum parolayı değiştirmedi; yeniden sıfırlamada eski parola 401, yeni 200. `kur.ps1`'in kendisi yönetici yetkisi gerektirdiği için bu oturumda çalıştırılamadı.

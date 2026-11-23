@@ -191,6 +191,18 @@ Servis, program dosyaları, güvenlik duvarı kuralı ve kısayol kaldırılır.
 | Hatayı ekranda görmek | Servisi durdurun (`Stop-Service PazaryeriHub`), Yönetici PowerShell'de `& "C:\Program Files\PazaryeriHub\PazaryeriHub.Api.exe" --kurulu` |
 | Veritabanına bağlanamıyor | SQL Server servisi çalışıyor mu (`Get-Service MSSQL*`); `C:\ProgramData\PazaryeriHub\ayarlar.json` içindeki sunucu adı |
 | Diğer cihazlar açamıyor | 3. bölüm |
-| Yönetici parolası unutuldu | Başka bir Yönetici Ayarlar → Kullanıcılar → Parola ile sıfırlar |
+| Yönetici parolası unutuldu | Başka bir Yönetici Ayarlar → Kullanıcılar → Parola ile sıfırlar. Giren yönetici yoksa aşağıdaki "Unutulan yönetici parolası" |
+| `yonetici` ile giriş olmuyor, kullanıcı yok | Aşağıdaki "Unutulan yönetici parolası": kullanıcı yoksa oluşturulur |
+
+### Unutulan yönetici parolası
+
+Paket klasöründe, **Yönetici PowerShell**'de:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\kur.ps1 -YoneticiParolaSifirla
+```
+- `yonetici` için yeni parola iki kez sorulur. Başka bir kullanıcı için `-YoneticiKullanici <ad>` ekleyin.
+- Kullanıcı yoksa oluşturulur. Varsa parolası değişir, hesap etkinleşir, kilidi kalkar, rolü Yönetici olur.
+- Veriler ve ayarlar değişmez. Program yeniden kopyalandığı için servis birkaç saniye durup yeniden başlar.
+- Bu işlem yalnızca bilgisayarın Windows yöneticisi tarafından yapılabilir; panelden yapılamaz.
 
 Ayarlar `C:\ProgramData\PazaryeriHub\ayarlar.json` dosyasındadır. Bu klasörü yalnızca Yöneticiler ve servis okuyabilir. Elle değişiklikten sonra servisi yeniden başlatın: `Restart-Service PazaryeriHub`.

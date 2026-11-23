@@ -189,7 +189,7 @@ public sealed class UserService(
     /// Tohum kullanıcıları uygular (bkz. <see cref="IdentityOptions"/>). Parola değerleri loglanmaz.
     /// Geliştirme/test: ekler ya da günceller. Üretim: yalnızca hiç kullanıcı yoksa ekler.
     /// Kurulum modu (<paramref name="setupMode"/>, --kurulum): kullanıcılar olsa da (taşınan veritabanı) EKSİK olanı ekler,
-    /// var olan kullanıcıya dokunmaz (ADR-046).
+    /// var olan kullanıcıya dokunmaz (ADR-046); <see cref="IdentityOptions.SeedPasswordReset"/> ile parolası sıfırlanır (ADR-047).
     /// </summary>
     public async Task SeedAsync(IHostEnvironment environment, bool setupMode, CancellationToken ct)
     {
@@ -201,7 +201,8 @@ public sealed class UserService(
 
         await using var connection = await OpenAsync(ct);
         var anyUser = await connection.ExecuteScalarAsync<int>(new CommandDefinition("SELECT COUNT(*) FROM dbo.AppUser", cancellationToken: ct)) > 0;
-        var upsert = environment.IsDevelopment() || environment.IsEnvironment("Testing");
+        // Kurulum adımında açıkça istenen parola sıfırlama (ADR-047) da ekle-veya-güncelle davranışını kullanır.
+        var upsert = environment.IsDevelopment() || environment.IsEnvironment("Testing") || (setupMode && options.Value.SeedPasswordReset);
         if (anyUser && !upsert && !setupMode)
         {
             return; // üretimde tohum yalnızca ilk kurulumda

@@ -30,6 +30,11 @@
     Yalnızca İLK kurulumda: eski bilgisayarda veri-yedekle.ps1 ile alınan .bak dosyası. Veritabanı boş oluşturulmak yerine
     bu yedekten geri yüklenir (ürünler, stok defteri, siparişler, eşleştirmeler, kullanıcılar), sonra şema güncellenir.
     Hedefte aynı adlı veritabanı varsa kurulum durur (üzerine yazılmaz). Kanal API bilgileri yeniden girilir (ADR-046).
+
+.PARAMETER YoneticiParolaSifirla
+    Unutulan parola (ADR-047). Kurulu sistemde -YoneticiKullanici (varsayılan "yonetici") için yeni parola sorar; kullanıcı yoksa
+    oluşturulur, varsa parolası değişir, hesap etkinleşir, kilidi kalkar ve rolü Yönetici olur. Veriler ve ayarlar değişmez.
+        powershell -ExecutionPolicy Bypass -File .\kur.ps1 -YoneticiParolaSifirla
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +44,8 @@ param(
     [ValidateRange(1024, 65535)][int]$Port = 5090,
     [string]$YoneticiKullanici = 'yonetici',
     [string]$KurulumKlasoru = (Join-Path $env:ProgramFiles 'PazaryeriHub'),
-    [string]$VeriYedegi = ''
+    [string]$VeriYedegi = '',
+    [switch]$YoneticiParolaSifirla
 )
 
 $ErrorActionPreference = 'Stop'
@@ -79,9 +85,18 @@ if ($firstInstall) {
         $secure = Read-Host "SQL kullanıcısı '$SqlKullanici' parolası" -AsSecureString
         $sqlPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
     }
-    $adminSecure = Read-Host "İlk Yönetici kullanıcısı '$YoneticiKullanici' için parola (en az 10 karakter)" -AsSecureString
+}
+$adminPassword = $null
+if ($firstInstall -or $YoneticiParolaSifirla) {
+    $prompt = "İlk Yönetici kullanıcısı '$YoneticiKullanici' için parola (en az 10 karakter)"
+    if (-not $firstInstall) { $prompt = "'$YoneticiKullanici' için YENİ parola (en az 10 karakter)" }
+    $adminSecure = Read-Host $prompt -AsSecureString
     $adminPassword = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminSecure))
     if ($adminPassword.Length -lt 10) { throw 'Parola en az 10 karakter olmalı.' }
+    $again = Read-Host 'Parolayı tekrar girin' -AsSecureString
+    if ($adminPassword -cne [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($again))) {
+        throw 'Parolalar eşleşmiyor; hiçbir şey değiştirilmedi.'
+    }
 }
 
 # ---------------------------------------------------------------- Servisi durdur, dosyaları kopyala
@@ -159,20 +174,22 @@ if (Test-Path $SettingsFile) { [void][IO.File]::ReadAllText($SettingsFile) }
 
 # ---------------------------------------------------------------- Veritabanı: oluştur, şema, ilk yönetici
 Write-Step 'Veritabanı hazırlanıyor (yoksa oluşturulur, şema güncellenir)'
-if ($firstInstall) {
+if ($adminPassword) {
     $env:Kimlik__SeedUsers__0__UserName = $YoneticiKullanici
     $env:Kimlik__SeedUsers__0__FullName = 'Yönetici'
     $env:Kimlik__SeedUsers__0__Role = 'Yonetici'
     $env:Kimlik__SeedUsers__0__Password = $adminPassword
+    if ($YoneticiParolaSifirla) { $env:Kimlik__SeedPasswordReset = 'true' }
 }
 try {
     & $Exe --kurulum
     $setupExit = $LASTEXITCODE
 } finally {
-    Remove-Item env:Kimlik__SeedUsers__0__Password, env:Kimlik__SeedUsers__0__UserName, env:Kimlik__SeedUsers__0__FullName, env:Kimlik__SeedUsers__0__Role -ErrorAction SilentlyContinue
+    Remove-Item env:Kimlik__SeedUsers__0__Password, env:Kimlik__SeedUsers__0__UserName, env:Kimlik__SeedUsers__0__FullName, env:Kimlik__SeedUsers__0__Role, env:Kimlik__SeedPasswordReset -ErrorAction SilentlyContinue
     $adminPassword = $null
 }
 if ($setupExit -ne 0) { throw "Veritabanı hazırlığı başarısız (kod $setupExit). Ayrıntı: $DataDir\loglar" }
+if ($YoneticiParolaSifirla) { Write-Host "  '$YoneticiKullanici' parolası değiştirildi; hesap etkin, kilidi kaldırıldı, rolü Yönetici." -ForegroundColor Green }
 
 # Windows kimlik doğrulaması: servis hesabına bu veritabanında yetki ver (SQL aynı bilgisayarda olmalı)
 $settingsJson = Get-Content $SettingsFile -Raw | ConvertFrom-Json

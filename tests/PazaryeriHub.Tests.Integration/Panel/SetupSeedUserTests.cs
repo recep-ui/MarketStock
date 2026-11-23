@@ -22,9 +22,13 @@ public sealed class SetupSeedUserTests(TestDatabase db)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private UserService Create(string userName, string password) => new(
+    private UserService Create(string userName, string password, bool reset = false) => new(
         db.Services.GetRequiredService<SqlConnectionFactory>(),
-        Options.Create(new IdentityOptions { SeedUsers = [new SeedUser { UserName = userName, FullName = "Kurulum", Role = Roles.Admin, Password = password }] }),
+        Options.Create(new IdentityOptions
+        {
+            SeedUsers = [new SeedUser { UserName = userName, FullName = "Kurulum", Role = Roles.Admin, Password = password }],
+            SeedPasswordReset = reset
+        }),
         TimeProvider.System,
         NullLogger<UserService>.Instance);
 
@@ -62,5 +66,39 @@ public sealed class SetupSeedUserTests(TestDatabase db)
 
         await Create(userName, "Baska-Parola-22").SeedAsync(Production, setupMode: true, Ct);
         (await HashAsync(userName)).Should().Be(first, "kurulum var olan kullanıcının parolasını değiştirmez");
+    }
+
+    [Fact]
+    public async Task Kurulum_modunda_parola_sifirlama_parolayi_degistirir_hesabi_acar_ve_yonetici_yapar()
+    {
+        db.SkipIfUnavailable();
+        var userName = "kurulum-" + Guid.NewGuid().ToString("N")[..8];
+        await Create(userName, "Unutulan-Parola-1").SeedAsync(Production, setupMode: true, Ct);
+        await using (var c = new SqlConnection(db.ConnectionString))
+        {
+            await c.ExecuteAsync("UPDATE dbo.AppUser SET Aktif = 0, Rol = @role, BasarisizGiris = 5, KilitBitis = DATEADD(HOUR, 1, SYSUTCDATETIME()) WHERE KullaniciAdi = @userName",
+                new { userName, role = Roles.Support });
+        }
+
+        await Create(userName, "Yeni-Parola-123", reset: true).SeedAsync(Production, setupMode: true, Ct);
+
+        var service = Create(userName, "x");
+        (await service.ValidateAsync(userName, "Unutulan-Parola-1", Ct)).User.Should().BeNull("eski parola artık geçmez");
+        var login = await service.ValidateAsync(userName, "Yeni-Parola-123", Ct);
+        login.User.Should().NotBeNull("yeni parola geçer; hesap açılır ve kilit kalkar");
+        login.User!.Role.Should().Be(Roles.Admin, "sıfırlanan kullanıcı yönetici yetkisini geri alır");
+    }
+
+    [Fact]
+    public async Task Parola_sifirlama_bayragi_normal_baslangicta_yok_sayilir()
+    {
+        db.SkipIfUnavailable();
+        var userName = "kurulum-" + Guid.NewGuid().ToString("N")[..8];
+        await Create(userName, "Ilk-Parola-1234").SeedAsync(Production, setupMode: true, Ct);
+        var first = await HashAsync(userName);
+
+        await Create(userName, "Yeni-Parola-123", reset: true).SeedAsync(Production, setupMode: false, Ct);
+
+        (await HashAsync(userName)).Should().Be(first, "sıfırlama yalnızca kur.ps1'in kurulum adımında (--kurulum) uygulanır");
     }
 }

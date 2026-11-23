@@ -7,6 +7,11 @@
 
 ---
 
+## Kurulum düzeltmeleri: ayar dosyası izni ve unutulan yönetici parolası (2026-11-23, ADR-047)
+
+- **kur.ps1 izin hatası:** `icacls ... (OI)(CI) /T` var olan `ayarlar.json`'u boş izinle bırakıyordu (çıkış kodu 0); kurulum adımı "Access denied" ile düşüyordu. Klasöre izin verilip içerik `/reset` ile devralınıyor, ayar dosyası okunarak doğrulanıyor. Bu bilgisayardaki gerçek kurulumda görüldü.
+- **-YoneticiParolaSifirla:** kurulu sistemde yönetici parolasını sıfırlar veya kullanıcı yoksa oluşturur; yalnızca kurulum adımında geçerli.
+- Testler: `SetupSeedUserTests` 4/4; paketle üç senaryo (oluştur, bayraksız değiştirmez, yeniden sıfırla) doğrulandı.
 ## Trendyol iade çekme: null liste hatası (2026-11-23)
 
 - **Belirti:** Canlı Trendyol hesabında iade çekme "İşlem tamamlanamadı" ile duruyordu.
