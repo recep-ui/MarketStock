@@ -574,6 +574,46 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
   }
 });
 
+test('Fiyat: aynı SKU\'nun kanal fiyatları yan yana; kanal bazında ayrı elle fiyat özetli onayla kaydedilir (ADR-049)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat' }).click();
+  await expect(page.getByTestId('price-notes')).toContainText('Nasıl çalışır?');
+
+  await page.getByLabel('Fiyat ürün ara').fill(d.priceSkuCode);
+  await page.getByRole('button', { name: 'Ara', exact: true }).click();
+  const row = page.getByTestId('sku-price-row').filter({ hasText: d.priceSkuCode });
+  await expect(row).toHaveCount(1);
+  const ty = row.getByTestId('price-cell-TRENDYOL');
+  const hb = row.getByTestId('price-cell-HEPSIBURADA');
+  await expect(ty).toContainText('Gidecek');
+  await expect(hb).toContainText('Gidecek');
+
+  // Yalnızca Hepsiburada'ya farklı fiyat; geçersiz değer kaydı engeller
+  const hbInput = row.getByLabel(`Hepsiburada elle fiyat ${d.priceSkuCode}`);
+  await hbInput.fill('12,345');
+  await expect(page.getByTestId('save-prices')).toBeDisabled();
+  await hbInput.fill('549,90');
+  await expect(page.getByTestId('save-prices')).toHaveText('Değişiklikleri kaydet (1)');
+
+  let message = '';
+  page.once('dialog', dialog => { message = dialog.message(); void dialog.accept(); });
+  await page.getByTestId('save-prices').click();
+  await expect(page.getByRole('status')).toContainText('1 ilan fiyatı kaydedildi');
+  expect(message).toContain(`${d.priceSkuCode} · Hepsiburada`);
+  expect(message).toContain('elle ₺549,90');
+
+  await expect(hb).toContainText('elle');
+  await expect(hb).toContainText('549,90');
+  await expect(ty).not.toContainText('elle');
+
+  // Temizle: elle fiyatı kaldır
+  await row.getByLabel(`Hepsiburada elle fiyat ${d.priceSkuCode}`).fill('');
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByTestId('save-prices').click();
+  await expect(hb).not.toContainText('elle');
+});
+
 test('Soru-Cevap: Destek onay kutusunu işaretleyip cevap gönderir; cevap kullanıcı adıyla kaydedilir ve kanal kuyruğuna girer (ADR-029)', async ({ page }) => {
   const d = demo();
   await login(page);

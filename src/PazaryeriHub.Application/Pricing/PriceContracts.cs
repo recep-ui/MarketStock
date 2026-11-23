@@ -96,11 +96,31 @@ public static class PricePreviewStatus
     public const string Rejected = "REDDEDILDI";
 }
 
+/// <param name="ImageUrl">Kanalın kendi API'sinden gelen küçük resim (yalnızca https; ADR-042/049).</param>
 public sealed record PricePreviewRow(
     int ListingId, int SkuId, string SkuCode, string ProductName, string? ChannelProductCode, string? ChannelBarcode,
     decimal? LastSentSale, decimal? LastSentList, decimal? NewSale, decimal? NewList, decimal? ChangePercent,
     bool FloorApplied, bool FromOverride, string Status, string? Problem, long? PendingApprovalId,
-    decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null, string? ProductUrl = null);
+    decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null, string? ProductUrl = null, string? ImageUrl = null);
+
+/// <summary>Bir SKU'nun bir kanaldaki ilanının fiyat durumu (ADR-049: ürün bazında kanal fiyatları).</summary>
+/// <param name="CapabilityState">Kanalın FIYAT yeteneği: KAPALI ise elle fiyat kaydedilir ama kanala gitmez.</param>
+/// <param name="Override">İlan için elle girilmiş satış fiyatı (null: kanal kuralı).</param>
+public sealed record SkuChannelPrice(
+    int ListingId, int ChannelId, string ChannelCode, string ListingStatus, string CapabilityState, decimal? Override,
+    DateTime? LastPriceSyncUtc, PricePreviewRow Preview);
+
+/// <summary>SKU ve bütün kanallardaki ilanlarının fiyatları, yan yana.</summary>
+public sealed record SkuPriceOverview(
+    int SkuId, string SkuCode, string ProductName, string? Barcode, string? ImageUrl, decimal? ListPrice, decimal? SalePrice,
+    IReadOnlyList<SkuChannelPrice> Channels);
+
+/// <param name="Price">İlanın elle satış fiyatı; null → kaldırılır (kanal kuralı).</param>
+public sealed record ListingOverrideChange(int ListingId, decimal? Price);
+
+public sealed record ListingOverridesRequest(IReadOnlyList<ListingOverrideChange>? Changes);
+
+public sealed record ListingOverridesResult(int Changed, int Unchanged);
 
 /// <summary>"N ilanın fiyatı değişecek" önizlemesi (ADR-028). Yeteneği açmadan önce Yönetici görür.</summary>
 public sealed record PricePreview(
@@ -137,6 +157,12 @@ public interface IPriceService
     Task<ChannelPriceInfo> SetChannelRuleAsync(int channelId, ChannelPriceRuleDto rule, string? user, CancellationToken ct);
 
     Task<ListingPriceDto> SetListingOverrideAsync(int listingId, ListingPriceOverrideInput input, string? user, CancellationToken ct);
+
+    /// <summary>Ürün bazında: SKU'lar ve her kanaldaki ilanlarının fiyatları yan yana (ADR-049; kanala çağrı yok).</summary>
+    Task<PagedResult<SkuPriceOverview>> SearchSkuPricesAsync(string? search, int? page, int? pageSize, CancellationToken ct);
+
+    /// <summary>Birden çok ilanın elle fiyatını tek seferde değiştirir; satırlardan biri geçersizse hiçbiri yazılmaz (Yönetici).</summary>
+    Task<ListingOverridesResult> SetListingOverridesAsync(IReadOnlyList<ListingOverrideChange> changes, string? user, CancellationToken ct);
 
     /// <summary>Kanalın aktif ilanları için hesaplanan fiyatlar ve gönderilecek değişiklikler (kanala çağrı yok).</summary>
     Task<PricePreview> GetPreviewAsync(int channelId, bool onlyChanges, CancellationToken ct);

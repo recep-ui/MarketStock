@@ -25,6 +25,12 @@ public static class PriceEndpoints
         prices.MapGet("/channels/{channelId:int}/preview", (IPriceService s, int channelId, bool? onlyChanges, CancellationToken ct) =>
             s.GetPreviewAsync(channelId, onlyChanges ?? false, ct));
 
+        // Ürün bazında kanal fiyatları (ADR-049): aynı SKU'nun her kanaldaki fiyatı yan yana; kanal bazında ayrı elle fiyat.
+        prices.MapGet("/skus", (IPriceService s, string? search, int? page, int? pageSize, CancellationToken ct) =>
+            s.SearchSkuPricesAsync(search, page, pageSize, ct));
+        prices.MapPut("/listings/overrides", (IPriceService s, ClaimsPrincipal user, ListingOverridesRequest request, CancellationToken ct) =>
+            s.SetListingOverridesAsync(request.Changes ?? [], user.UserName(), ct)).RequireAuthorization(Policies.Admin);
+
         prices.MapPut("/listings/{listingId:int}/override", (IPriceService s, ClaimsPrincipal user, int listingId, ListingPriceOverrideInput input, CancellationToken ct) =>
             s.SetListingOverrideAsync(listingId, input, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
 

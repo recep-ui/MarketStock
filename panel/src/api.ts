@@ -132,7 +132,16 @@ export type PricePreviewRow = {
   listingId: number; skuId: number; skuCode: string; productName: string; channelProductCode: string | null; channelBarcode: string | null;
   lastSentSale: number | null; lastSentList: number | null; newSale: number | null; newList: number | null; changePercent: number | null;
   floorApplied: boolean; fromOverride: boolean; status: string; problem: string | null; pendingApprovalId: number | null;
-  channelSalePrice?: number | null; channelListPrice?: number | null; productUrl?: string | null;
+  channelSalePrice?: number | null; channelListPrice?: number | null; productUrl?: string | null; imageUrl?: string | null;
+};
+/** Ürün bazında kanal fiyatları (ADR-049). */
+export type SkuChannelPrice = {
+  listingId: number; channelId: number; channelCode: string; listingStatus: string; capabilityState: string; override: number | null;
+  lastPriceSyncUtc: string | null; preview: PricePreviewRow;
+};
+export type SkuPriceOverview = {
+  skuId: number; skuCode: string; productName: string; barcode: string | null; imageUrl: string | null;
+  listPrice: number | null; salePrice: number | null; channels: SkuChannelPrice[];
 };
 export type PricePreview = {
   channelId: number; channelCode: string; capabilityState: string; canEnable: boolean; blockReason: string | null; thresholdPercent: number;

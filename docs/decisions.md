@@ -1,4 +1,4 @@
-﻿# Mimari Karar Kayıtları (ADR)
+# Mimari Karar Kayıtları (ADR)
 
 Her kayıt: bağlam, karar, sonuç. Yeni kararlar sona eklenir; eski kararlar silinmez, gerekirse "yerine geçti" diye işaretlenir.
 
@@ -1052,4 +1052,20 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 
 **Sonuç / ödünleşim:** Onaylı kanalda bir satış sonrası diğer kanalların stoğu da onaya kadar eski kalır (aşırı satış riski). Bu, kullanıcının "her stok değişikliği onayla" isteğinin bilinçli sonucudur; kanal bazında "Açık" seçeneği duruyor.
 
-**Doğrulama:** Entegrasyon: `SyncPipelineTests` içinde 5 yeni test (onaysız gönderilmez, onaylanan değer gider; onay sonrası değişince yeniden onay; red; KAPALI'da deneme sayılmaz; yalnızca Yönetici) + varsayılan yetenek testi güncellendi; entegrasyon 165/165, birim 416/416. Playwright: yeni senaryo (kanal kutucuğu, satır seçimi, özetli onay) geçti; "Hatalı senkron" senaryosu demo verideki yeni kayıt nedeniyle kanal süzgeciyle güncellendi. ADR-036 senaryosu (çıkış → Destek girişi) bu değişiklikten önceki commit'te de başarısız; ayrı incelenecek.
+**Doğrulama:** Entegrasyon: `SyncPipelineTests` içinde 5 yeni test (onaysız gönderilmez, onaylanan değer gider; onay sonrası değişince yeniden onay; red; KAPALI'da deneme sayılmaz; yalnızca Yönetici) + varsayılan yetenek testi güncellendi; entegrasyon 165/165, birim 416/416. Playwright: yeni senaryo (kanal kutucuğu, satır seçimi, özetli onay) geçti; "Hatalı senkron" senaryosu demo verideki yeni kayıt nedeniyle kanal süzgeciyle güncellendi. ADR-036 senaryosu (çıkış → Destek girişi) iki çalıştırmada başarısız oldu (önceki commit'te de); sonraki tam çalıştırmada (ADR-049) 22/22 geçti → kararsız (flaky), izlenecek.
+
+## ADR-049: Ürün bazında kanal fiyatları (aynı SKU, kanal başına ayrı fiyat)
+
+**Tarih:** 2026-11-23
+**Bağlam:** Fiyat ekranı yalnızca kanal bazında önizleme gösteriyordu; aynı SKU'nun farklı pazaryerlerindeki fiyatlarını görmek ve kanal başına ayrı güncellemek için her kanalı ayrı ayrı açıp "Elle fiyat" istemiyle (prompt) tek tek girmek gerekiyordu. Kullanıcı: "aynı SKU ile eşleşmiş ürünün farklı platformlardaki fiyatlarını farklı farklı güncelleyebileyim", "küçük notlar ve detaylar".
+
+**Karar:**
+- Yeni model yok: kanal başına fiyat, mevcut **ilan elle fiyatı** (`ChannelListing.FiyatOverride`, ADR-028) ile tutulur; hesap/gönderim/onay/eşik/KDV kuralları aynen geçerli.
+- `GET /api/prices/skus?search=` → SKU başına: resim, SKU fiyatı (satış/liste) ve her kanal ilanı için önizleme satırı (kanalda görünen, gidecek, son gönderilen, elle/taban, durum, sorun), kanalın FIYAT yeteneği ve ilan durumu. Yalnızca eşleşmesi olan SKU'lar; sayfa 25.
+- `PUT /api/prices/listings/overrides` (Yönetici): birden çok ilan fiyatı tek transaction'da; bir satır geçersizse hiçbiri yazılmaz. Her değişiklik PriceHistory (ILAN_FIYATI) + FiyatDegisti outbox olayıyla (tekli uçla aynı).
+- Panel: "Ürün bazında kanal fiyatları" tablosu (kanal sütunları, kutu içi düzenleme, değişen kutu sarı, geçersiz kırmızı, "Değişiklikleri kaydet (N)" + SKU/kanal "eski → yeni" özeti, fiyat gönderimi kapalı kanalların uyarısı); "Nasıl çalışır?" notları ve hücre ipuçları; kanal önizleme tablosuna ürün resmi.
+- Önizleme satırı hesabı tek yardımcıya (`BuildRow`) alındı; kanal önizlemesi ve ürün görünümü aynı mantığı kullanır.
+
+**Not:** Kurulu sistemde Trendyol ve Beymen FIYAT yeteneği "Açık" (deneme veritabanından taşındı); elle girilen fiyat bu kanallara eşik içindeyse onaysız gider. Kullanıcıya Onaylı/Kapalı önerildi.
+
+**Doğrulama:** Entegrasyon (`PricePipelineTests`): iki kanalda ayrı fiyat, tek kanalın elle fiyatını kaldırma, geçmiş kayıtları; geçersiz satırda hiçbirinin yazılmaması; Depo 403. Entegrasyon 167/167. Playwright: yeni senaryo + fiyat/tüm ekranlar senaryoları geçti. Deneme modunda tarayıcıda görsel kontrol yapıldı.

@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -49,6 +49,11 @@ public sealed class PricePipelineTests(TestDatabase db)
             UPDATE dbo.Channel SET Aktif = 1, PayYuzde = 100, Ayarlar = @settings WHERE Id = @channelId;
             UPDATE dbo.ChannelCapability SET Durum = 'KAPALI' WHERE ChannelId = @channelId AND Yetenek = 'FIYAT';
             UPDATE dbo.AppSetting SET Deger = N'30' WHERE Anahtar = 'FiyatSapmaEsigiYuzde';
+            -- Stok hattı onaysız (ACIK): bu testler fiyatın stoğu etkilemediğini doğrular (varsayılan "Onaylı", ADR-048)
+            MERGE dbo.ChannelCapability AS t USING (SELECT @channelId AS ChannelId, 'STOK' AS Yetenek) AS s
+               ON t.ChannelId = s.ChannelId AND t.Yetenek = s.Yetenek
+             WHEN MATCHED THEN UPDATE SET Durum = 'ACIK'
+             WHEN NOT MATCHED THEN INSERT (ChannelId, Yetenek, Durum) VALUES (@channelId, 'STOK', 'ACIK');
             """, new { channelId, settings });
         Mock.PriceRules.TryRemove(Channel, out _);
         Mock.FailingItems.Clear();
@@ -431,5 +436,94 @@ public sealed class PricePipelineTests(TestDatabase db)
         var report2 = JsonSerializer.Deserialize<ImportReport>(await (await db.Api.PostAsync("/api/excel/prices/import", again, Ct)).Content.ReadAsStringAsync(Ct), Json)!;
         report2.Updated.Should().Be(0);
         report2.Unchanged.Should().Be(1);
+    }
+
+    // ------------------------------------------------------------------ ürün bazında kanal fiyatları (ADR-049)
+
+    private async Task<SkuPriceOverview> SkuPricesAsync(string skuCode) =>
+        (await db.Api.GetFromJsonAsync<PagedResult<SkuPriceOverview>>($"/api/prices/skus?search={Uri.EscapeDataString(skuCode)}", Json, Ct))!
+            .Items.Single(i => i.SkuCode == skuCode);
+
+    private async Task<HttpResponseMessage> SaveOverridesAsync(params ListingOverrideChange[] changes) =>
+        await db.Api.PutAsJsonAsync("/api/prices/listings/overrides", new ListingOverridesRequest(changes), Json, Ct);
+
+    private async Task<(int SkuId, string SkuCode, int Softcotton, int Trendyol)> SkuOnTwoChannelsAsync(int channelId)
+    {
+        var (skuId, listingId, _) = await PricedListingAsync(channelId, 100m, 120m);
+        await using var c = db.Open();
+        var trendyolId = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = 'TRENDYOL'");
+        var response = await db.Api.PutAsJsonAsync("/api/listings", new ListingInput(skuId, trendyolId, NewCode(), null, null), Json, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var trendyolListing = (await response.Content.ReadFromJsonAsync<ListingDto>(Json, Ct))!.Id;
+        var skuCode = await c.ExecuteScalarAsync<string>("SELECT SkuKodu FROM dbo.Sku WHERE Id = @skuId", new { skuId });
+        return (skuId, skuCode!, listingId, trendyolListing);
+    }
+
+    [Fact]
+    public async Task Ayni_skunun_kanal_fiyatlari_yan_yana_listelenir_ve_kanal_bazinda_ayri_guncellenir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (_, skuCode, softcotton, trendyol) = await SkuOnTwoChannelsAsync(channelId);
+
+            var before = await SkuPricesAsync(skuCode);
+            before.SalePrice.Should().Be(100m);
+            before.ListPrice.Should().Be(120m);
+            before.Channels.Select(x => x.ChannelCode).Should().BeEquivalentTo([ChannelCodes.Softcotton, ChannelCodes.Trendyol]);
+            before.Channels.Should().OnlyContain(x => x.Override == null && !x.Preview.FromOverride);
+            before.Channels.Single(x => x.ListingId == softcotton).CapabilityState.Should().Be(CapabilityStates.Closed);
+
+            // İki kanala farklı fiyat; tek istekte
+            var saved = await SaveOverridesAsync(new ListingOverrideChange(softcotton, 129.90m), new ListingOverrideChange(trendyol, 109.50m));
+            saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+            (await saved.Content.ReadFromJsonAsync<ListingOverridesResult>(Json, Ct))!.Changed.Should().Be(2);
+
+            var after = await SkuPricesAsync(skuCode);
+            var sc = after.Channels.Single(x => x.ListingId == softcotton);
+            sc.Override.Should().Be(129.90m);
+            sc.Preview.FromOverride.Should().BeTrue();
+            sc.Preview.NewSale.Should().Be(129.90m);
+            after.Channels.Single(x => x.ListingId == trendyol).Override.Should().Be(109.50m);
+            after.SalePrice.Should().Be(100m, "SKU fiyatı değişmez; yalnızca ilgili kanalın ilanı");
+
+            // Yalnızca bir kanalın elle fiyatı kaldırılır, diğeri kalır
+            (await SaveOverridesAsync(new ListingOverrideChange(softcotton, null))).StatusCode.Should().Be(HttpStatusCode.OK);
+            var last = await SkuPricesAsync(skuCode);
+            last.Channels.Single(x => x.ListingId == softcotton).Override.Should().BeNull();
+            last.Channels.Single(x => x.ListingId == trendyol).Override.Should().Be(109.50m);
+
+            await using var c = db.Open();
+            (await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.PriceHistory WHERE ListingId IN (@softcotton, @trendyol) AND Tip = 'ILAN_FIYATI'",
+                new { softcotton, trendyol })).Should().Be(3, "her değişiklik fiyat geçmişine yazılır");
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Toplu_ilan_fiyatinda_gecersiz_satir_varsa_hicbiri_yazilmaz_ve_yalnizca_yonetici_kaydeder()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (_, skuCode, softcotton, trendyol) = await SkuOnTwoChannelsAsync(channelId);
+
+            var bad = await SaveOverridesAsync(new ListingOverrideChange(softcotton, 150m), new ListingOverrideChange(trendyol, -5m));
+            bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await SkuPricesAsync(skuCode)).Channels.Should().OnlyContain(x => x.Override == null, "geçersiz satır varsa hiçbiri yazılmaz");
+
+            using var depo = await db.ApiHost.CreateClientAsAsync(Roles.Warehouse);
+            (await depo.PutAsJsonAsync("/api/prices/listings/overrides", new ListingOverridesRequest([new(softcotton, 150m)]), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
     }
 }

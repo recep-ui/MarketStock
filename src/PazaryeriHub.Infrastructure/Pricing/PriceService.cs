@@ -194,27 +194,7 @@ public sealed class PriceService(
         var targets = await priceStore.ComputeAsync(connection, null, listingIds, ct);
         var threshold = await PriceStore.ThresholdAsync(connection, null, ct);
 
-        // Yetenek KAPALI iken "açılırsa ne olur": ACIK varsayılır (DENEME seçilirse hepsi tek tek onaya düşer).
-        var assumedState = info.CapabilityState == CapabilityStates.Closed ? CapabilityStates.Open : info.CapabilityState;
-        var rows = targets.OrderBy(t => t.SkuCode, StringComparer.Ordinal).Select(t =>
-        {
-            var decision = PriceSyncPolicy.Decide(t.Target, t.LastSale, t.LastList, threshold, assumedState, t.Approved, t.Rejected);
-            var noCode = t is { ChannelProductCode: null, ChannelBarcode: null };
-            var status = noCode ? PricePreviewStatus.Blocked : decision.Action switch
-            {
-                PriceSyncAction.Send => PricePreviewStatus.Change,
-                PriceSyncAction.NoChange => PricePreviewStatus.Same,
-                PriceSyncAction.NeedsApproval => PricePreviewStatus.NeedsApproval,
-                PriceSyncAction.Rejected => PricePreviewStatus.Rejected,
-                _ => PricePreviewStatus.Blocked
-            };
-            var problem = noCode ? "Eşleştirmede kanal ürün kodu veya barkodu yok." : decision.Action is PriceSyncAction.Send or PriceSyncAction.NoChange ? null : decision.Reason;
-            var channel = ListingChannelData.Parse(t.ChannelData);
-            return new PricePreviewRow(t.ListingId, t.SkuId, t.SkuCode, t.ProductName, t.ChannelProductCode, t.ChannelBarcode,
-                t.LastSale, t.LastList, t.Target.Sendable ? t.Target.SalePrice : null, t.Target.Sendable ? t.Target.ListPrice : null,
-                decision.ChangePercent, t.Target.FloorApplied, t.Target.FromOverride, status, problem, t.PendingApprovalId,
-                channel.SalePrice, channel.ListPrice, channel.ProductUrl);
-        }).ToList();
+        var rows = targets.OrderBy(t => t.SkuCode, StringComparer.Ordinal).Select(t => BuildRow(t, threshold, info.CapabilityState)).ToList();
 
         var result = new PricePreview(channelId, info.ChannelCode, info.CapabilityState, info.CanEnable, info.BlockReason, threshold,
             rows.Count,
@@ -225,6 +205,155 @@ public sealed class PriceService(
             rows.Count(r => r.Status is PricePreviewStatus.Blocked or PricePreviewStatus.Rejected),
             onlyChanges ? rows.Where(r => r.Status != PricePreviewStatus.Same).ToList() : rows);
         return result;
+    }
+
+    /// <summary>
+    /// Önizleme satırı. Yetenek KAPALI iken "açılırsa ne olur": ACIK varsayılır (DENEME seçilirse hepsi tek tek onaya düşer).
+    /// </summary>
+    private static PricePreviewRow BuildRow(ListingPriceTarget t, decimal threshold, string capabilityState)
+    {
+        var assumedState = capabilityState == CapabilityStates.Closed ? CapabilityStates.Open : capabilityState;
+        var decision = PriceSyncPolicy.Decide(t.Target, t.LastSale, t.LastList, threshold, assumedState, t.Approved, t.Rejected);
+        var noCode = t is { ChannelProductCode: null, ChannelBarcode: null };
+        var status = noCode ? PricePreviewStatus.Blocked : decision.Action switch
+        {
+            PriceSyncAction.Send => PricePreviewStatus.Change,
+            PriceSyncAction.NoChange => PricePreviewStatus.Same,
+            PriceSyncAction.NeedsApproval => PricePreviewStatus.NeedsApproval,
+            PriceSyncAction.Rejected => PricePreviewStatus.Rejected,
+            _ => PricePreviewStatus.Blocked
+        };
+        var problem = noCode ? "Eşleştirmede kanal ürün kodu veya barkodu yok." : decision.Action is PriceSyncAction.Send or PriceSyncAction.NoChange ? null : decision.Reason;
+        var channel = ListingChannelData.Parse(t.ChannelData);
+        return new PricePreviewRow(t.ListingId, t.SkuId, t.SkuCode, t.ProductName, t.ChannelProductCode, t.ChannelBarcode,
+            t.LastSale, t.LastList, t.Target.Sendable ? t.Target.SalePrice : null, t.Target.Sendable ? t.Target.ListPrice : null,
+            decision.ChangePercent, t.Target.FloorApplied, t.Target.FromOverride, status, problem, t.PendingApprovalId,
+            channel.SalePrice, channel.ListPrice, channel.ProductUrl, channel.ImageUrl);
+    }
+
+    // ------------------------------------------------------------------ Ürün bazında kanal fiyatları (ADR-049)
+
+    public async Task<PagedResult<SkuPriceOverview>> SearchSkuPricesAsync(string? search, int? page, int? pageSize, CancellationToken ct)
+    {
+        var (p, size) = Paging.Normalize(page, pageSize ?? 25);
+        var term = Text.Clean(search);
+        var escaped = term is null ? null : PazaryeriHub.Application.Panel.SearchTerm.EscapeLike(term);
+        var args = new
+        {
+            term,
+            contains = escaped is null ? null : "%" + escaped + "%",
+            upperContains = escaped is null ? null : "%" + escaped.ToUpperInvariant() + "%",
+            skip = (p - 1) * size,
+            take = size
+        };
+        // Yalnızca en az bir eşleştirmesi olan SKU'lar (fiyatı kanala gidebilecekler)
+        const string where = """
+            WHERE EXISTS (SELECT 1 FROM dbo.ChannelListing l WHERE l.SkuId = s.Id)
+              AND (@term IS NULL OR s.Barkod = @term
+                   OR s.SkuKodu LIKE @contains ESCAPE '\' OR UPPER(s.SkuKodu) LIKE @upperContains ESCAPE '\'
+                   OR p.Ad LIKE @contains ESCAPE '\'
+                   OR EXISTS (SELECT 1 FROM dbo.ChannelListing l WHERE l.SkuId = s.Id AND (l.KanalBarkod = @term OR l.KanalUrunKodu = @term)))
+            """;
+
+        await using var connection = await OpenAsync(ct);
+        var total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            $"SELECT COUNT(*) FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId {where}", args, cancellationToken: ct));
+        var skus = (await connection.QueryAsync<SkuRow>(new CommandDefinition($"""
+            SELECT s.Id AS SkuId, s.SkuKodu AS SkuCode, p.Ad AS ProductName, s.Barkod AS Barcode, s.ListeFiyati AS ListPrice, s.SatisFiyati AS SalePrice
+              FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId
+            {where}
+             ORDER BY p.Ad, s.SkuKodu
+            OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY
+            """, args, cancellationToken: ct))).ToList();
+        if (skus.Count == 0)
+        {
+            return new PagedResult<SkuPriceOverview>([], total, p, size);
+        }
+
+        var listings = (await connection.QueryAsync<(int Id, int SkuId, string Durum)>(new CommandDefinition("""
+            SELECT l.Id, l.SkuId, l.Durum FROM dbo.ChannelListing l
+             WHERE l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
+            """, new { ids = JsonSerializer.Serialize(skus.Select(s => s.SkuId)) }, cancellationToken: ct))).ToList();
+        var targets = (await priceStore.ComputeAsync(connection, null, listings.Select(l => l.Id).ToList(), ct)).ToDictionary(t => t.ListingId);
+        var threshold = await PriceStore.ThresholdAsync(connection, null, ct);
+        var statusById = listings.ToDictionary(l => l.Id, l => l.Durum);
+
+        var items = skus.Select(s =>
+        {
+            var channels = targets.Values.Where(t => t.SkuId == s.SkuId)
+                .OrderBy(t => t.ChannelId).ThenBy(t => t.ListingId)
+                .Select(t =>
+                {
+                    var row = BuildRow(t, threshold, t.CapabilityState);
+                    return new SkuChannelPrice(t.ListingId, t.ChannelId, t.ChannelCode, statusById[t.ListingId], t.CapabilityState, t.Override,
+                        t.LastPriceSyncUtc is { } d ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : null, row);
+                }).ToList();
+            return new SkuPriceOverview(s.SkuId, s.SkuCode, s.ProductName, s.Barcode, channels.Select(c => c.Preview.ImageUrl).FirstOrDefault(u => u is not null),
+                s.ListPrice, s.SalePrice, channels);
+        }).ToList();
+        return new PagedResult<SkuPriceOverview>(items, total, p, size);
+    }
+
+    public const int MaxOverrideChanges = 1_000;
+
+    public async Task<ListingOverridesResult> SetListingOverridesAsync(IReadOnlyList<ListingOverrideChange> changes, string? user, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+        var list = changes.GroupBy(c => c.ListingId).Select(g => g.Last()).ToList();
+        var v = new Validator()
+            .Must(list.Count > 0, "changes", "En az bir değişiklik olmalı.")
+            .Must(list.Count <= MaxOverrideChanges, "changes", $"Tek seferde en fazla {MaxOverrideChanges:N0} ilan fiyatı değiştirilebilir.");
+        foreach (var c in list.Where(c => c.Price is not null))
+        {
+            var price = c.Price!.Value;
+            v.Must(price > 0m && price <= PriceRule.MaxAmount, "changes", $"İlan {c.ListingId}: fiyat 0'dan büyük olmalı.");
+            v.Must(decimal.Round(price, 2) == price, "changes", $"İlan {c.ListingId}: fiyat en fazla 2 ondalık olabilir.");
+        }
+        v.ThrowIfInvalid();
+
+        await using var connection = await OpenAsync(ct);
+        await using var tx = (SqlTransaction)await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var current = (await connection.QueryAsync<(int Id, int SkuId, int ChannelId, decimal? FiyatOverride)>(new CommandDefinition("""
+            SELECT Id, SkuId, ChannelId, FiyatOverride FROM dbo.ChannelListing WITH (UPDLOCK)
+             WHERE Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
+            """, new { ids = JsonSerializer.Serialize(list.Select(c => c.ListingId)) }, tx, cancellationToken: ct))).ToDictionary(r => r.Id);
+        var missing = list.Where(c => !current.ContainsKey(c.ListingId)).Select(c => c.ListingId).ToList();
+        if (missing.Count > 0)
+        {
+            throw new NotFoundException($"Eşleştirme bulunamadı: {string.Join(", ", missing)}.");
+        }
+
+        var changed = 0;
+        foreach (var c in list)
+        {
+            var row = current[c.ListingId];
+            if (row.FiyatOverride == c.Price)
+            {
+                continue;
+            }
+            // Tek ilan fiyatıyla aynı yol: ilan + PriceHistory + FiyatDegisti aynı transaction'da
+            await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE dbo.ChannelListing SET FiyatOverride = @price WHERE Id = @listingId;
+                INSERT dbo.PriceHistory (Tip, SkuId, ListingId, ChannelId, EskiSatis, YeniSatis, Kaynak, Kullanici)
+                VALUES ('ILAN_FIYATI', @skuId, @listingId, @channelId, @old, @price, 'PANEL', @user);
+                INSERT dbo.Outbox (OlayTipi, Payload) VALUES (@eventType, CONCAT(N'{"ListingId":', @listingId, N'}'));
+                """, new { listingId = c.ListingId, price = c.Price, old = row.FiyatOverride, skuId = row.SkuId, channelId = row.ChannelId, user,
+                    eventType = OutboxEvents.PriceChanged }, tx, cancellationToken: ct));
+            changed++;
+        }
+        await tx.CommitAsync(ct);
+        logger.LogInformation("İlan fiyatları toplu değişti: {Adet} ilan, kullanıcı {Kullanici}", changed, user);
+        return new ListingOverridesResult(changed, list.Count - changed);
+    }
+
+    private sealed class SkuRow
+    {
+        public int SkuId { get; init; }
+        public string SkuCode { get; init; } = "";
+        public string ProductName { get; init; } = "";
+        public string? Barcode { get; init; }
+        public decimal? ListPrice { get; init; }
+        public decimal? SalePrice { get; init; }
     }
 
     // ------------------------------------------------------------------ Onaylar

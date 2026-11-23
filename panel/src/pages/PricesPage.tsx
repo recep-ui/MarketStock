@@ -4,10 +4,11 @@ import {
   type PricePreview, type SkuPrice
 } from '../api';
 import { useAuth } from '../auth';
-import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ExcelBox } from './MappingPage';
+import { SkuChannelPrices } from './SkuChannelPrices';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : formatMoney(v));
 const roundingLabels: Record<string, string> = { YOK: 'Yok (kuruş)', TAM: 'Tam lira', KURUS_99: ',99', KURUS_90: ',90' };
@@ -36,6 +37,7 @@ export function PricesPage() {
       <h1>Fiyat</h1>
       <Notice text={notice} onClose={() => setNotice(null)} />
       <PriceApprovals refreshKey={refreshKey} onChanged={changed} />
+      <SkuChannelPrices channels={channels.data ?? []} refreshKey={refreshKey} onChanged={changed} />
       <ChannelPrices channels={channels.data ?? []} refreshKey={refreshKey} onChanged={changed} />
       <SkuPriceForm onChanged={changed} />
       <PriceSettings onChanged={changed} />
@@ -205,7 +207,7 @@ function ChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[
             <tbody>
               {p.rows.map(r => (
                 <tr key={r.listingId} data-testid="price-preview-row" className={r.status === 'GONDERILEMEZ' ? 'row-danger' : undefined}>
-                  <td>{r.skuCode}<div className="muted small">{r.productName}</div></td>
+                  <td><div className="with-thumb"><Thumb url={r.imageUrl} alt={r.productName} size={36} /><div>{r.skuCode}<div className="muted small">{r.productName}</div></div></div></td>
                   <td>{r.channelProductCode ?? r.channelBarcode ?? '—'} <ChannelLink code={p.channelCode} url={r.productUrl} /></td>
                   <td data-testid="channel-price">
                     {money(r.channelSalePrice)}
