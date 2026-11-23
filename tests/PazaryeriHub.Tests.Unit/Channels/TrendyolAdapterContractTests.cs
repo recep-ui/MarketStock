@@ -140,6 +140,46 @@ public sealed class TrendyolAdapterContractTests
         partial.Errors.Should().ContainSingle().Which.Should().Be(new BatchItemError("8680000001", "8680000001", "Trendyol: Ürün bulunamadı"));
     }
 
+    /// <summary>
+    /// Canlı hesaptan kaydedilmiş yanıt (2026-11-23, ProductInventoryUpdate; barkodlar kısaltıldı): dokümandaki üst düzey "status"
+    /// alanı stok güncellemesinde HİÇ gelmiyor. Kod bunu sonsuza dek "bekliyor" sayıyor, kayıtlar "Gönderimde" kalıyordu.
+    /// </summary>
+    private const string LiveInventoryBatchNoStatus = """
+        {"batchRequestId":"a820bae3-e73b-11f1-962e-865dd2f08d50-1795452283","items":[
+          {"requestItem":{"updateRequestDate":"2026-11-23T12:44:44.113+00:00","quantity":0,"salePrice":null,"barcode":"Microbornoz09","listPrice":null},"status":"SUCCESS","failureReasons":[]},
+          {"requestItem":{"updateRequestDate":"2026-11-23T12:44:44.113+00:00","quantity":10,"salePrice":null,"barcode":"Microbornoz15","listPrice":null},"status":"SUCCESS","failureReasons":[]}],
+         "creationDate":1795437884111,"lastModification":1795437884111,"sourceType":"API","itemCount":2,"failedItemCount":0,
+         "batchRequestType":"ProductInventoryUpdate","notes":null,"objectKey":null,"storeFrontCode":null}
+        """;
+
+    [Fact]
+    public async Task Durum_alani_olmayan_stok_batchi_kalemlerden_degerlendirilir()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, LiveInventoryBatchNoStatus));
+        // Kalemler henüz işlenmemiş: itemCount kadar kalem yok → bekliyor
+        http.Responses.Enqueue((HttpStatusCode.OK, """{"batchRequestId":"b-2","items":[],"itemCount":2,"failedItemCount":0,"batchRequestType":"ProductInventoryUpdate"}"""));
+        // Bir kalem hâlâ işleniyor (SUCCESS/FAILED dışı durum) → bekliyor
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"batchRequestId":"b-3","itemCount":2,"failedItemCount":0,"items":[
+              {"requestItem":{"barcode":"A"},"status":"SUCCESS","failureReasons":[]},{"requestItem":{"barcode":"B"},"status":"IN_PROGRESS","failureReasons":[]}]}
+            """));
+        // Biri başarısız → kısmen başarısız, hata barkoda bağlanır
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"batchRequestId":"b-4","itemCount":2,"failedItemCount":1,"items":[
+              {"requestItem":{"barcode":"A","quantity":1},"status":"SUCCESS","failureReasons":[]},
+              {"requestItem":{"barcode":"B","quantity":1},"status":"FAILED","failureReasons":["Ürün bulunamadı"]}]}
+            """));
+
+        (await adapter.CheckBatchAsync("a820bae3-e73b-11f1-962e-865dd2f08d50-1795452283", Ct)).State.Should().Be(BatchState.Completed,
+            "tüm kalemler SUCCESS; üst düzey durum alanı olmasa da tamamlanmıştır");
+        (await adapter.CheckBatchAsync("b-2", Ct)).State.Should().Be(BatchState.Pending);
+        (await adapter.CheckBatchAsync("b-3", Ct)).State.Should().Be(BatchState.Pending);
+        var partial = await adapter.CheckBatchAsync("b-4", Ct);
+        partial.State.Should().Be(BatchState.PartiallyFailed);
+        partial.Errors.Should().ContainSingle().Which.Barcode.Should().Be("B");
+    }
+
     // ------------------------------------------------------------------ siparişler
 
     private const string PackagesPage1 = """

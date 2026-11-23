@@ -7,6 +7,12 @@
 
 ---
 
+## Trendyol stok gönderimi "Gönderimde" kalıyordu (2026-11-23)
+
+- **Belirti:** Canlı Trendyol'a giden stok kayıtları "Gönderimde" kalıyor, 30 dk sonra hataya düşüp yeniden gönderiliyordu ("Trendyol canlı stok gönderimi yapmıyor").
+- **Kök neden:** Gerçek batch sonucu yanıtında (ProductInventoryUpdate) dokümandaki üst düzey `status` alanı yok; kod `COMPLETED` bekliyordu. Trendyol kalemleri SUCCESS ile işlemişti. Yanıt bu bilgisayardaki kurulumun gönderdiği 14 kalemlik batch için yalnızca GET ile okundu.
+- **Düzeltme:** `status` yoksa itemCount kadar kalemin tamamı SUCCESS/FAILED ise tamamlanmış sayılır; aksi halde beklenir. `status` varsa eski davranış.
+- **Doğrulama:** Kayıtlı canlı yanıtla sözleşme testi (önce kırmızı); birim testleri 416/416.
 ## Kurulum düzeltmeleri: ayar dosyası izni ve unutulan yönetici parolası (2026-11-23, ADR-047)
 
 - **kur.ps1 izin hatası:** `icacls ... (OI)(CI) /T` var olan `ayarlar.json`'u boş izinle bırakıyordu (çıkış kodu 0); kurulum adımı "Access denied" ile düşüyordu. Klasöre izin verilip içerik `/reset` ile devralınıyor, ayar dosyası okunarak doğrulanıyor. Bu bilgisayardaki gerçek kurulumda görüldü.

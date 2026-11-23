@@ -75,9 +75,17 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         return MapBatch(batchId, result);
     }
 
+    /// <summary>
+    /// Doküman üst düzey <c>status</c> (COMPLETED / IN_PROGRESS) diyor; ancak canlı ProductInventoryUpdate yanıtında bu alan HİÇ
+    /// gelmiyor (2026-11-23, kayıtlı yanıt sözleşme testinde). Alan varsa ona uyulur; yoksa tüm kalemler (itemCount kadar)
+    /// SUCCESS/FAILED ile sonuçlanmışsa tamamlanmış sayılır, aksi halde beklenir.
+    /// </summary>
     internal static BatchStatus MapBatch(string batchId, BatchRequestResult result)
     {
-        if (!string.Equals(result.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase))
+        var finished = string.IsNullOrWhiteSpace(result.Status)
+            ? result.Items.Count > 0 && result.Items.Count >= (result.ItemCount ?? 0) && result.Items.All(i => IsFinal(i.Status))
+            : string.Equals(result.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase);
+        if (!finished)
         {
             return new BatchStatus(batchId, BatchState.Pending, []);
         }
@@ -96,6 +104,9 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
             : errors.Count >= total ? BatchState.Failed
             : BatchState.PartiallyFailed;
         return new BatchStatus(batchId, state, errors);
+
+        static bool IsFinal(string? status) =>
+            string.Equals(status, "SUCCESS", StringComparison.OrdinalIgnoreCase) || string.Equals(status, "FAILED", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Kanal stoğu (mutabakat). Barkod listesi 50'lik parçalarla sorgulanır (dokümandaki üst sınır).</summary>
