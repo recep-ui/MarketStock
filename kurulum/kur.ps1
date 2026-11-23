@@ -146,8 +146,16 @@ if (-not $service) {
 }
 
 # Veri klasörü: yalnızca SYSTEM, Yöneticiler ve servis hesabı (ayarlar.json'da bağlantı bilgisi, anahtarlar klasöründe şifreleme anahtarı var)
-& icacls $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${ServiceAccount}:(OI)(CI)M" /T /Q | Out-Null
+# Önce yalnızca KLASÖR: (OI)(CI) devredilen izinler dosyalara /T ile uygulanamaz; /inheritance:r dosyanın eski izinlerini
+# silip yenisini yazmadığından dosya boş izinle (kimse açamaz) kalıyordu. Sonra içerik klasörden devralacak şekilde sıfırlanır.
+& icacls $DataDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' "${ServiceAccount}:(OI)(CI)M" /Q | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Veri klasörü izinleri ayarlanamadı (icacls kodu $LASTEXITCODE)." }
+if (Get-ChildItem $DataDir -Force) {
+    & icacls (Join-Path $DataDir '*') /reset /T /Q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Veri klasörü içeriğinin izinleri ayarlanamadı (icacls kodu $LASTEXITCODE)." }
+}
+# Doğrulama: ayar dosyası bu hesapla (Yönetici) okunabilmeli
+if (Test-Path $SettingsFile) { [void][IO.File]::ReadAllText($SettingsFile) }
 
 # ---------------------------------------------------------------- Veritabanı: oluştur, şema, ilk yönetici
 Write-Step 'Veritabanı hazırlanıyor (yoksa oluşturulur, şema güncellenir)'
