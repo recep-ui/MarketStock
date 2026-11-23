@@ -35,16 +35,21 @@ public sealed class OrderNotificationTests(TestDatabase db)
     // ------------------------------------------------------------------ yetenekler ve kapı
 
     [Fact]
-    public async Task Yetenekler_varsayilan_kapali_stok_acik_yalnizca_yonetici_degistirir()
+    public async Task Yetenekler_varsayilan_kapali_stok_onayli_yalnizca_yonetici_degistirir()
     {
         db.SkipIfUnavailable();
         var channelId = await ChannelIdAsync();
         try
         {
             await SetCapabilityAsync(channelId, ChannelCapabilities.OrderStatus, CapabilityStates.Closed);
+            await using (var c = db.Open())
+            {
+                // Kaydı olmayan kanalda varsayılan görülsün (diğer testler STOK'u değiştirebilir)
+                await c.ExecuteAsync("DELETE dbo.ChannelCapability WHERE ChannelId = @channelId AND Yetenek = 'STOK'", new { channelId });
+            }
             var caps = (await db.Api.GetFromJsonAsync<List<ChannelCapabilityDto>>($"/api/channels/{channelId}/capabilities", ExcelImportApiTests.Json, Ct))!;
             caps.Select(c => c.Capability).Should().Equal(ChannelCapabilities.All);
-            caps.Single(c => c.Capability == "STOK").State.Should().Be("ACIK", "mevcut stok gönderimi bozulmasın");
+            caps.Single(c => c.Capability == "STOK").State.Should().Be("DENEME", "stok değişiklikleri onaysız kanala gitmez (ADR-048)");
             caps.Single(c => c.Capability == "SIPARIS_DURUM").State.Should().Be("KAPALI");
 
             using var depo = await db.ApiHost.CreateClientAsAsync(Roles.Warehouse);

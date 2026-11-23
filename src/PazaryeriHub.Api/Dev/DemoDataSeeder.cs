@@ -122,6 +122,10 @@ public sealed class DemoDataSeeder(
             OUTPUT inserted.Id VALUES (@listingId, 'STOK', 'HATA', 5, N'Kanal hata döndü (HTTP 503): Servis geçici olarak kullanılamıyor', SYSUTCDATETIME())
             """, new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Trendyol)] });
 
+        // Stok gönderim onayı (ADR-048): 1. SKU'nun Hepsiburada stoğu Yönetici onayı bekler (kanal "Onaylı" ise listede görünür)
+        await connection.ExecuteAsync("INSERT dbo.SyncQueue (ListingId, Tip, Durum) VALUES (@listingId, 'STOK', 'BEKLIYOR')",
+            new { listingId = listingIds[(product.Skus[0].Id, ChannelCodes.Hepsiburada)] });
+
         // Fiyat (ADR-028): SKU fiyatları (satış 499,90 + 10×i, liste 599,90). Hepsiburada'daki 1. SKU ilanına önceden 300 TL gitmiş
         // sayılır → %66,63 değişim eşiği (%30) aşar → bekleyen onay. FIYAT yeteneği değişmez (KAPALI kalır); kanala bir şey gitmez.
         await services.GetRequiredService<PazaryeriHub.Application.Pricing.IPriceService>().ApplySkuPricesAsync(

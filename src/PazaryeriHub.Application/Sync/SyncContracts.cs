@@ -73,7 +73,31 @@ public static class SyncStatus
     public const string Pending = "BEKLIYOR";
     public const string Sent = "GONDERILDI";
     public const string Error = "HATA";
+
+    /// <summary>Yönetici reddetti (ADR-048); gönderilmez.</summary>
+    public const string Cancelled = "IPTAL";
 }
+
+/// <summary>
+/// Onay bekleyen stok gönderimi (ADR-048): STOK yeteneği "Onaylı" (DENEME) kanalda, kanala gitmeden önce Yönetici görür.
+/// </summary>
+/// <param name="ChannelStock">Son mutabakatta kanalda görülen stok (hiç çekilmediyse veya bulunamadıysa null).</param>
+/// <param name="NewValue">Gönderilecek değer (şu anki defterden hesaplanır).</param>
+public sealed record StockApprovalItem(
+    long QueueId, int ListingId, int ChannelId, string ChannelCode, int SkuId, string SkuCode, string ProductName,
+    string? ChannelBarcode, string? ChannelProductCode, string? ImageUrl,
+    int? ChannelStock, DateTime? ChannelStockAtUtc, int? LastSent, int NewValue, DateTime CreatedUtc);
+
+/// <param name="Value">Ekranda görülen (onaylanan) değer; şu anki değer farklıysa kayıt onaylanmaz.</param>
+public sealed record StockApprovalDecision(long QueueId, int Value);
+
+public sealed record StockApprovalRequest(IReadOnlyList<StockApprovalDecision>? Items);
+
+public sealed record StockRejectRequest(IReadOnlyList<long>? QueueIds);
+
+public sealed record StockApprovalSkipped(long QueueId, string Reason);
+
+public sealed record StockApprovalResult(int Approved, IReadOnlyList<StockApprovalSkipped> Skipped);
 
 public static class OutboxEvents
 {
@@ -116,7 +140,8 @@ public sealed record SyncQueueItem(
     public PazaryeriHub.Application.Channels.ChannelErrorInfo? ErrorInfo => PazaryeriHub.Application.Channels.ChannelErrorExplainer.Explain(Error);
 }
 
-public sealed record SyncSummaryRow(string ChannelCode, int Pending, int InFlight, int Sent, int Error, DateTime? LastSentUtc);
+/// <param name="AwaitingApproval">Pending içinden, "Onaylı" kanalda Yönetici onayı bekleyen stok kayıtları (ADR-048).</param>
+public sealed record SyncSummaryRow(string ChannelCode, int Pending, int InFlight, int Sent, int Error, DateTime? LastSentUtc, int AwaitingApproval = 0);
 
 /// <summary>Mutabakat satırı: kanalda görünen stok ile olması gereken stok.</summary>
 public sealed record ReconciliationRow(
@@ -164,4 +189,13 @@ public interface ISyncService
     /// senkron hattından (outbox EslestirmeDegisti → SyncQueue) yeniden gönderilir. Gönderilemeyen ilanlar gerekçesiyle atlanır.
     /// </summary>
     Task<PushListingsResult> PushListingsAsync(IReadOnlyCollection<int> listingIds, CancellationToken ct);
+
+    /// <summary>"Onaylı" kanallarda onay bekleyen stok gönderimleri (ADR-048); değerler şu anki defterden hesaplanır.</summary>
+    Task<IReadOnlyList<StockApprovalItem>> GetStockApprovalsAsync(int? channelId, CancellationToken ct);
+
+    /// <summary>Seçilen kayıtları ekranda görülen değerle onaylar; değer o arada değiştiyse kayıt atlanır (yeniden görülmeli).</summary>
+    Task<StockApprovalResult> ApproveStockAsync(IReadOnlyCollection<StockApprovalDecision> items, string? user, CancellationToken ct);
+
+    /// <summary>Seçilen bekleyen kayıtları reddeder (IPTAL); kanala gönderilmez.</summary>
+    Task<int> RejectStockAsync(IReadOnlyCollection<long> queueIds, string? user, CancellationToken ct);
 }

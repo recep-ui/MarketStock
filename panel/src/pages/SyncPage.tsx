@@ -7,6 +7,7 @@ import { DataTable, Pager } from '../components/DataTable';
 import { Card, ChannelBadge, ErrorBox, ErrorExplain, Notice, SyncBadge, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney, syncStatusLabels } from '../format';
 import { ChannelCommands } from './ChannelWrite';
+import { StockApprovals } from './StockApprovals';
 
 /** Ekran 7: Senkron Merkezi (son gönderimler, sadeleştirilmiş hata, "yeniden dene") + mutabakat sapmaları. */
 export function SyncPage() {
@@ -115,7 +116,8 @@ export function SyncPage() {
           <div key={s.channelCode} className={`stat ${s.error > 0 ? 'danger' : ''}`}>
             <div className="stat-value"><ChannelBadge code={s.channelCode} /></div>
             <div className="stat-label">
-              {s.pending} bekliyor · {s.inFlight} gönderimde · {s.sent} gönderildi · <strong>{s.error} hata</strong>
+              {s.awaitingApproval > 0 && <><strong className="warn-text">{s.awaitingApproval} onay bekliyor</strong> · </>}
+              {s.pending - s.awaitingApproval} bekliyor · {s.inFlight} gönderimde · {s.sent} gönderildi · <strong>{s.error} hata</strong>
               <br />Son gönderim: {formatDateTime(s.lastSentUtc)}
             </div>
             {can('admin') && <button className="small" onClick={() => reconcile(s.channelCode)}>Mutabakat başlat</button>}
@@ -123,6 +125,7 @@ export function SyncPage() {
         ))}
       </div>
 
+      <StockApprovals onChanged={m => { setNotice(m); summary.reload(); queue.reload(); }} />
       <ChannelCommands channelId={channelId} onNotice={setNotice} />
       <Card title="Gönderim kuyruğu">
         <div className="filters">

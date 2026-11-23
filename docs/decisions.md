@@ -1035,3 +1035,21 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - Yetki modeli: sıfırlama yalnızca makinenin Windows yöneticisi tarafından yapılabilir (betik yönetici ister, parola ortam değişkeniyle yalnızca kurulum sürecine verilir ve hemen silinir). Panelde "parolamı unuttum" yok; yerel ağ uygulamasında e-posta doğrulaması gibi bir kanal yok.
 
 **Doğrulama:** Entegrasyon: `SetupSeedUserTests` 4/4 (sıfırlama parolayı değiştirir, pasif/kilitli/Destek rolündeki hesabı açıp Yönetici yapar; bayrak normal başlangıçta yok sayılır). Yayınlanan paketle (taşınan veritabanı kopyasında): `yonetici` yokken sıfırlama oluşturdu (giriş 200); bayraksız kurulum parolayı değiştirmedi; yeniden sıfırlamada eski parola 401, yeni 200. `kur.ps1`'in kendisi yönetici yetkisi gerektirdiği için bu oturumda çalıştırılamadı.
+
+## ADR-048: Stok gönderiminde kanal bazında onay
+
+**Tarih:** 2026-11-23
+**Bağlam:** Canlı kullanımda "Kanal Stoğu → Defter" aktarımı 14 SKU'nun defterini düşürdü ve bu değerler hemen Trendyol'a gönderildi; kullanıcı bu değişikliği istememişti. STOK yeteneği varsayılan ACIK'tı; panelde "Deneme (tek tek onay)" seçeneği stokta onay İSTEMİYORDU (yalnızca kanal komutlarında uygulanıyordu). Kullanıcı isteği: stok değiştirileceği zaman hangi ürünün hangi kanalda kaça değişeceği ayrıntılı gösterilsin, onay istensin; her pazaryerinin gönderimi kutucukla ayrı seçilsin.
+
+**Karar:**
+- STOK yeteneği `DENEME` artık gerçekten **"Onaylı"**: StokGonder yalnızca `SyncQueue.OnaylananDeger` dolu kayıtları talep eder ve **onaylanan değeri** gönderir. Gönderim anında hesaplanan değer onaylanandan farklıysa onay düşer, kayıt yeniden onaya girer (deneme sayılmaz).
+- `KAPALI`: kayıt talep edilmez, deneme sayılmaz, HATA'ya düşmez (eskiden yazma kapısında hata sayılıp 5 denemede HATA oluyordu). Yazma kapısı engeli (global kilit) de deneme sayılmadan bekletilir (fiyat işiyle aynı).
+- Varsayılan STOK = `DENEME`; migration 0019 mevcut `ACIK` kayıtları `DENEME` yapar (kullanıcı isteği). Kanal bazında yeniden `ACIK` yapılabilir.
+- Onay ekranı (Senkron Merkezi): kanal kutucukları + sayılar, ürün resmi, SKU/barkod, kanalda şu an (son mutabakat), son gönderilen, gönderilecek, fark; satır seçimi; "Yalnızca azalanlar"; gönder/reddet öncesi kanal bazında özet (azalış/artış/ilk gönderim/0'a inen). Onay, ekranda görülen değerle yapılır; o arada değiştiyse kayıt atlanır.
+- Reddedilen kayıt `IPTAL` (yeni durum); stok yeniden değişince yeni kayıt açılır.
+- "Kanal Stoğu → Defter" onay penceresi artık kaç SKU'nun azalıp artacağını, 0'a inenleri ve örnekleri gösterir.
+- Uç noktalar: `GET /api/sync/stock-approvals`, `POST .../approve` ve `.../reject` (Yönetici). Özet satırına `AwaitingApproval` eklendi.
+
+**Sonuç / ödünleşim:** Onaylı kanalda bir satış sonrası diğer kanalların stoğu da onaya kadar eski kalır (aşırı satış riski). Bu, kullanıcının "her stok değişikliği onayla" isteğinin bilinçli sonucudur; kanal bazında "Açık" seçeneği duruyor.
+
+**Doğrulama:** Entegrasyon: `SyncPipelineTests` içinde 5 yeni test (onaysız gönderilmez, onaylanan değer gider; onay sonrası değişince yeniden onay; red; KAPALI'da deneme sayılmaz; yalnızca Yönetici) + varsayılan yetenek testi güncellendi; entegrasyon 165/165, birim 416/416. Playwright: yeni senaryo (kanal kutucuğu, satır seçimi, özetli onay) geçti; "Hatalı senkron" senaryosu demo verideki yeni kayıt nedeniyle kanal süzgeciyle güncellendi. ADR-036 senaryosu (çıkış → Destek girişi) bu değişiklikten önceki commit'te de başarısız; ayrı incelenecek.

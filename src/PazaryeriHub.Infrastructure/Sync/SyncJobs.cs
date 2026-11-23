@@ -212,19 +212,29 @@ public sealed class StockPushJob(
             return new(channelCode, true, "Kanal pasif.", 0, 0, 0, null);
         }
 
+        // STOK yeteneği (ADR-048): KAPALI → hiçbir kayıt talep edilmez (deneme sayılmaz, HATA'ya düşmez);
+        // DENEME ("Onaylı") → yalnızca Yönetici'nin onayladığı kayıtlar, onaylanan değerle gider.
+        var capability = await PazaryeriHub.Infrastructure.Channels.ChannelWriteGate.StateAsync(connection, channel.Value.Id, ChannelCapabilities.Stock, ct);
+        if (capability == CapabilityStates.Closed)
+        {
+            return new(channelCode, true, "STOK yeteneği kapalı.", 0, 0, 0, null);
+        }
+        var needApproval = capability == CapabilityStates.Trial;
+
         var now = clock.GetUtcNow().UtcDateTime;
         var claimToken = SyncStore.ClaimPrefix + Guid.NewGuid().ToString("N");
-        var claimed = (await connection.QueryAsync<(long Id, int ListingId, int Deneme)>(new CommandDefinition("""
+        var claimed = (await connection.QueryAsync<(long Id, int ListingId, int Deneme, int? Approved)>(new CommandDefinition("""
             WITH gonderilecek AS (
-                SELECT TOP (@take) q.Id, q.ListingId, q.BatchId, q.SonDeneme, q.Deneme
+                SELECT TOP (@take) q.Id, q.ListingId, q.BatchId, q.SonDeneme, q.Deneme, q.OnaylananDeger
                   FROM dbo.SyncQueue AS q WITH (ROWLOCK, UPDLOCK, READPAST)
                  WHERE q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL
                    AND (q.SonrakiDeneme IS NULL OR q.SonrakiDeneme <= @now)
+                   AND (@needApproval = 0 OR q.OnaylananDeger IS NOT NULL)
                    AND q.ListingId IN (SELECT l.Id FROM dbo.ChannelListing AS l WHERE l.ChannelId = @channelId)
                  ORDER BY q.Id)
             UPDATE gonderilecek SET BatchId = @claimToken, SonDeneme = @now, Deneme = Deneme + 1
-            OUTPUT inserted.Id, inserted.ListingId, inserted.Deneme
-            """, new { take = options.Value.PushChunkSize, now, channelId = channel.Value.Id, claimToken }, cancellationToken: ct))).ToList();
+            OUTPUT inserted.Id, inserted.ListingId, inserted.Deneme, inserted.OnaylananDeger
+            """, new { take = options.Value.PushChunkSize, now, channelId = channel.Value.Id, claimToken, needApproval }, cancellationToken: ct))).ToList();
 
         if (claimed.Count == 0)
         {
@@ -233,6 +243,27 @@ public sealed class StockPushJob(
 
         var targets = (await store.ComputeTargetsAsync(connection, null, claimed.Select(c => c.ListingId).ToList(), ct))
             .ToDictionary(t => t.ListingId);
+
+        if (needApproval)
+        {
+            // Onaydan sonra stok değiştiyse onaylanmayan değer gitmez: onay düşer, kayıt yeniden onay bekler (deneme sayılmaz).
+            var changed = claimed.Where(c => targets[c.ListingId].Target != c.Approved).ToList();
+            if (changed.Count > 0)
+            {
+                await connection.ExecuteAsync(new CommandDefinition("""
+                    UPDATE dbo.SyncQueue
+                       SET OnaylananDeger = NULL, OnaylayanKullanici = NULL, OnayTarihi = NULL, BatchId = NULL,
+                           Deneme = CASE WHEN Deneme > 0 THEN Deneme - 1 ELSE 0 END
+                     WHERE Id IN (SELECT CAST([value] AS BIGINT) FROM OPENJSON(@ids)) AND BatchId = @claimToken
+                    """, new { ids = JsonSerializer.Serialize(changed.Select(c => c.Id)), claimToken }, cancellationToken: ct));
+                logger.LogInformation("StokGonder {Kanal}: {Adet} kaydın stoğu onaydan sonra değişti; yeniden onay bekliyor.", channelCode, changed.Count);
+                claimed = claimed.Except(changed).ToList();
+                if (claimed.Count == 0)
+                {
+                    return new(channelCode, false, null, changed.Count, 0, 0, null);
+                }
+            }
+        }
 
         // Kodu/barkodu olmayan eşleştirme kanala gönderilemez: denemeye gerek yok, doğrudan HATA.
         var noCode = claimed.Where(c => targets[c.ListingId] is { ChannelProductCode: null, ChannelBarcode: null }).ToList();
@@ -255,6 +286,15 @@ public sealed class StockPushJob(
         try
         {
             result = await adapter.PushStockAsync(updates, ct);
+        }
+        catch (ChannelWriteBlockedException ex)
+        {
+            // Yazma kapısı (global kilit, pasif kanal) → deneme sayılmaz, kayıtlar (onaylarıyla) bekler.
+            logger.LogWarning("StokGonder {Kanal}: yazma engellendi, {Adet} kayıt bekletiliyor: {Neden}", channelCode, sendable.Count, ex.Reason);
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE dbo.SyncQueue SET BatchId = NULL, Deneme = CASE WHEN Deneme > 0 THEN Deneme - 1 ELSE 0 END WHERE BatchId = @claimToken",
+                new { claimToken }, cancellationToken: ct));
+            return new(channelCode, true, ex.Reason, claimed.Count, 0, 0, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

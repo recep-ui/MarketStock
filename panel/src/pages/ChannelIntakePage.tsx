@@ -80,7 +80,17 @@ export function ChannelIntakePage() {
       .filter(r => selected.has(r.skuId) && targets[r.skuId] !== '' && targets[r.skuId] !== undefined)
       .map(r => ({ skuId: r.skuId, targetAvailable: Number(targets[r.skuId]), expectedPhysical: r.physical }));
     if (rows.length === 0) return;
-    if (!window.confirm(`${rows.length} SKU'nun fiziksel stoğu kanal değerine göre değiştirilecek (SAYIM, kaynak KANAL_ALIM). Onaylıyor musunuz?`)) return;
+    // ADR-048: kullanıcı neyin değişeceğini sayılarla görmeden defter değişmesin (azalış / artış / 0'a inen).
+    const bySku = new Map(preview.rows.map(r => [r.skuId, r]));
+    const down = rows.filter(x => x.targetAvailable < (bySku.get(x.skuId)?.available ?? 0));
+    const up = rows.filter(x => x.targetAvailable > (bySku.get(x.skuId)?.available ?? 0)).length;
+    const zero = rows.filter(x => x.targetAvailable === 0 && (bySku.get(x.skuId)?.available ?? 0) > 0).length;
+    const examples = down.slice(0, 8).map(x => { const s = bySku.get(x.skuId)!; return `  ${s.skuCode}: ${s.available} → ${x.targetAvailable}`; }).join('\n');
+    if (!window.confirm(
+      `DEFTERDEKİ (deponuzdaki) stok kanal değerine eşitlenecek — ${rows.length} SKU:\n`
+      + `• ${down.length} SKU AZALACAK${zero ? ` (${zero} tanesi 0'a inecek)` : ''}\n• ${up} SKU artacak\n`
+      + (examples ? `\nAzalanlardan örnekler:\n${examples}${down.length > 8 ? '\n  …' : ''}\n` : '')
+      + `\nBu işlem stok hareketi (SAYIM) yazar. Pazaryerlerine gönderim, kanal "Onaylı" ise ayrıca Senkron Merkezi'nde onay ister.\nDevam edilsin mi?`)) return;
     setBusy(true);
     setError(null);
     try {

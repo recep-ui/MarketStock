@@ -115,11 +115,14 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
                    SUM(CASE WHEN q.Durum = 'BEKLIYOR' AND q.BatchId IS NOT NULL THEN 1 ELSE 0 END) AS InFlight,
                    SUM(CASE WHEN q.Durum = 'GONDERILDI' THEN 1 ELSE 0 END) AS Sent,
                    SUM(CASE WHEN q.Durum = 'HATA' THEN 1 ELSE 0 END) AS Error,
-                   (SELECT MAX(l2.SonSenkron) FROM dbo.ChannelListing l2 WHERE l2.ChannelId = c.Id) AS LastSentUtc
+                   (SELECT MAX(l2.SonSenkron) FROM dbo.ChannelListing l2 WHERE l2.ChannelId = c.Id) AS LastSentUtc,
+                   SUM(CASE WHEN q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL AND q.OnaylananDeger IS NULL
+                             AND ISNULL(cap.Durum, 'DENEME') = 'DENEME' THEN 1 ELSE 0 END) AS AwaitingApproval
               FROM dbo.Channel c
+              LEFT JOIN dbo.ChannelCapability cap ON cap.ChannelId = c.Id AND cap.Yetenek = 'STOK'
               LEFT JOIN dbo.ChannelListing l ON l.ChannelId = c.Id
               LEFT JOIN dbo.SyncQueue q ON q.ListingId = l.Id
-             GROUP BY c.Id, c.Kod
+             GROUP BY c.Id, c.Kod, cap.Durum
              ORDER BY c.Id
             """, cancellationToken: ct));
         return rows.ToList();
@@ -187,6 +190,115 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
 
         // Sapma: kanaldaki değer beklenenden farklı veya eşleştirme kanalda hiç görülmemiş (mutabakat çalıştıysa).
         return onlyDeviations ? report.Where(r => r.ChannelStock is null || r.Deviation != 0).ToList() : report;
+    }
+
+    // ------------------------------------------------------------------ stok gönderim onayı (ADR-048)
+
+    public const int MaxApprovalItems = 5_000;
+
+    /// <summary>Onay bekleyen kayıt: STOK, BEKLIYOR, talep edilmemiş, onaylanmamış ve kanalın STOK yeteneği DENEME ("Onaylı").</summary>
+    private const string AwaitingApprovalWhere = """
+        q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL AND q.OnaylananDeger IS NULL
+        AND ISNULL((SELECT cap.Durum FROM dbo.ChannelCapability cap WHERE cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'), 'DENEME') = 'DENEME'
+        """;
+
+    public async Task<IReadOnlyList<StockApprovalItem>> GetStockApprovalsAsync(int? channelId, CancellationToken ct)
+    {
+        await using var connection = await OpenAsync(ct);
+        var rows = (await connection.QueryAsync<ApprovalRow>(new CommandDefinition($"""
+            SELECT TOP (@max) q.Id AS QueueId, l.Id AS ListingId, l.ChannelId, c.Kod AS ChannelCode, s.Id AS SkuId, s.SkuKodu, p.Ad AS ProductName,
+                   l.KanalBarkod, l.KanalUrunKodu, l.KanalVerisi, l.SonGonderilenStok, snap.KanalStok, snap.CekilmeZamani, q.Olusma
+              FROM dbo.SyncQueue q
+              JOIN dbo.ChannelListing l ON l.Id = q.ListingId
+              JOIN dbo.Channel c ON c.Id = l.ChannelId
+              JOIN dbo.Sku s ON s.Id = l.SkuId
+              JOIN dbo.Product p ON p.Id = s.ProductId
+              OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
+                            WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
+             WHERE {AwaitingApprovalWhere} AND (@channelId IS NULL OR l.ChannelId = @channelId)
+             ORDER BY c.Id, s.SkuKodu, q.Id
+            """, new { channelId, max = MaxApprovalItems }, cancellationToken: ct))).ToList();
+
+        var targets = (await store.ComputeTargetsAsync(connection, null, rows.Select(r => r.ListingId).Distinct().ToList(), ct)).ToDictionary(t => t.ListingId);
+        return rows.Select(r => new StockApprovalItem(r.QueueId, r.ListingId, r.ChannelId, r.ChannelCode, r.SkuId, r.SkuKodu, r.ProductName,
+            r.KanalBarkod, r.KanalUrunKodu, PazaryeriHub.Application.Channels.ListingChannelData.Parse(r.KanalVerisi).ImageUrl,
+            r.KanalStok, Utc(r.CekilmeZamani), r.SonGonderilenStok, targets[r.ListingId].Target, Utc(r.Olusma)!.Value)).ToList();
+    }
+
+    public async Task<StockApprovalResult> ApproveStockAsync(IReadOnlyCollection<StockApprovalDecision> items, string? user, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        var decisions = items.GroupBy(i => i.QueueId).Select(g => g.Last()).ToList();
+        new Validator()
+            .Must(decisions.Count > 0, "items", "En az bir kayıt seçilmeli.")
+            .Must(decisions.Count <= MaxApprovalItems, "items", $"Tek seferde en fazla {MaxApprovalItems:N0} kayıt onaylanabilir.")
+            .ThrowIfInvalid();
+
+        await using var connection = await OpenAsync(ct);
+        var rows = (await connection.QueryAsync<(long QueueId, int ListingId)>(new CommandDefinition("""
+            SELECT q.Id, q.ListingId FROM dbo.SyncQueue q JOIN dbo.ChannelListing l ON l.Id = q.ListingId
+             WHERE q.Id IN (SELECT CAST([value] AS BIGINT) FROM OPENJSON(@ids))
+               AND q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL
+            """, new { ids = JsonSerializer.Serialize(decisions.Select(d => d.QueueId)) }, cancellationToken: ct))).ToDictionary(r => r.QueueId, r => r.ListingId);
+        var targets = (await store.ComputeTargetsAsync(connection, null, rows.Values.Distinct().ToList(), ct)).ToDictionary(t => t.ListingId);
+
+        var now = clock.GetUtcNow().UtcDateTime;
+        var skipped = new List<StockApprovalSkipped>();
+        var approved = 0;
+        foreach (var d in decisions)
+        {
+            if (!rows.TryGetValue(d.QueueId, out var listingId))
+            {
+                skipped.Add(new(d.QueueId, "Kayıt artık onay beklemiyor (gönderildi, reddedildi ya da gönderimde)."));
+                continue;
+            }
+            var current = targets[listingId].Target;
+            if (current != d.Value)
+            {
+                skipped.Add(new(d.QueueId, $"Stok o arada değişti (şimdi {current}); listeyi yenileyip yeniden onaylayın."));
+                continue;
+            }
+            approved += await connection.ExecuteAsync(new CommandDefinition("""
+                UPDATE dbo.SyncQueue SET OnaylananDeger = @value, OnaylayanKullanici = @user, OnayTarihi = @now
+                 WHERE Id = @id AND Tip = 'STOK' AND Durum = 'BEKLIYOR' AND BatchId IS NULL
+                """, new { id = d.QueueId, value = d.Value, user, now }, cancellationToken: ct));
+        }
+        return new StockApprovalResult(approved, skipped);
+    }
+
+    public async Task<int> RejectStockAsync(IReadOnlyCollection<long> queueIds, string? user, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(queueIds);
+        var ids = queueIds.Distinct().ToList();
+        new Validator()
+            .Must(ids.Count > 0, "queueIds", "En az bir kayıt seçilmeli.")
+            .Must(ids.Count <= MaxApprovalItems, "queueIds", $"Tek seferde en fazla {MaxApprovalItems:N0} kayıt reddedilebilir.")
+            .ThrowIfInvalid();
+
+        await using var connection = await OpenAsync(ct);
+        return await connection.ExecuteAsync(new CommandDefinition("""
+            UPDATE dbo.SyncQueue SET Durum = 'IPTAL', Hata = CONCAT(N'Yönetici reddetti: ', @user), OnayTarihi = @now, OnaylayanKullanici = @user
+             WHERE Id IN (SELECT CAST([value] AS BIGINT) FROM OPENJSON(@ids))
+               AND Tip = 'STOK' AND Durum = 'BEKLIYOR' AND BatchId IS NULL
+            """, new { ids = JsonSerializer.Serialize(ids), user, now = clock.GetUtcNow().UtcDateTime }, cancellationToken: ct));
+    }
+
+    private sealed class ApprovalRow
+    {
+        public long QueueId { get; init; }
+        public int ListingId { get; init; }
+        public int ChannelId { get; init; }
+        public string ChannelCode { get; init; } = "";
+        public int SkuId { get; init; }
+        public string SkuKodu { get; init; } = "";
+        public string ProductName { get; init; } = "";
+        public string? KanalBarkod { get; init; }
+        public string? KanalUrunKodu { get; init; }
+        public string? KanalVerisi { get; init; }
+        public int? SonGonderilenStok { get; init; }
+        public int? KanalStok { get; init; }
+        public DateTime? CekilmeZamani { get; init; }
+        public DateTime Olusma { get; init; }
     }
 
     private static async Task<SyncQueueItem> GetItemAsync(SqlConnection connection, long id, CancellationToken ct)

@@ -38,7 +38,8 @@ public sealed class SyncPipelineTests(TestDatabase db)
     /// Kanalı temiz duruma getirir: eski test eşleştirmeleri pasif, bekleyen kuyruk kayıtları kapatılır, outbox birikimi işlenmiş sayılır
     /// (test veritabanında önceki testlerin binlerce olayı birikir), kanal aktif ve pay %100 yapılır.
     /// </summary>
-    private async Task<int> PrepareChannelAsync(decimal share = 100, string? settings = null)
+    /// <param name="stockCapability">STOK yeteneği: hat testleri ACIK (onaysız) çalışır; onay testleri DENEME/KAPALI verir (ADR-048).</param>
+    private async Task<int> PrepareChannelAsync(decimal share = 100, string? settings = null, string stockCapability = "ACIK")
     {
         await using var c = db.Open();
         var channelId = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = @Channel", new { Channel });
@@ -48,7 +49,11 @@ public sealed class SyncPipelineTests(TestDatabase db)
              WHERE l.ChannelId = @channelId AND q.Durum = 'BEKLIYOR';
             UPDATE dbo.ChannelListing SET Durum = 'PASIF' WHERE ChannelId = @channelId;
             UPDATE dbo.Channel SET Aktif = 1, PayYuzde = @share, Ayarlar = @settings WHERE Id = @channelId;
-            """, new { channelId, share, settings });
+            MERGE dbo.ChannelCapability AS t USING (SELECT @channelId AS ChannelId, 'STOK' AS Yetenek) AS s
+               ON t.ChannelId = s.ChannelId AND t.Yetenek = s.Yetenek
+             WHEN MATCHED THEN UPDATE SET Durum = @stockCapability
+             WHEN NOT MATCHED THEN INSERT (ChannelId, Yetenek, Durum) VALUES (@channelId, 'STOK', @stockCapability);
+            """, new { channelId, share, settings, stockCapability });
         Mock.FailPush.TryRemove(Channel, out _);
         Mock.FailingItems.Clear();
         return channelId;
@@ -128,6 +133,146 @@ public sealed class SyncPipelineTests(TestDatabase db)
         public string? BatchId { get; init; }
         public int? GonderilenDeger { get; init; }
         public DateTime? SonrakiDeneme { get; init; }
+    }
+
+    // ------------------------------------------------------------------ stok gönderim onayı (ADR-048)
+
+    private async Task<List<StockApprovalItem>> ApprovalsAsync(int channelId) =>
+        (await db.Api.GetFromJsonAsync<List<StockApprovalItem>>($"/api/sync/stock-approvals?channelId={channelId}", Json, Ct))!;
+
+    private async Task<StockApprovalResult> ApproveAsync(params StockApprovalDecision[] items)
+    {
+        var response = await db.Api.PostAsJsonAsync("/api/sync/stock-approvals/approve", new StockApprovalRequest(items), Json, Ct);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<StockApprovalResult>(Json, Ct))!;
+    }
+
+    [Fact]
+    public async Task Onayli_kanalda_stok_onaysiz_gonderilmez_onaylanan_deger_gider()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "DENEME");
+        try
+        {
+            var (skuId, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await OutboxAsync();
+
+            var push = await PushAsync();
+            push.Sent.Should().Be(0, "onaysız kayıt kanala gitmez");
+            Mock.GetChannelStock(Channel, code).Should().BeNull();
+            var waiting = (await QueueAsync(listingId)).Should().ContainSingle().Subject;
+            waiting.Durum.Should().Be("BEKLIYOR");
+            waiting.Deneme.Should().Be(0, "onay beklemek deneme sayılmaz");
+
+            var item = (await ApprovalsAsync(channelId)).Should().ContainSingle(a => a.ListingId == listingId).Subject;
+            item.NewValue.Should().Be(10);
+            item.SkuId.Should().Be(skuId);
+            item.ChannelCode.Should().Be(Channel);
+
+            (await ApproveAsync(new StockApprovalDecision(item.QueueId, 10))).Approved.Should().Be(1);
+            (await ApprovalsAsync(channelId)).Should().NotContain(a => a.ListingId == listingId, "onaylanan listeden çıkar");
+
+            (await PushAsync()).Sent.Should().Be(1);
+            Mock.GetChannelStock(Channel, code).Should().Be(10);
+            await BatchCheckAsync();
+            (await LastSentAsync(listingId)).Should().Be(10);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Onaydan_sonra_stok_degisirse_eski_deger_gitmez_yeniden_onay_ister()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "DENEME");
+        try
+        {
+            var (skuId, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await OutboxAsync();
+            var item = (await ApprovalsAsync(channelId)).Single(a => a.ListingId == listingId);
+
+            // Ekranda 10 görülürken stok değişti → eski değerle onay reddedilir
+            await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 2), Ct);
+            var stale = await ApproveAsync(new StockApprovalDecision(item.QueueId, 10));
+            stale.Approved.Should().Be(0);
+            stale.Skipped.Should().ContainSingle().Which.Reason.Should().Contain("değişti");
+
+            // 12 onaylandı, gönderimden önce yine değişti → gönderilmez, onay düşer
+            (await ApproveAsync(new StockApprovalDecision(item.QueueId, 12))).Approved.Should().Be(1);
+            await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 3), Ct);
+            (await PushAsync()).Sent.Should().Be(0);
+            Mock.GetChannelStock(Channel, code).Should().BeNull("onaylanmayan değer (15) gitmez");
+            (await ApprovalsAsync(channelId)).Single(a => a.ListingId == listingId).NewValue.Should().Be(15);
+            (await QueueAsync(listingId)).Single().Deneme.Should().Be(0);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Reddedilen_stok_kaydi_gonderilmez()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "DENEME");
+        try
+        {
+            var (_, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await OutboxAsync();
+            var item = (await ApprovalsAsync(channelId)).Single(a => a.ListingId == listingId);
+
+            var response = await db.Api.PostAsJsonAsync("/api/sync/stock-approvals/reject", new StockRejectRequest([item.QueueId]), Json, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            (await QueueAsync(listingId)).Single().Durum.Should().Be("IPTAL");
+            (await PushAsync()).Sent.Should().Be(0);
+            Mock.GetChannelStock(Channel, code).Should().BeNull();
+            (await ApprovalsAsync(channelId)).Should().NotContain(a => a.ListingId == listingId);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Kapali_stok_yeteneginde_kayit_bekler_deneme_sayilmaz_ve_onay_listesinde_gorunmez()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "KAPALI");
+        try
+        {
+            var (_, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await OutboxAsync();
+
+            var push = await PushAsync();
+            push.Skipped.Should().BeTrue();
+            push.Sent.Should().Be(0);
+            Mock.GetChannelStock(Channel, code).Should().BeNull();
+            var row = (await QueueAsync(listingId)).Single();
+            row.Durum.Should().Be("BEKLIYOR");
+            row.Deneme.Should().Be(0, "kapalı yetenek hata sayılmaz; kayıtlar HATA'ya düşmez");
+            (await ApprovalsAsync(channelId)).Should().NotContain(a => a.ListingId == listingId);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Stok_onayi_yalnizca_yoneticiye_acik()
+    {
+        db.SkipIfUnavailable();
+        using var depo = await db.ApiHost.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Warehouse);
+        (await depo.PostAsJsonAsync("/api/sync/stock-approvals/approve", new StockApprovalRequest([new(1, 1)]), Json, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await depo.PostAsJsonAsync("/api/sync/stock-approvals/reject", new StockRejectRequest([1]), Json, Ct))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     // ------------------------------------------------------------------ hat (job'lar doğrudan)

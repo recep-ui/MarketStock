@@ -95,7 +95,8 @@ test('3) Hatalı senkron sadeleştirilmiş hatayla görünür ve "Yeniden dene" 
   await expect(row).toHaveCount(0); // artık HATA listesinde değil
 
   await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Bekliyor' });
-  const pending = page.getByTestId('sync-row').filter({ hasText: d.skuCodes[0] });
+  // Aynı SKU'nun Hepsiburada kaydı onay bekliyor (ADR-048); burada yeniden denenen Trendyol kaydına bakılır
+  const pending = page.getByTestId('sync-row').filter({ hasText: d.skuCodes[0] }).filter({ hasText: 'Trendyol' });
   await expect(pending).toHaveCount(1);
   await expect(pending).toContainText('Bekliyor');
   await expect(pending.getByRole('button', { name: 'Yeniden dene' })).toHaveCount(0);
@@ -385,6 +386,36 @@ test('Destek rolü müşteri bilgisini maskeli görür ve yazma işlemlerini gö
 
   await page.getByRole('link', { name: 'Senkron Merkezi' }).click();
   await expect(page.getByRole('button', { name: 'Yeniden dene' })).toHaveCount(0);
+});
+
+test('Stok gönderim onayı: kanal kutucuğu, ürün ve kanalda/gönderilecek değer görünür; özetli onayla gönderilir (ADR-048)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Senkron Merkezi' }).click();
+
+  const approvals = page.getByTestId('stock-approvals');
+  const row = approvals.getByTestId('approval-row').filter({ hasText: d.skuCodes[0] }).filter({ hasText: 'Hepsiburada' });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByRole('checkbox')).toBeChecked();
+
+  // Kanal kutucuğu kaldırılınca o kanalın satırları listeden çıkar, gönderilecek sayı düşer
+  const hb = page.getByTestId('approval-channels').getByLabel('Hepsiburada kanalı');
+  await hb.uncheck();
+  await expect(row).toHaveCount(0);
+  await hb.check();
+  await expect(row).toHaveCount(1);
+
+  // Yalnızca bu satır gönderilsin
+  await page.getByRole('button', { name: 'Seçimi kaldır' }).click();
+  await row.getByRole('checkbox').check();
+  await expect(page.getByTestId('approve-stock')).toHaveText('Seçilenleri kanala gönder (1)');
+
+  let message = '';
+  page.once('dialog', dialog => { message = dialog.message(); void dialog.accept(); });
+  await page.getByTestId('approve-stock').click();
+  await expect(page.getByRole('status')).toContainText('1 stok gönderimi onaylandı');
+  expect(message).toContain('Hepsiburada: 1 ürün');
+  await expect(row).toHaveCount(0);
 });
 
 test('Sapma satırı "Kanala gönder" ile defter değeriyle yeniden gönderilir (gönderilemiyorsa gerekçe görünür)', async ({ page }) => {

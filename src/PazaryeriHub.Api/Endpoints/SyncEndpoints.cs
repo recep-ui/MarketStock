@@ -1,4 +1,4 @@
-using Hangfire;
+﻿using Hangfire;
 using PazaryeriHub.Application.Auth;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Orders;
@@ -33,6 +33,14 @@ public static class SyncEndpoints
 
         sync.MapGet("/reconciliation", (ISyncService s, int? channelId, bool? onlyDeviations, CancellationToken ct) =>
             s.GetReconciliationAsync(channelId, onlyDeviations ?? false, ct));
+
+        // Stok gönderim onayı (ADR-048): "Onaylı" kanalda hiçbir stok kaydı Yönetici onayı olmadan kanala gitmez.
+        sync.MapGet("/stock-approvals", (ISyncService s, int? channelId, CancellationToken ct) => s.GetStockApprovalsAsync(channelId, ct));
+        sync.MapPost("/stock-approvals/approve", (ISyncService s, System.Security.Claims.ClaimsPrincipal user, StockApprovalRequest request, CancellationToken ct) =>
+            s.ApproveStockAsync(request.Items ?? [], user.Identity?.Name, ct)).RequireAuthorization(Policies.Admin);
+        sync.MapPost("/stock-approvals/reject", async (ISyncService s, System.Security.Claims.ClaimsPrincipal user, StockRejectRequest request, CancellationToken ct) =>
+            Results.Ok(new { rejected = await s.RejectStockAsync(request.QueueIds ?? [], user.Identity?.Name, ct) }))
+            .RequireAuthorization(Policies.Admin);
         sync.MapPost("/reconciliation/{channelCode}/run", async (IBackgroundJobClient jobs, IChannelService channels, string channelCode, CancellationToken ct) =>
         {
             var code = channelCode.ToUpperInvariant();

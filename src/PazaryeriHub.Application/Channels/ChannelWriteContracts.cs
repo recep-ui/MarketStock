@@ -2,7 +2,10 @@ using PazaryeriHub.Application.Common;
 
 namespace PazaryeriHub.Application.Channels;
 
-/// <summary>Kanala yazma yetenekleri (ADR-026). Varsayılan KAPALI; STOK mevcut davranış için ACIK tohumlanır.</summary>
+/// <summary>
+/// Kanala yazma yetenekleri (ADR-026). Varsayılan KAPALI; STOK varsayılanı DENEME ("Onaylı", ADR-048): stok değişiklikleri
+/// Yönetici onayı olmadan kanala gitmez.
+/// </summary>
 public static class ChannelCapabilities
 {
     public const string Stock = "STOK";
@@ -13,7 +16,7 @@ public static class ChannelCapabilities
 
     public static IReadOnlyList<string> All { get; } = [Stock, OrderStatus, ReturnDecision, Price, QuestionAnswer];
 
-    public static string Default(string capability) => capability == Stock ? CapabilityStates.Open : CapabilityStates.Closed;
+    public static string Default(string capability) => capability == Stock ? CapabilityStates.Trial : CapabilityStates.Closed;
 }
 
 public static class CapabilityStates

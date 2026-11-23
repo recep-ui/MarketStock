@@ -41,7 +41,7 @@ export const movementLabels: Record<string, string> = {
   SAYIM: 'Sayım'
 };
 
-export const syncStatusLabels: Record<string, string> = { BEKLIYOR: 'Bekliyor', GONDERILDI: 'Gönderildi', HATA: 'Hata' };
+export const syncStatusLabels: Record<string, string> = { BEKLIYOR: 'Bekliyor', GONDERILDI: 'Gönderildi', HATA: 'Hata', IPTAL: 'Reddedildi' };
 
 export const channelNames: Record<string, string> = {
   TRENDYOL: 'Trendyol',

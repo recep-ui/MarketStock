@@ -120,7 +120,13 @@ Stok gönderimi açıldığında tüm aktif ilanların stoğu defterdeki değere
 powershell -ExecutionPolicy Bypass -File .\kanal-ayari.ps1 -GercekKanal TRENDYOL,BEYMEN -Yazma Acik
 ```
 Kilit kalksa da hiçbir iş kendiliğinden kanala gitmez. Panel → Ayarlar → Kanallar → yetenekleri tek tek açın:
-- **Stok:** önce tek kanalda **Deneme** (her gönderim Yönetici onayıyla). Senkron Merkezi'nde izleyin, sorun yoksa **Açık**.
+- **Stok:** varsayılan **Onaylı**. Hiçbir stok değişikliği siz onaylamadan pazaryerine gitmez.
+  - **Senkron Merkezi → Onay bekleyen stok gönderimleri**: her ürün için resim, SKU, kanal, kanalda şu an görünen stok, gönderilecek stok ve fark gösterilir.
+  - Göndermek istediğiniz kanalların kutucuklarını işaretleyin, satırları seçin, **Seçilenleri kanala gönder**. Göndermeden önce kanal bazında özet (kaç azalış, kaç artış, kaç ürün 0'a iniyor) gösterilir.
+  - **Seçilenleri reddet**: o değer gönderilmez. Stok yeniden değişirse yeni değer tekrar onaya düşer.
+  - Onaydan sonra stok yine değişirse onaylanan değer gitmez; kayıt tekrar onaya düşer.
+  - Bir kanalda onaysız (anında) gönderim isterseniz o kanalın stok yeteneğini **Açık** yapın. **Kapalı**: o kanala hiç stok gitmez.
+  - Uyarı: Onaylı kanalda bir satış olduğunda diğer kanallardaki stok da siz onaylayana kadar eski kalır. Onay listesini sık kontrol edin.
 - **Sipariş durumu, iade kararı, soru cevabı:** ilk hafta **Deneme**.
 - **Fiyat:** Trendyol ve Beymen'de **Deneme** ile. Hepsiburada'da KDV teyidi gelene kadar **kapalı** kalır (uygulama zaten engeller).
 

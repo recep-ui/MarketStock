@@ -208,11 +208,22 @@ export type Movement = {
   sourceType: string | null; sourceId: string | null; user: string | null;
 };
 export type SyncItem = {
-  id: number; listingId: number; skuCode: string; channelCode: string; type: string; status: 'BEKLIYOR' | 'GONDERILDI' | 'HATA';
+  id: number; listingId: number; skuCode: string; channelCode: string; type: string; status: 'BEKLIYOR' | 'GONDERILDI' | 'HATA' | 'IPTAL';
   attempts: number; error: string | null; batchId: string | null; sentValue: number | null; sentPrice?: number | null; createdUtc: string;
   lastAttemptUtc: string | null; nextAttemptUtc: string | null; errorInfo?: ChannelErrorInfo | null;
 };
-export type SyncSummary = { channelCode: string; pending: number; inFlight: number; sent: number; error: number; lastSentUtc: string | null };
+export type SyncSummary = {
+  channelCode: string; pending: number; inFlight: number; sent: number; error: number; lastSentUtc: string | null;
+  /** "Onaylı" kanalda Yönetici onayı bekleyen stok kayıtları (ADR-048). */
+  awaitingApproval: number;
+};
+/** Onay bekleyen stok gönderimi (ADR-048). */
+export type StockApprovalItem = {
+  queueId: number; listingId: number; channelId: number; channelCode: string; skuId: number; skuCode: string; productName: string;
+  channelBarcode: string | null; channelProductCode: string | null; imageUrl: string | null;
+  channelStock: number | null; channelStockAtUtc: string | null; lastSent: number | null; newValue: number; createdUtc: string;
+};
+export type StockApprovalResult = { approved: number; skipped: { queueId: number; reason: string }[] };
 export type Reconciliation = {
   listingId: number; skuCode: string; channelCode: string; channelProductCode: string | null; channelBarcode: string | null;
   expected: number; lastSent: number | null; channelStock: number | null; fetchedAtUtc: string | null; deviation: number | null;

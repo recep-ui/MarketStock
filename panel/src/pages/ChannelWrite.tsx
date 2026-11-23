@@ -15,7 +15,7 @@ export const capabilityLabels: Record<string, string> = {
   SORU_CEVAP: 'Soru cevabı'
 };
 
-const stateLabels: Record<string, string> = { KAPALI: 'Kapalı', DENEME: 'Deneme (tek tek onay)', ACIK: 'Açık' };
+const stateLabels: Record<string, string> = { KAPALI: 'Kapalı', DENEME: 'Onaylı (her kayıt onayla gider)', ACIK: 'Açık' };
 
 export const commandStateLabels: Record<string, string> = {
   ONAY_BEKLIYOR: 'Onay bekliyor',

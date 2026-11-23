@@ -7,6 +7,13 @@
 
 ---
 
+## Stok gönderiminde kanal bazında onay (2026-11-23, ADR-048)
+
+- Stok değişiklikleri pazaryerine Yönetici onayı olmadan gitmez (varsayılan "Onaylı"; mevcut kanallar migration 0019 ile Onaylı yapıldı).
+- Senkron Merkezi → "Onay bekleyen stok gönderimleri": kanal kutucukları, ürün resmi, kanalda şu an / gönderilecek / fark, satır seçimi, özetli onay ve red.
+- Onaylanan değer korunur; sonra stok değişirse yeniden onay ister. Kapalı kanalda kayıtlar hataya düşmez.
+- "Kanal Stoğu → Defter" onayında azalan/artan/0'a inen SKU sayıları ve örnekler gösterilir.
+- Testler: entegrasyon 165/165, birim 416/416, Playwright yeni senaryo geçti. Bilinen: ADR-036 e2e senaryosu (çıkış sonrası Destek girişi) önceki commit'te de başarısız.
 ## Trendyol stok gönderimi "Gönderimde" kalıyordu (2026-11-23)
 
 - **Belirti:** Canlı Trendyol'a giden stok kayıtları "Gönderimde" kalıyor, 30 dk sonra hataya düşüp yeniden gönderiliyordu ("Trendyol canlı stok gönderimi yapmıyor").
