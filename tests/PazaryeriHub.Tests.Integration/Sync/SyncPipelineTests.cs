@@ -1045,10 +1045,17 @@ public sealed class SyncPipelineTests(TestDatabase db)
             Mock.SetChannelStock(Channel, codeA, 4); // kanalda elle düşürüldü
             Mock.SetChannelStock(Channel, codeB, 9);
             await ReconcileAsync();
+            // Görseli yalnızca ikinci ilan bildirmiş; önizleme satırı onu göstermeli (küçük resim)
+            await using (var c = db.Open())
+            {
+                await c.ExecuteAsync("UPDATE dbo.ChannelListing SET KanalVerisi = @json WHERE Id = @listingB",
+                    new { listingB, json = """{"gorsel":"https://cdn.example.test/alim.jpg"}""" });
+            }
 
             var preview = (await db.Api.GetFromJsonAsync<IntakePreview>($"/api/stock/channel-intake/preview?sourceChannelId={channelId}", Json, Ct))!;
             var row = preview.Rows.Single(r => r.SkuId == skuId);
             row.Should().Match<IntakePreviewRow>(r => r.SourceValue == 4 && r.ProposedTarget == 4 && r.ProposedPhysical == 7 && r.Physical == 10);
+            row.ImageUrl.Should().Be("https://cdn.example.test/alim.jpg");
             row.Flags.Should().Contain(IntakeFlags.ListingsDiffer);
             (await db.GetBalanceAsync(skuId))!.Fiziksel.Should().Be(10, "önizleme yazmaz");
 

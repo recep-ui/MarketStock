@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { get, post, qs, type Channel, type ChannelStatus, type ChannelStockList, type IntakeApplyResult, type IntakePreview, type IntakePreviewRow } from '../api';
 import { ChannelDataSourceNote } from '../components/ChannelDataSource';
 import { useAuth } from '../auth';
-import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
+import { Card, ChannelBadge, ErrorBox, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 
 const flagLabels: Record<string, string> = {
@@ -217,7 +217,8 @@ function IntakeRow({ row, selected, onToggle, target, onTarget }:
   return (
     <tr data-testid="intake-row" className={row.flags.some(f => f !== 'CEKIMDEN_SONRA_SIPARIS') ? 'row-deviation' : undefined}>
       <td><input type="checkbox" aria-label={`Seç ${row.skuCode}`} checked={selected} onChange={onToggle} /></td>
-      <td>{row.skuCode}<div className="muted">{row.productName}</div></td>
+      <td style={{ whiteSpace: 'normal', minWidth: 220 }}><div className="with-thumb"><Thumb url={row.imageUrl} alt={row.productName} size={40} />
+        <div>{row.skuCode}<div className="muted">{row.productName}</div></div></div></td>
       <td>{row.physical}</td>
       <td>{row.reserved}</td>
       <td>{row.safetyStock}</td>

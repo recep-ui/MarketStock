@@ -7,6 +7,11 @@
 
 ---
 
+## Kanal Stoğu → Defter: küçük resimler (2026-11-25)
+
+- Önizleme tablosunda her SKU'nun yanında ürün görseli: önce kaynak kanalın, yoksa diğer kanalların bildirdiği görsel (ADR-042 kuralı: yalnızca https); görsel yoksa yer tutucu.
+- Testler: birim 416/416, entegrasyon 167/167. Playwright 20/22 tam çalıştırmada; "Sipariş listesi" tekrar çalıştırmada geçti (kararsız), ADR-036 "Doğru eşleşme onayı" önceki commit'te de başarısızdı (bu değişiklikle ilgisiz, açık).
+
 ## Fiyat: ürün bazında kanal fiyatları (2026-11-23, ADR-049)
 
 - Fiyat ekranında "Ürün bazında kanal fiyatları": aynı SKU'nun her pazaryerindeki fiyatı (kanalda görünen / gidecek / son gönderilen, elle/taban, durum) yan yana; kanal başına ayrı elle fiyat, toplu ve özetli kaydetme.

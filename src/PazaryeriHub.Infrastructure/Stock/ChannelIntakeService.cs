@@ -2,6 +2,7 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
+using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Common;
 using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Application.Sync;
@@ -42,7 +43,7 @@ public sealed class ChannelIntakeService(
         }
 
         var listings = (await connection.QueryAsync<ListingRow>(new CommandDefinition("""
-            SELECT l.Id AS ListingId, l.SkuId, c.Kod AS ChannelCode, l.ChannelId, l.KanalBarkod, l.KanalUrunKodu,
+            SELECT l.Id AS ListingId, l.SkuId, c.Kod AS ChannelCode, l.ChannelId, l.KanalBarkod, l.KanalUrunKodu, l.KanalVerisi,
                    snap.KanalStok, snap.CekilmeZamani,
                    CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.SyncQueue q WHERE q.ListingId = l.Id AND q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR') THEN 1 ELSE 0 END AS bit) AS SyncPending
               FROM dbo.ChannelListing l
@@ -109,7 +110,7 @@ public sealed class ChannelIntakeService(
                 own.Select(l => new IntakeChannelValue(l.ListingId, l.ChannelCode, l.KanalBarkod, l.KanalUrunKodu, l.KanalStok,
                     Utc(l.CekilmeZamani), targets[l.ListingId], l.SyncPending)).ToList(),
                 eval.Value, eval.MinValue, d, eval.Target, ChannelIntakeRules.ProposedPhysical(eval.Target, s.Reserved, s.SafetyStock),
-                eval.Flags, eval.DefaultSelected));
+                eval.Flags, eval.DefaultSelected, ImageOf(source.Concat(own))));
         }
         return new IntakePreview(sourceChannelId, channel.Kod, true, null, threshold, previewedAt, rows);
     }
@@ -244,6 +245,10 @@ public sealed class ChannelIntakeService(
         public string? Ayarlar { get; init; }
     }
 
+    /// <summary>İlk görseli olan ilanın görseli (sıra: kaynak kanal, sonra diğerleri).</summary>
+    private static string? ImageOf(IEnumerable<ListingRow> listings) =>
+        listings.Select(l => ListingChannelData.Parse(l.KanalVerisi).ImageUrl).FirstOrDefault(u => u is not null);
+
     private sealed class ListingRow
     {
         public int ListingId { get; init; }
@@ -252,6 +257,7 @@ public sealed class ChannelIntakeService(
         public string ChannelCode { get; init; } = "";
         public string? KanalBarkod { get; init; }
         public string? KanalUrunKodu { get; init; }
+        public string? KanalVerisi { get; init; }
         public int? KanalStok { get; init; }
         public DateTime? CekilmeZamani { get; init; }
         public bool SyncPending { get; init; }

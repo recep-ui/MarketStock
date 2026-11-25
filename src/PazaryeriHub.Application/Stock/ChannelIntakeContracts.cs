@@ -13,12 +13,14 @@ public sealed record IntakeChannelValue(
 /// <param name="SourceValue">Kaynak kanalın gösterdiği değer (çekim anında).</param>
 /// <param name="ReservedSinceSnapshot">Çekimden sonra gelen net rezervasyon (sipariş − iptal).</param>
 /// <param name="ProposedTarget">Önerilen hedef satılabilir (şimdi) = MAX(0, kanal değeri − çekimden sonraki net rezervasyon).</param>
+/// <param name="ImageUrl">Küçük resim: önce kaynak kanalın, yoksa diğer kanalların bildirdiği ürün görseli (yalnızca https).</param>
 public sealed record IntakePreviewRow(
     int SkuId, string SkuCode, string ProductName,
     int Physical, int Reserved, int SafetyStock, int Available,
     IReadOnlyList<IntakeChannelValue> Channels,
     int? SourceValue, int? MinValue, int ReservedSinceSnapshot, int? ProposedTarget, int? ProposedPhysical,
-    IReadOnlyList<string> Flags, bool DefaultSelected);
+    IReadOnlyList<string> Flags, bool DefaultSelected,
+    string? ImageUrl = null);
 
 /// <param name="PreviewedAtUtc">Önizleme anı (veritabanı saati); uygulamada bu andan sonraki rezervasyonlar hedeften düşülür.</param>
 public sealed record IntakePreview(

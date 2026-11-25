@@ -247,7 +247,7 @@ export type IntakeChannelValue = {
 export type IntakePreviewRow = {
   skuId: number; skuCode: string; productName: string; physical: number; reserved: number; safetyStock: number; available: number;
   channels: IntakeChannelValue[]; sourceValue: number | null; minValue: number | null; reservedSinceSnapshot: number;
-  proposedTarget: number | null; proposedPhysical: number | null; flags: string[]; defaultSelected: boolean;
+  proposedTarget: number | null; proposedPhysical: number | null; flags: string[]; defaultSelected: boolean; imageUrl?: string | null;
 };
 export type IntakePreview = {
   sourceChannelId: number; sourceChannelCode: string; enabled: boolean; disabledReason: string | null; lowStockThreshold: number;

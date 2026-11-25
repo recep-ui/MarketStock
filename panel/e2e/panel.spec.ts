@@ -440,6 +440,8 @@ test('Kanal stoğu deftere alınır: önizle, hedefi düzenle, onayla; hareket K
 
   const row = page.getByTestId('intake-row').filter({ hasText: d.deviationSkuCode });
   await expect(row).toHaveCount(1);
+  // Küçük resim alanı (demo ilanlarında görsel yok → yer tutucu)
+  await expect(row.locator('.thumb')).toHaveCount(1);
   // Kanal beklenenden 1 fazla gösteriyor → önerilen hedef kanal değeri
   await expect(row.getByLabel(`Hedef ${d.deviationSkuCode}`)).toHaveValue(String(d.deviationChannelStock));
   const checkbox = row.getByLabel(`Seç ${d.deviationSkuCode}`);
