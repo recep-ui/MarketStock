@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockList, type ChannelStockListRow, type Paged, type SaleState, type UnmatchedItem } from '../api';
 import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
-import { ListingEditor, draftOf, draftProblem, isDirty, saveDraft, type ListingDraft } from '../components/ListingEditor';
+import { ListingSummary } from '../components/ListingEditor';
 import { Card, ChannelLink, ErrorBox, Stat, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatRelative } from '../format';
 
@@ -45,12 +45,8 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
-  const [drafts, setDrafts] = useState<Record<number, ListingDraft>>({});
-  const [saving, setSaving] = useState(false);
-  const [saveResult, setSaveResult] = useState<string | null>(null);
   const [showUnmatched, setShowUnmatched] = useState(false);
   const { can } = useAuth();
-  const editable = can('catalogWrite');
   const name = channelNames[channel.code] ?? channel.name;
   const priceInfo = useLoad(() => get<ChannelPriceInfo[]>('/api/prices/channels'), []);
   const priceState = priceInfo.data?.find(c => c.channelId === channel.id)?.capabilityState;
@@ -80,32 +76,6 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
     } finally {
       setBusy(null);
     }
-  };
-
-  const rows = d?.rows.items ?? [];
-  const dirtyRows = rows.filter(r => isDirty(r, drafts[r.listingId]));
-  const invalid = dirtyRows.some(r => draftProblem(drafts[r.listingId]) !== null);
-
-  // Tek "Kaydet": değişen her ilan için stok kuralı ve/veya ilan fiyatı yazılır; kanala gönderim mevcut güvenli hattan gider.
-  const saveAll = async () => {
-    setSaving(true);
-    setActionError(null);
-    setSaveResult(null);
-    const failed: string[] = [];
-    for (const r of dirtyRows) {
-      try {
-        await saveDraft(r, drafts[r.listingId]);
-      } catch (e) {
-        failed.push(r.skuCode);
-        setActionError(e);
-      }
-    }
-    setDrafts({});
-    setSaving(false);
-    setSaveResult(failed.length === 0
-      ? `${dirtyRows.length} ilan kaydedildi. Kanala gönderim senkron hattından gider (Senkron Merkezi'nden izlenir).`
-      : `${dirtyRows.length - failed.length} ilan kaydedildi; kaydedilemeyen: ${failed.join(', ')}.`);
-    data.reload();
   };
 
   const quick = (patch: Partial<typeof form>) => {
@@ -175,15 +145,14 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
           <strong> Kontrol et</strong>: kanalın bilgisi SKU ile uyuşmuyor, yanlış eşleşme olabilir; düzeltmek için <Link to="/eslestirme">Eşleştirme</Link>.
           Çoklanan ilanlarda barkod farklı olabilir. Doğru olduğunu bildiğiniz eşleşmeyi "Doğru eşleşme, onayla" ile kapatabilirsiniz
           (Yönetici); bilgiler sonradan değişirse uyarı geri gelir. Bu ekran eşleştirmeyi değiştirmez.
-          <strong> Stok ve fiyat</strong>: ilana özel stok kuralı (üst limit / sabit; defteri asla aşmaz) ve satış fiyatı buradan
-          tek seferde kaydedilir. Görseller {name}'in kendi API'sinden gelir; diğer kanallardaki görsellerle karşılaştırmak için SKU'yu açın.
+          <strong> Stok ve fiyat</strong> burada yalnızca görüntülenir; değiştirmek için satırdaki "Düzenle" veya
+          <Link to="/urun-duzenle"> Fiyat &amp; Stok Düzenle</Link>. Görseller {name}'in kendi API'sinden gelir; diğer kanallardaki görsellerle karşılaştırmak için SKU'yu açın.
         </p>
         {priceState && (
           <p className="small" data-testid="price-capability">
             {name} fiyat gönderimi <strong>{capabilityText[priceState] ?? priceState}</strong>. <Link to="/ayarlar">Ayarlar →</Link>
           </p>
         )}
-        {saveResult && <p className="small" role="status" data-testid="save-result">{saveResult}</p>}
         <ErrorBox error={data.error ?? actionError} onRetry={data.reload} />
         {data.loading && !d && <div className="loading">Yükleniyor…</div>}
         {d && (
@@ -286,12 +255,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                       )}
                     </td>
                     <td>
-                      <ListingEditor
-                        row={r}
-                        draft={drafts[r.listingId] ?? draftOf(r)}
-                        editable={editable && !saving}
-                        onChange={next => setDrafts(prev => ({ ...prev, [r.listingId]: next }))}
-                      />
+                      <ListingSummary row={r} />
                     </td>
                   </tr>
                 ))}
@@ -304,19 +268,7 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
             </table>
           </div>
         )}
-        {dirtyRows.length > 0 && (
-          <div className="save-bar" data-testid="save-bar">
-            <strong>{dirtyRows.length} ilanda kaydedilmemiş değişiklik</strong>
-            <button onClick={saveAll} disabled={saving || invalid} data-testid="save-all">{saving ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button>
-            <button className="link" onClick={() => setDrafts({})} disabled={saving}>Vazgeç</button>
-            {invalid && <span className="small cell-deviation">Hatalı alanları düzeltin.</span>}
-          </div>
-        )}
-        {d && <Pager page={page} pageSize={d.rows.pageSize} total={d.rows.total} onPage={p => {
-          if (dirtyRows.length > 0 && !window.confirm('Kaydedilmemiş değişiklikler var; sayfa değişirse kaybolur. Devam edilsin mi?')) return;
-          setDrafts({});
-          setPage(p);
-        }} />}
+        {d && <Pager page={page} pageSize={d.rows.pageSize} total={d.rows.total} onPage={setPage} />}
       </Card>
       {showUnmatched && <UnmatchedList channel={channel} />}
     </>

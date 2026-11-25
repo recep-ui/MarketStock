@@ -1102,3 +1102,18 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Kapsam dışı:** Stok Listesi → kanal sekmesindeki kural/fiyat düzenleme yerinde bırakıldı (silinmedi); ileride sadeleştirme adayı.
 
 **Doğrulama:** Entegrasyon: satırda kural alanları ve SABIT sonrası gidecek değer; birim 416/416, entegrasyon 169/169. Playwright: ADR-050 senaryosuna kanal stoğu (Trendyol 0 → diğer kanal ortak, defter değişmez → geri al); menü adları testlerde güncellendi. Tam çalıştırma makine yavaşken 19/23; menü adı kaynaklı "Tüm ekranlar" düzeltildi, Sipariş listesi ve ADR-035 tekrarda geçti; ADR-036 (Eşleştirme, bu değişiklikle ilgisiz) hâlâ kararsız. Deneme modunda görsel kontrol.
+
+
+## ADR-052: Stok Listesi kanal sekmesi stok ve fiyatta salt okuma
+
+**Tarih:** 2026-11-25 · **Durum:** Kabul
+
+**Bağlam:** Stok/fiyat düzenleme hem Stok Listesi → kanal sekmesinde (ADR-042) hem Fiyat & Stok Düzenle'de (ADR-050/051) vardı. Kullanıcı kanal sekmesinin yalnızca görüntüleme olmasını istedi.
+
+**Karar:**
+- Kanal sekmesindeki "Stok ve fiyat" sütunu salt okuma özeti oldu (`ListingSummary`): stok ayarı (ortak stok / kanala özel N / en fazla N), gidecek ve son gönderilen stok, fiyat (elle rozeti, kanalda görünen, son gönderilen). Kural/fiyat alanları, kaydet çubuğu ve taslak mantığı kaldırıldı.
+- Satırdaki "Düzenle →" bağlantısı `/urun-duzenle?ara=<SKU>` açar; Fiyat & Stok Düzenle `ara` parametresiyle aranmış başlar.
+- "Doğru eşleşme, onayla" / "Onayı geri al" yerinde kaldı: stok/fiyat değil eşleşme kontrolüdür (ADR-036) ve başka ekranda yoktur.
+- API değişmedi (`PUT /api/stock/listings/{id}/rule`, `PUT /api/prices/listings/{id}/override` Fiyat & Stok Düzenle ve diğer istemciler için duruyor).
+
+**Doğrulama:** TypeScript derlemesi temiz. Playwright: ADR-042 senaryosu salt okuma + "Düzenle" yönlendirmesi olarak yeniden yazıldı ve geçti; ADR-035, ADR-050 geçti; "Tüm ekranlar" ilk koşuda Raporlar yavaş yüklendiği için zaman aşımına uğradı, tekrarda geçti. Arka uç değişmediği için birim/entegrasyon yeniden çalıştırılmadı.

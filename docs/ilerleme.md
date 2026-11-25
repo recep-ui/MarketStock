@@ -7,6 +7,10 @@
 
 ---
 
+## Stok Listesi kanal sekmesi salt okuma (2026-11-25, ADR-052)
+
+- Kanal sekmesinde stok/fiyat yalnızca gösterilir; satırdaki "Düzenle →" Fiyat & Stok Düzenle'yi o SKU ile açar.
+
 ## Kanal bazlı stok + menü sadeleştirme (2026-11-25, ADR-051)
 
 - Fiyat & Stok Düzenle: kanal hücresinde "kanal stoğu" kutusu (boş = ortak, sayı = o kanala sabit; defteri aşmaz).

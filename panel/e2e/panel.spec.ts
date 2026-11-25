@@ -223,7 +223,7 @@ test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan 
   await expect(page.getByRole('button', { name: 'Doğru eşleşme, onayla' })).toHaveCount(0);
 });
 
-test('Kanal sekmesinde tek yerden stok kuralı ve ilan fiyatı kaydedilir; görsel alanı ve fiyat yeteneği görünür (ADR-042)', async ({ page }) => {
+test('Kanal sekmesi stok ve fiyatı yalnızca gösterir; Düzenle, Fiyat & Stok Düzenle ekranını SKU ile açar (ADR-042, ADR-052)', async ({ page }) => {
   const d = demo();
   await login(page);
   await page.goto('/stok?kanal=TRENDYOL');
@@ -236,27 +236,18 @@ test('Kanal sekmesinde tek yerden stok kuralı ve ilan fiyatı kaydedilir; görs
   // Demo ilanlarda kanal görseli yok: yer tutucu gösterilir (gerçek kanalda kanalın https görseli)
   await expect(row.getByLabel('görsel yok')).toBeVisible();
 
-  // Üst limit 1 + ilana özel fiyat → tek "Kaydet"
-  await row.getByLabel('Stok kuralı').selectOption('UST_LIMIT');
-  await row.getByLabel('Stok adedi').fill('1');
-  await row.getByLabel('İlan satış fiyatı').fill('123,45');
-  await expect(page.getByTestId('save-bar')).toContainText('1 ilanda kaydedilmemiş değişiklik');
-  await page.getByTestId('save-all').click();
-  await expect(page.getByTestId('save-result')).toContainText('1 ilan kaydedildi');
-  await expect(row.getByTestId('listing-target')).toHaveText('1');
-  await expect(row.getByLabel('Stok kuralı')).toHaveValue('UST_LIMIT');
-  await expect(row.getByLabel('İlan satış fiyatı')).toHaveValue('123.45');
+  // Salt okuma: stok kuralı ve fiyat özeti var, düzenleme alanı ve kaydet yok
+  await expect(row.getByTestId('listing-rule')).toHaveText('ortak stok');
+  await expect(row.getByTestId('listing-target')).toBeVisible();
+  await expect(row.getByLabel('Stok kuralı')).toHaveCount(0);
+  await expect(row.getByLabel('İlan satış fiyatı')).toHaveCount(0);
+  await expect(page.getByTestId('save-all')).toHaveCount(0);
 
-  // Geçersiz değer kaydedilemez
-  await row.getByLabel('Stok adedi').fill('-3');
-  await expect(page.getByTestId('save-all')).toBeDisabled();
-
-  // Geri al: ortak havuz + fiyat boş (diğer senaryoları etkilemesin)
-  await row.getByLabel('Stok kuralı').selectOption('');
-  await row.getByLabel('İlan satış fiyatı').fill('');
-  await page.getByTestId('save-all').click();
-  await expect(page.getByTestId('save-result')).toContainText('1 ilan kaydedildi');
-  await expect(row.getByLabel('Stok kuralı')).toHaveValue('');
+  // Düzenle → ürün aranmış olarak Fiyat & Stok Düzenle
+  await row.getByTestId('listing-edit-link').click();
+  await expect(page.getByRole('heading', { name: 'Fiyat & Stok Düzenle' })).toBeVisible();
+  await expect(page.getByLabel('Fiyat ürün ara')).toHaveValue(d.skuCodes[0]);
+  await expect(page.getByTestId('sku-price-row').filter({ hasText: d.skuCodes[0] })).toHaveCount(1);
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 

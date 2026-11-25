@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { ApiError, get, post, put, qs, type Channel, type ChannelPriceInfo, type Paged, type SkuChannelPrice, type SkuPriceOverview } from '../api';
 import { useAuth } from '../auth';
 import { Card, ChannelBadge, ChannelLink, ErrorBox, Thumb, useLoad } from '../components/ui';
@@ -162,8 +163,9 @@ function ChannelCell({ c, draft, ruleDraft, editable, onDraft, onRuleDraft }: {
 export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[]; refreshKey: number; onChanged: (m: string) => void }) {
   const { can } = useAuth();
   const editable = can('admin');
-  const [input, setInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [params] = useSearchParams(); // ?ara=SKU: Stok Listesi kanal sekmesindeki "Düzenle" bağlantısı (ADR-052)
+  const [input, setInput] = useState(() => params.get('ara') ?? '');
+  const [search, setSearch] = useState(() => params.get('ara') ?? '');
   const [page, setPage] = useState(1);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [stockDrafts, setStockDrafts] = useState<StockDrafts>({});
