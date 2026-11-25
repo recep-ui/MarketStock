@@ -1117,3 +1117,48 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - API değişmedi (`PUT /api/stock/listings/{id}/rule`, `PUT /api/prices/listings/{id}/override` Fiyat & Stok Düzenle ve diğer istemciler için duruyor).
 
 **Doğrulama:** TypeScript derlemesi temiz. Playwright: ADR-042 senaryosu salt okuma + "Düzenle" yönlendirmesi olarak yeniden yazıldı ve geçti; ADR-035, ADR-050 geçti; "Tüm ekranlar" ilk koşuda Raporlar yavaş yüklendiği için zaman aşımına uğradı, tekrarda geçti. Arka uç değişmediği için birim/entegrasyon yeniden çalıştırılmadı.
+
+
+## ADR-053: Şüpheli eşleşmeleri öne çıkarma: ebat karşılaştırması, "İncelenecek eşleşmeler" süzgeci, varyant değişince yeniden inceleme
+
+**Tarih:** 2026-11-25 · **Durum:** Kabul
+
+**Bağlam:** Eşleştirme ekranında kanal ürünü ile iç SKU yan yana duruyordu (ADR-044), ama farkı fark etmek operatöre kalıyordu. Ürün sahibinin istekleri:
+- İncelenecek eşleşmeler için bir süzgeç.
+- İç SKU 70×140 Antrasit, kanal varyantı 50×90 Antrasit ise satırda "Ebat farklı" yazsın.
+- Alan boşsa "Ebat bilgisi eksik" yazsın.
+- Önceden onaylanmış ilanın barkodu veya varyantı sonradan değişirse ilan yeniden incelemeye düşsün.
+
+Önceki durum: beden metin olarak karşılaştırılıyordu, bu yüzden "70x140" ile "70 x 140 cm" farklı sayılıyordu. Alan boşsa uyarı çıkmıyordu. Kanal varyant metni onay imzasında yoktu.
+
+**Karar:**
+- **Ebat okuma: saf `SizeDimensions.Parse`.** "70x140", "70 × 140 cm", "140*70", "200x220x30" ve "1,5x2" biçimlerini okur.
+  - Sayılar küçükten büyüğe sıralanır, yani "140x70" = "70x140".
+  - Metinde birden fazla farklı ebat varsa (ör. set ürünü) ebat okunmaz, null döner.
+- **Ebatın okunduğu yer, sırayla:**
+  - Kanal tarafı: beden/ebat alanı, sonra kanal varyant metni ("Ebat: 50x90"), sonra kanal ürün adı.
+  - SKU tarafı: beden alanı, sonra ürün adı.
+- **Uyarılar (`ListingMatchCheck`):**
+  - `EBAT_FARKLI` "Ebat farklı": iki tarafta da ebat var ve sayılar farklı.
+  - `BEDEN_FARKLI`: ebat ölçüsü olmayan bedenler (S/M/L…) önceki gibi metin olarak karşılaştırılır.
+  - `EBAT_EKSIK` "Ebat bilgisi eksik": bir tarafta beden/ebat var, diğerinde hiç yok.
+  - Kanalın ürün bilgisi hiç okunmamışsa (ad, varyant ve beden yok; ör. elle girilmiş ilan) kanal tarafı "bilinmiyor" sayılır ve eksik denmez. Böylece kataloğu çekilmemiş ilanlar listeyi doldurmaz.
+- **Onay imzası v2:** Kanal varyant metni de imzaya girer (`CatalogText.Normalize`; yalnızca biçim farkı imzayı bozmaz). Barkod zaten imzadaydı.
+  - Onaydan sonra barkod veya varyant değişirse onay geçersiz olur ve ilan yeniden incelemeye düşer.
+  - **Yan etki:** Bu sürümden önceki onayların imzası v1'dir. Uyarısı süren ve daha önce onaylanmış ilanlar bir kez "önceki onay geçersiz" olarak görünür, yeniden onaylanmaları gerekir. Bu bilinçli bir seçim: eski onay varyantı kapsamadığı için sessizce geçerli sayılmaz.
+- **`GET /api/listings?onlyReview=true`:** Satır uyarıları, onay ve `NeedsReview` kanal sekmesiyle aynı okuyucudan gelir. Kanal adı yedeği ve onay imzası iki ekranda tutarlıdır.
+  - Satırlara `warnings`, `approval` ve `needsReview` eklendi.
+  - Süzgeç açıkken aramaya uyan ilanların tamamı okunur, bellekte süzülür ve sonra sayfalanır, çünkü uyarılar SQL'de hesaplanmıyor.
+  - Süzgeç kapalıyken yalnızca sayfadaki ilanlar okunur.
+- **Panel (Eşleştirme):**
+  - "İncelenecek eşleşmeler" kutusu ve "N eşleşme incelenmeli" notu.
+  - Satırda uyarı etiketleri: Ebat farklı, Ebat bilgisi eksik, Barkod farklı vb.
+  - "✓ Doğru eşleşme" rozeti ve "Önceki onay geçersiz" notu.
+  - "İncele / onayla →" bağlantısı Stok Listesi kanal sekmesini SKU aranmış ve "Yalnızca kontrol gerekenler" açık hâlde getirir (`?ara=`). Onay ve geri alma orada kalır (ADR-036).
+- **Eşleştirme (`ChannelListing.SkuId`) değişmez;** uyarılar yalnızca bilgi verir.
+
+**Doğrulama:**
+- **Birim:** `ListingSizeCheckTests` 22 test: ebat okuma, farklı/aynı ebat, varyanttan ve addan okuma, eksik, bilinmeyen kanal, metin beden, varyantla imza. Ayrıca `ListingMatchCheckTests` güncellendi (70×140 ↔ 50×90 artık `EBAT_FARKLI`). Birim testleri 438/438.
+- **Entegrasyon:** `ListingReviewFilterTests` 2 test: süzgeç farklı ve eksik ebatlı ilanları getirir; onaylanan çıkar; varyant veya barkod değişince geri döner. `ListingMatchApprovalTests` test verisine kanal bedeni eklendi, aksi hâlde "sorunsuz" ilan yeni kuralla "Ebat bilgisi eksik" alıyordu. Entegrasyon 171/171.
+- **Playwright:** ADR-044 senaryosu süzgeç ve "İncele / onayla" akışıyla güncellendi; ADR-035 ve ADR-036 ile birlikte geçti.
+- **Deneme veritabanı (gerçek katalog, salt okunur sayım):** Trendyol 584 ilan, Beymen 194 ilan. Yeni ebat kuralları ek uyarı üretmedi; uyarılı ilanlar Trendyol'da 2, Beymen'de 1 (önceki kurallar).

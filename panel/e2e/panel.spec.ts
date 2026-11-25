@@ -157,7 +157,7 @@ test('Stok Listesi kanal sekmeleri: her pazaryerinin listesi ayrı; olası yanl�
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-test('Eşleştirme listesi kanaldaki ürünü bağlı SKU ile yan yana gösterir; uyarılı eşleşmeden kanal sekmesine gidilir (ADR-044)', async ({ page }) => {
+test('Eşleştirme listesi kanaldaki ürünü bağlı SKU ile yan yana gösterir; İncelenecek eşleşmeler süzgecinden kanal sekmesine gidilir (ADR-044, ADR-053)', async ({ page }) => {
   const d = demo();
   await login(page);
   await page.getByRole('navigation').getByRole('link', { name: 'Eşleştirme', exact: true }).click();
@@ -171,12 +171,20 @@ test('Eşleştirme listesi kanaldaki ürünü bağlı SKU ile yan yana gösterir
   await expect(rows.first().getByTestId('listing-channel-side')).toBeVisible();
   await expect(rows.first().getByTestId('listing-sku-side')).toContainText(`DEMO-${d.tag}`);
   await expect(rows.first().getByTestId('listing-match').locator('.badge')).toBeVisible();
-  // Çoklanan ilan: barkod farklı → uyarı bağlantısı kanal sekmesine götürür
-  const multi = rows.filter({ hasText: d.multiListingSkuCode }).filter({ has: page.getByText(/uyarı, kontrol et/) });
-  await expect(multi).toHaveCount(1);
-  await multi.getByText(/uyarı, kontrol et/).click();
+  // ADR-053: "İncelenecek eşleşmeler" süzgeci yalnızca uyarılı (onaysız) ilanı bırakır; satırda uyarı etiketi görünür
+  await card.getByTestId('only-review').check();
+  await expect(rows).toHaveCount(1);
+  await expect(page.getByTestId('review-count')).toContainText('1 eşleşme incelenmeli');
+  const multi = rows.first();
+  await expect(multi).toContainText(d.multiListingSkuCode);
+  await expect(multi.getByTestId('listing-warnings')).toContainText('Barkod farklı');
+  // "İncele / onayla" kanal sekmesini SKU aranmış ve yalnızca kontrol gerekenler açık getirir
+  await multi.getByRole('link', { name: /İncele \/ onayla/ }).click();
   await expect(page).toHaveURL(/\/stok\?kanal=TRENDYOL/);
-  await expect(page.getByTestId('channel-stock-table')).toBeVisible();
+  await expect(page.getByLabel('Kanal ilanlarında bul')).toHaveValue(d.multiListingSkuCode);
+  await expect(page.getByLabel('Yalnızca kontrol gerekenler')).toBeChecked();
+  await expect(page.getByTestId('channel-stock-row')).toHaveCount(1);
+  await expect(page.getByTestId('channel-stock-row').first().getByRole('button', { name: 'Doğru eşleşme, onayla' })).toBeVisible();
 });
 
 test('Doğru eşleşme onayı: uyarı Kontrol et listesinden çıkar, onaylayan görünür, geri alınınca döner; Destek onaylayamaz (ADR-036)', async ({ page }) => {

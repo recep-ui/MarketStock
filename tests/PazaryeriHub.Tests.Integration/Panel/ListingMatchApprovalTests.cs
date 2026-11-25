@@ -47,12 +47,12 @@ public sealed class ListingMatchApprovalTests(TestDatabase db)
         var clean = await c.ExecuteScalarAsync<int>(insert, new
         {
             skuId, channelId, code = "ONY-OK-" + tag, barcode = skuBarcode,
-            data = JsonSerializer.Serialize(new { urunAdi = "Onay Havlu " + tag, renk = "Beyaz" })
+            data = JsonSerializer.Serialize(new { urunAdi = "Onay Havlu " + tag, renk = "Beyaz", beden = "50x90" }) // ADR-053: ebatsız ilan "Ebat bilgisi eksik" alır
         });
         var suspect = await c.ExecuteScalarAsync<int>(insert, new
         {
             skuId, channelId, code = "ONY-X-" + tag, barcode = Barcode(),
-            data = JsonSerializer.Serialize(new { urunAdi = "Onay Havlu " + tag, renk = "Lacivert" })
+            data = JsonSerializer.Serialize(new { urunAdi = "Onay Havlu " + tag, renk = "Lacivert", beden = "50x90" })
         });
         return new Setup(tag, channelId, skuId, clean, suspect);
     }

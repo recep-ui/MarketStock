@@ -30,6 +30,10 @@ public static class MatchWarnings
     public const string StockCodeDiffers = "STOK_KODU_FARKLI";
     public const string ColorDiffers = "RENK_FARKLI";
     public const string SizeDiffers = "BEDEN_FARKLI";
+    /// <summary>İki tarafta da ebat ölçüsü var ve farklı (ADR-053).</summary>
+    public const string DimensionDiffers = "EBAT_FARKLI";
+    /// <summary>Bir tarafta beden/ebat var, diğerinde hiç yok (ADR-053).</summary>
+    public const string DimensionMissing = "EBAT_EKSIK";
     public const string NameDiffers = "AD_BENZEMIYOR";
 }
 
@@ -68,10 +72,7 @@ public static class ListingMatchCheck
         {
             warnings.Add(new(MatchWarnings.ColorDiffers, $"Renk farklı: kanalda {channel.Color}, SKU'da {ledger.Color}."));
         }
-        if (Differs(channel.Size, ledger.Size))
-        {
-            warnings.Add(new(MatchWarnings.SizeDiffers, $"Beden/ebat farklı: kanalda {channel.Size}, SKU'da {ledger.Size}."));
-        }
+        AddSizeWarning(channel, ledger, warnings);
         if (Has(channel.Name) && Has(ledger.ProductName)
             && ChannelCatalogMatcher.NameSimilarity(channel.Name, ledger.ProductName) < NameSimilarityThreshold)
         {
@@ -83,7 +84,7 @@ public static class ListingMatchCheck
     }
 
     /// <summary>
-    /// Onay imzası (ADR-036): SKU, iki taraftaki barkod/kod/ad/renk/beden ve uyarı kodları (sırasız). Metinler
+    /// Onay imzası (ADR-036): SKU, iki taraftaki barkod/kod/ad/renk/beden, kanal varyant metni (ADR-053, "v2") ve uyarı kodları (sırasız). Metinler
     /// <see cref="CatalogText.Normalize"/>, kodlar kırpılarak girer; yalnızca biçim farkı imzayı bozmaz. SHA-256, küçük harf hex.
     /// </summary>
     public static string Signature(int skuId, ChannelSide channel, LedgerSide ledger, IReadOnlyList<MatchWarning> warnings)
@@ -94,14 +95,54 @@ public static class ListingMatchCheck
         static string Code(string? v) => v?.Trim() ?? "";
         var parts = new[]
         {
-            "v1", skuId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            "v2", skuId.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Code(ledger.SkuCode).ToUpperInvariant(), Code(ledger.Barcode), CatalogText.Normalize(ledger.ProductName),
             CatalogText.Normalize(ledger.Color), CatalogText.Normalize(ledger.Size),
             Code(channel.Barcode), Code(channel.ProductCode), Code(channel.StockCode).ToUpperInvariant(), CatalogText.Normalize(channel.Name),
-            CatalogText.Normalize(channel.Color), CatalogText.Normalize(channel.Size),
+            CatalogText.Normalize(channel.Color), CatalogText.Normalize(channel.Size), CatalogText.Normalize(channel.Variant),
             string.Join(',', warnings.Select(w => w.Code).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         };
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001F', parts))));
+    }
+
+    /// <summary>
+    /// Beden/ebat kontrolü (ADR-053). Ebat önce beden/ebat alanından, alan boşsa kanal varyant metninden, o da yoksa addan okunur.
+    /// İki tarafta da ebat ölçüsü varsa sayı olarak karşılaştırılır (EBAT_FARKLI); değilse iki alan metin olarak (BEDEN_FARKLI).
+    /// Bir tarafta beden/ebat varken diğerinde hiç yoksa EBAT_EKSIK. Kanalın ürün bilgisi hiç okunmamışsa (ad ve varyant yok)
+    /// kanal tarafı "bilinmiyor" sayılır, eksik denmez.
+    /// </summary>
+    private static void AddSizeWarning(ChannelSide channel, LedgerSide ledger, List<MatchWarning> warnings)
+    {
+        var channelDims = SizeDimensions.Parse(channel.Size) ?? SizeDimensions.Parse(channel.Variant) ?? SizeDimensions.Parse(channel.Name);
+        var ledgerDims = SizeDimensions.Parse(ledger.Size) ?? SizeDimensions.Parse(ledger.ProductName);
+        if (channelDims is not null && ledgerDims is not null)
+        {
+            if (channelDims != ledgerDims)
+            {
+                warnings.Add(new(MatchWarnings.DimensionDiffers,
+                    $"Ebat farklı: kanalda {SizeDimensions.Display(channelDims)}, SKU'da {SizeDimensions.Display(ledgerDims)}."));
+            }
+            return;
+        }
+        if (Has(channel.Size) && Has(ledger.Size))
+        {
+            if (Differs(channel.Size, ledger.Size))
+            {
+                warnings.Add(new(MatchWarnings.SizeDiffers, $"Beden/ebat farklı: kanalda {channel.Size}, SKU'da {ledger.Size}."));
+            }
+            return;
+        }
+        var channelSize = channelDims is not null ? SizeDimensions.Display(channelDims) : channel.Size?.Trim();
+        var ledgerSize = ledgerDims is not null ? SizeDimensions.Display(ledgerDims) : ledger.Size?.Trim();
+        var channelKnown = Has(channel.Name) || Has(channel.Variant) || Has(channel.Size);
+        if (Has(ledgerSize) && !Has(channelSize) && channelKnown)
+        {
+            warnings.Add(new(MatchWarnings.DimensionMissing, $"Ebat bilgisi eksik: kanalda yok, SKU'da {ledgerSize}."));
+        }
+        else if (Has(channelSize) && !Has(ledgerSize))
+        {
+            warnings.Add(new(MatchWarnings.DimensionMissing, $"Ebat bilgisi eksik: SKU'da yok, kanalda {channelSize}."));
+        }
     }
 
     private static bool Has(string? value) => !string.IsNullOrWhiteSpace(value);

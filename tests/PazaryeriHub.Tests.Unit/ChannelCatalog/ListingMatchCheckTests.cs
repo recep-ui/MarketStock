@@ -78,7 +78,8 @@ public sealed class ListingMatchCheckTests
         Codes(ListingMatchCheck.Evaluate(Channel(color: "BEYAZ", size: "50X90"), Ledger)).Should().BeEmpty();
 
         var r = ListingMatchCheck.Evaluate(Channel(color: "Lacivert", size: "70x140"), Ledger);
-        Codes(r).Should().Contain([MatchWarnings.ColorDiffers, MatchWarnings.SizeDiffers]);
+        // ADR-053: iki taraf da ebat ölçüsüyse fark "Ebat farklı" (EBAT_FARKLI) olarak uyarılır
+        Codes(r).Should().Contain([MatchWarnings.ColorDiffers, MatchWarnings.DimensionDiffers]);
         r.Warnings.Single(w => w.Code == MatchWarnings.ColorDiffers).Message.Should().Contain("Lacivert").And.Contain("Beyaz");
     }
 

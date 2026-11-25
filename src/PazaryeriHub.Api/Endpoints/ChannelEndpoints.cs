@@ -141,8 +141,8 @@ public static class ChannelEndpoints
             .RequireAuthorization(Policies.Admin);
 
         var listings = app.MapGroup("/api/listings").WithTags("Eşleştirme").RequireAuthorization(Policies.Read);
-        listings.MapGet("/", (IChannelService s, int? channelId, string? search, int? page, int? pageSize, CancellationToken ct) =>
-            s.SearchListingsAsync(channelId, search, page, pageSize, ct));
+        listings.MapGet("/", (IChannelService s, int? channelId, string? search, int? page, int? pageSize, bool? onlyReview, CancellationToken ct) =>
+            s.SearchListingsAsync(channelId, search, page, pageSize, ct, onlyReview ?? false));
         listings.MapPut("/", (IChannelService s, ListingInput input, CancellationToken ct) => s.UpsertListingAsync(input, ct))
             .RequireAuthorization(Policies.CatalogWrite);
         // "Doğru eşleşme" onayı (ADR-036): yalnızca uyarıyı kapatır, eşleştirmeyi değiştirmez. Eşleştirme yetkisiyle aynı (Yönetici).

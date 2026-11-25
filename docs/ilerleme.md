@@ -7,6 +7,12 @@
 
 ---
 
+## Şüpheli eşleşmeler (2026-11-25, ADR-053)
+
+- Eşleştirme ekranında "İncelenecek eşleşmeler" süzgeci; satırda "Ebat farklı", "Ebat bilgisi eksik" vb. etiketler.
+- Ebat sayı olarak karşılaştırılır (70x140 = 70 × 140 cm); alan boşsa varyant metninden, sonra addan okunur.
+- Onay imzasına kanal varyantı eklendi: onaydan sonra barkod/varyant değişirse ilan yeniden incelemeye düşer (eski onaylar bir kez yenilenmeli).
+
 ## Stok Listesi kanal sekmesi salt okuma (2026-11-25, ADR-052)
 
 - Kanal sekmesinde stok/fiyat yalnızca gösterilir; satırdaki "Düzenle →" Fiyat & Stok Düzenle'yi o SKU ile açar.

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockList, type ChannelStockListRow, type Paged, type SaleState, type UnmatchedItem } from '../api';
 import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
@@ -13,9 +13,9 @@ export const basisLabels: Record<ChannelStockListRow['matchBasis'], { text: stri
   DIGER: { text: 'Kodla doğrulanamadı', title: 'Barkod ve stok kodu eşleşmeyi doğrulamıyor (elle bağlama, model eşleşmesi veya kanal kodu bilinmiyor)' }
 };
 
-const warningLabels: Record<string, string> = {
+export const warningLabels: Record<string, string> = {
   BARKOD_FARKLI: 'Barkod farklı', STOK_KODU_FARKLI: 'Stok kodu farklı', RENK_FARKLI: 'Renk farklı',
-  BEDEN_FARKLI: 'Beden farklı', AD_BENZEMIYOR: 'Ad benzemiyor'
+  BEDEN_FARKLI: 'Beden farklı', EBAT_FARKLI: 'Ebat farklı', EBAT_EKSIK: 'Ebat bilgisi eksik', AD_BENZEMIYOR: 'Ad benzemiyor'
 };
 
 export const variantText = (color: string | null, size: string | null) => [color, size].filter(Boolean).join(' / ');
@@ -40,7 +40,10 @@ const saleStateLabels: Record<SaleState, { text: string; tone?: string; title: s
 const saleStates: SaleState[] = ['SATISTA', 'STOK_YOK', 'SATIS_DISI', 'BILINMIYOR'];
 
 export function ChannelStockTab({ channel }: { channel: Channel }) {
-  const [form, setForm] = useState({ search: '', onlyDeviations: false, onlyReview: false, saleState: '' as SaleState | '' });
+  // ADR-053: Eşleştirme ekranındaki "İncele / onayla" bağlantısı ?ara=SKU ile gelir; arama dolu ve yalnızca kontrol gerekenler açık başlar
+  const [params] = useSearchParams();
+  const initialSearch = params.get('ara') ?? '';
+  const [form, setForm] = useState({ search: initialSearch, onlyDeviations: false, onlyReview: initialSearch !== '', saleState: '' as SaleState | '' });
   const [applied, setApplied] = useState(form);
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<number | null>(null);

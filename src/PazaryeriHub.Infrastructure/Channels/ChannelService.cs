@@ -9,7 +9,7 @@ using PazaryeriHub.Infrastructure.Persistence;
 namespace PazaryeriHub.Infrastructure.Channels;
 
 /// <summary>Kanal ayarları ve SKU ↔ kanal ürün eşleştirmeleri (EF Core).</summary>
-public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
+public sealed class ChannelService(PazaryeriHubDbContext db, PazaryeriHub.Infrastructure.Panel.PanelQueryService panel) : IChannelService
 {
     public async Task<IReadOnlyList<ChannelDto>> GetChannelsAsync(CancellationToken ct) =>
         await db.Channels.AsNoTracking().OrderBy(c => c.Id)
@@ -48,7 +48,8 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
             channel.EncryptedCredentials is not null);
     }
 
-    public async Task<PagedResult<ListingDto>> SearchListingsAsync(int? channelId, string? search, int? page, int? pageSize, CancellationToken ct)
+    public async Task<PagedResult<ListingDto>> SearchListingsAsync(int? channelId, string? search, int? page, int? pageSize, CancellationToken ct,
+        bool onlyReview = false)
     {
         var (p, size) = Paging.Normalize(page, pageSize);
         var term = Text.Clean(search);
@@ -69,29 +70,48 @@ public sealed class ChannelService(PazaryeriHubDbContext db) : IChannelService
                 || l.Sku.Product.Name.Contains(term) || byChannelName.Contains(l.Id));
         }
 
-        var total = await query.CountAsync(ct);
-        var rows = await query.OrderBy(l => l.Sku.SkuCode).ThenBy(l => l.ChannelId)
-            .Skip((p - 1) * size).Take(size)
+        // Uyarı ve onay durumu kanal sekmesiyle aynı okuyucudan (ADR-035/036/053): kanal adı yedeği ve onay imzası tutarlı kalır.
+        // "İncelenecekler" bellekte süzülür (uyarı SQL'de hesaplanmaz): aramaya uyan tüm ilanlar okunur, sonra sayfalanır.
+        int total;
+        List<int> pageIds;
+        Dictionary<int, PazaryeriHub.Application.Panel.ChannelStockListRow> review;
+        var ordered = query.OrderBy(l => l.Sku.SkuCode).ThenBy(l => l.ChannelId).ThenBy(l => l.Id);
+        if (onlyReview)
+        {
+            var ids = await ordered.Select(l => l.Id).ToListAsync(ct);
+            review = await panel.ReadReviewRowsAsync(channelId, term is null ? null : ids, ct);
+            var matching = ids.Where(id => review.TryGetValue(id, out var r) && r.NeedsReview).ToList();
+            total = matching.Count;
+            pageIds = matching.Skip((p - 1) * size).Take(size).ToList();
+        }
+        else
+        {
+            total = await query.CountAsync(ct);
+            pageIds = await ordered.Skip((p - 1) * size).Take(size).Select(l => l.Id).ToListAsync(ct);
+            review = await panel.ReadReviewRowsAsync(null, pageIds, ct);
+        }
+
+        var rows = await db.Listings.AsNoTracking().Where(l => pageIds.Contains(l.Id))
             .Select(l => new
             {
                 Dto = new ListingDto(l.Id, l.SkuId, l.Sku.SkuCode, l.ChannelId, l.Channel.Code,
                     l.ChannelProductCode, l.ChannelBarcode, l.Status, l.LastSentStock, l.LastSyncUtc, null, null),
                 l.ChannelDataJson,
-                ProductName = l.Sku.Product.Name, Brand = l.Sku.Product.Brand, SkuBarcode = l.Sku.Barcode, l.Sku.Color, l.Sku.Size
+                ProductName = l.Sku.Product.Name, SkuBarcode = l.Sku.Barcode, l.Sku.Color, l.Sku.Size
             })
             .ToListAsync(ct);
-        var items = rows.Select(r =>
+        var byId = rows.ToDictionary(r => r.Dto.Id);
+        var items = pageIds.Where(byId.ContainsKey).Select(id =>
         {
+            var r = byId[id];
             var data = ListingChannelData.Parse(r.ChannelDataJson);
-            // Eşleşme dayanağı ve uyarı sayısı kanal sekmesindeki kontrolle aynı kuraldan (ADR-035); onay durumu orada izlenir
-            var check = PazaryeriHub.Application.Panel.ListingMatchCheck.Evaluate(
-                new(r.Dto.ChannelBarcode, r.Dto.ChannelProductCode, data.StockCode, data.Name, data.Brand, data.Color, data.Size, data.Variant),
-                new(r.Dto.SkuCode, r.SkuBarcode, r.ProductName, r.Brand, r.Color, r.Size));
+            var check = review.GetValueOrDefault(id);
             return r.Dto with
             {
-                ProductUrl = data.ProductUrl, Variant = data.Variant, ChannelName = data.Name, ImageUrl = data.ImageUrl,
+                ProductUrl = data.ProductUrl, Variant = data.Variant, ChannelName = check?.Channel.Name ?? data.Name, ImageUrl = data.ImageUrl,
                 ChannelStatus = data.ChannelStatus, ProductName = r.ProductName, SkuBarcode = r.SkuBarcode, SkuColor = r.Color, SkuSize = r.Size,
-                MatchBasis = check.Basis, WarningCount = check.Warnings.Count
+                MatchBasis = check?.MatchBasis, WarningCount = check?.Warnings.Count ?? 0,
+                Warnings = check?.Warnings ?? [], Approval = check?.Approval, NeedsReview = check?.NeedsReview ?? false
             };
         }).ToList();
 

@@ -8,7 +8,7 @@ import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoa
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ChannelCatalogFetch, ChannelCatalogImport, UnmatchedChannelItems } from './ChannelCatalog';
-import { basisLabels, variantText } from './ChannelStockTab';
+import { basisLabels, variantText, warningLabels } from './ChannelStockTab';
 
 // ADR-044: her satırda kanalın bildirdiği ürün (görsel, ad, kodlar, varyant) ↔ bağlı SKU (ürün adı, renk/beden, barkod) yan yana
 const columns: ColumnDef<Listing>[] = [
@@ -56,10 +56,24 @@ const columns: ColumnDef<Listing>[] = [
       return (
         <div data-testid="listing-match">
           {basis && <span className={`badge${basis.tone ? ' ' + basis.tone : ''}`} title={basis.title}>{basis.text}</span>}
-          {(r.warningCount ?? 0) > 0 && (
+          {r.approval?.valid && <div className="small"><span className="badge ok" title={`${r.approval.approvedBy ?? '—'} · ${formatDateTime(r.approval.approvedAtUtc)}`}>✓ Doğru eşleşme</span></div>}
+          {r.approval && !r.approval.valid && (
+            <div className="small warn-text" data-testid="listing-approval-outdated">Önceki onay geçersiz: barkod, varyant veya ürün bilgisi onaydan sonra değişti.</div>
+          )}
+          {(r.warnings?.length ?? 0) > 0 && (
+            <ul className={`match-warnings${r.approval?.valid ? ' approved' : ''}`} data-testid="listing-warnings">
+              {r.warnings!.map(w => (
+                <li key={w.code} title={w.message}>
+                  <span aria-hidden="true">⚠ </span><strong>{warningLabels[w.code] ?? w.code}</strong>
+                  <span className="small">: {w.message.includes(': ') ? w.message.slice(w.message.indexOf(': ') + 2) : w.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {r.needsReview && (
             <div className="small">
-              <Link to={`/stok?kanal=${r.channelCode}`} title="Stok Listesi → kanal sekmesinde uyarıları ve onay durumunu görün">
-                ⚠ {r.warningCount} uyarı, kontrol et
+              <Link to={`/stok?kanal=${r.channelCode}&ara=${encodeURIComponent(r.skuCode)}`} title="Stok Listesi → kanal sekmesinde 'Doğru eşleşme, onayla' veya eşleştirmeyi düzeltin">
+                İncele / onayla →
               </Link>
             </div>
           )}
@@ -83,7 +97,8 @@ export function MappingPage() {
   const { can } = useAuth();
   const [channelId, setChannelId] = useState('');
   const [search, setSearch] = useState('');
-  const [applied, setApplied] = useState({ channelId: '', search: '' });
+  const [onlyReview, setOnlyReview] = useState(false);
+  const [applied, setApplied] = useState({ channelId: '', search: '', onlyReview: false });
   const [page, setPage] = useState(1);
   const [refreshKey, setRefreshKey] = useState(0);
   const channels = useLoad(() => get<Channel[]>('/api/channels'), []);
@@ -101,14 +116,24 @@ export function MappingPage() {
       <UnmatchedChannelItems channels={channels.data ?? []} canWrite={can('catalogWrite')} refreshKey={refreshKey} onLinked={listings.reload} />
       {can('catalogWrite') && <ListingForm channels={channels.data ?? []} onDone={listings.reload} />}
       <Card title="Eşleştirmeler">
-        <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied({ channelId, search }); }}>
+        <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied({ channelId, search, onlyReview }); }}>
           <select aria-label="Kanal" value={channelId} onChange={e => setChannelId(e.target.value)}>
             <option value="">Tüm kanallar</option>
             {(channels.data ?? []).map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}</option>)}
           </select>
           <input placeholder="SKU, kanal kodu, barkod, ürün adı veya kanaldaki ad" value={search} onChange={e => setSearch(e.target.value)} aria-label="Ara" />
+          <label className="inline" title="Uyarısı olan (ebat/renk/barkod farklı, ebat bilgisi eksik…) ve geçerli 'doğru eşleşme' onayı olmayan eşleşmeler">
+            <input type="checkbox" checked={onlyReview} data-testid="only-review"
+              onChange={e => { setOnlyReview(e.target.checked); setPage(1); setApplied({ channelId, search, onlyReview: e.target.checked }); }} />
+            İncelenecek eşleşmeler
+          </label>
           <button type="submit">Ara</button>
         </form>
+        {applied.onlyReview && listings.data && (
+          <p className="small muted" data-testid="review-count">
+            {listings.data.total} eşleşme incelenmeli. Onaylanan eşleşmenin barkodu veya varyantı sonradan değişirse yeniden bu listeye düşer.
+          </p>
+        )}
         <ErrorBox error={listings.error} />
         <DataTable columns={columns} data={listings.data?.items ?? []} loading={listings.loading} rowTestId="listing-row" />
         {listings.data && <Pager page={page} pageSize={listings.data.pageSize} total={listings.data.total} onPage={setPage} />}

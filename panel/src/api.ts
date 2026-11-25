@@ -276,6 +276,8 @@ export type Listing = {
   channelName?: string | null; imageUrl?: string | null; channelStatus?: string | null;
   productName?: string | null; skuBarcode?: string | null; skuColor?: string | null; skuSize?: string | null;
   matchBasis?: 'BARKOD' | 'STOK_KODU' | 'DIGER' | null; warningCount?: number;
+  /** ADR-053: kanal sekmesiyle aynı uyarılar ve onay; needsReview = uyarı var ve geçerli onay yok. */
+  warnings?: MatchWarning[]; approval?: ChannelStockListRow['approval']; needsReview?: boolean;
 };
 export type Warehouse = { id: number; name: string };
 export type SkuItem = { id: number; skuCode: string; barcode: string | null; productName: string; physical: number; available: number };
@@ -373,7 +375,10 @@ export type SalesReport = {
 
 // ----------------------------------------------------------------- ADR-035: kanal bazlı stok listesi
 
-export type MatchWarning = { code: 'BARKOD_FARKLI' | 'STOK_KODU_FARKLI' | 'RENK_FARKLI' | 'BEDEN_FARKLI' | 'AD_BENZEMIYOR'; message: string };
+export type MatchWarning = {
+  code: 'BARKOD_FARKLI' | 'STOK_KODU_FARKLI' | 'RENK_FARKLI' | 'BEDEN_FARKLI' | 'EBAT_FARKLI' | 'EBAT_EKSIK' | 'AD_BENZEMIYOR';
+  message: string;
+};
 export type ChannelStockListRow = {
   listingId: number; status: string;
   channel: { barcode: string | null; productCode: string | null; stockCode: string | null; name: string | null; brand: string | null; color: string | null; size: string | null; variant: string | null };

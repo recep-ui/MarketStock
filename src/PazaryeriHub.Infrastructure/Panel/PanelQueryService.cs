@@ -199,9 +199,28 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
     /// Kanal stok listesi satırları (ADR-035/036): kanal tarafı (ilan verisi → yoksa bağlanmış eşleşmeyen kaydı), bağlı SKU,
     /// gitmesi gereken stok, uyarılar ve açık onay (imza bugünkü bilgiyle karşılaştırılır). <paramref name="listingId"/> verilirse yalnızca o ilan.
     /// </summary>
-    internal async Task<List<ChannelStockListRow>> ReadChannelRowsAsync(SqlConnection connection, int channelId, int? listingId, CancellationToken ct,
-        SqlTransaction? tx = null)
+    internal Task<List<ChannelStockListRow>> ReadChannelRowsAsync(SqlConnection connection, int channelId, int? listingId, CancellationToken ct,
+        SqlTransaction? tx = null) =>
+        ReadRowsAsync(connection, channelId, listingId is { } id ? [id] : null, withTargets: true, ct, tx);
+
+    /// <summary>
+    /// Eşleştirme ekranı için uyarı/onay satırları (ADR-053): kanal sekmesiyle aynı kural, gidecek stok hesaplanmaz (Expected = 0).
+    /// <paramref name="listingIds"/> null ise kanalın (kanal da null ise tüm kanalların) bütün ilanları.
+    /// </summary>
+    internal async Task<Dictionary<int, ChannelStockListRow>> ReadReviewRowsAsync(int? channelId, IReadOnlyCollection<int>? listingIds, CancellationToken ct)
     {
+        if (listingIds is { Count: 0 })
+        {
+            return [];
+        }
+        await using var connection = await OpenAsync(ct);
+        return (await ReadRowsAsync(connection, channelId, listingIds, withTargets: false, ct)).ToDictionary(r => r.ListingId);
+    }
+
+    private async Task<List<ChannelStockListRow>> ReadRowsAsync(SqlConnection connection, int? channelId, IReadOnlyCollection<int>? listingIds,
+        bool withTargets, CancellationToken ct, SqlTransaction? tx = null)
+    {
+        var ids = listingIds is null ? null : System.Text.Json.JsonSerializer.Serialize(listingIds);
         var listings = (await connection.QueryAsync<ChannelListingRow>(new CommandDefinition("""
             SELECT l.Id AS ListingId, l.Durum AS Status, l.KanalBarkod AS ChannelBarcode, l.KanalUrunKodu AS ChannelProductCode,
                    l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
@@ -224,11 +243,12 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
                                 OR (l.KanalUrunKodu IS NOT NULL AND i.KanalUrunKodu = l.KanalUrunKodu))
                             ORDER BY i.SonGorulme DESC, i.Id DESC) AS u
               LEFT JOIN dbo.ListingMatchApproval a ON a.ListingId = l.Id AND a.GeriAlmaTarihi IS NULL
-             WHERE l.ChannelId = @channelId AND (@listingId IS NULL OR l.Id = @listingId)
+             WHERE (@channelId IS NULL OR l.ChannelId = @channelId)
+               AND (@ids IS NULL OR l.Id IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids)))
              ORDER BY s.SkuKodu, l.Id
-            """, new { channelId, listingId }, tx, cancellationToken: ct))).ToList();
+            """, new { channelId, ids }, tx, cancellationToken: ct))).ToList();
 
-        var targets = listings.Count == 0
+        var targets = listings.Count == 0 || !withTargets
             ? new Dictionary<int, int>()
             : (await syncStore.ComputeTargetsAsync(connection, tx, listings.Select(l => l.ListingId).ToList(), ct)).ToDictionary(t => t.ListingId, t => t.Target);
 
