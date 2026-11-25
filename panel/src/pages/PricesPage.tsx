@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ApiError, get, post, put, qs, type Channel, type ChannelPriceInfo, type ChannelPriceRule, type Paged, type PriceApproval, type PriceHistory,
   type PricePreview, type SkuPrice
@@ -8,7 +9,6 @@ import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoa
 import { channelNames, formatDateTime, formatMoney } from '../format';
 import { resolveSku } from './MovementsPage';
 import { ExcelBox } from './MappingPage';
-import { SkuChannelPrices } from './SkuChannelPrices';
 
 const money = (v: number | null | undefined) => (v == null ? '—' : formatMoney(v));
 const roundingLabels: Record<string, string> = { YOK: 'Yok (kuruş)', TAM: 'Tam lira', KURUS_99: ',99', KURUS_90: ',90' };
@@ -34,10 +34,13 @@ export function PricesPage() {
 
   return (
     <>
-      <h1>Fiyat</h1>
+      <h1>Fiyat Kuralları</h1>
+      <p className="muted" data-testid="price-page-hint">
+        Ürün ürün fiyat ve stok değiştirmek için <Link to="/urun-duzenle">Fiyat &amp; Stok Düzenle</Link> sayfasını kullanın.
+        Bu sayfa kanal kuralları, onay bekleyen fiyatlar, SKU ana fiyatı ve fiyat geçmişi içindir.
+      </p>
       <Notice text={notice} onClose={() => setNotice(null)} />
       <PriceApprovals refreshKey={refreshKey} onChanged={changed} />
-      <SkuChannelPrices channels={channels.data ?? []} refreshKey={refreshKey} onChanged={changed} />
       <ChannelPrices channels={channels.data ?? []} refreshKey={refreshKey} onChanged={changed} />
       <SkuPriceForm onChanged={changed} />
       <PriceSettings onChanged={changed} />

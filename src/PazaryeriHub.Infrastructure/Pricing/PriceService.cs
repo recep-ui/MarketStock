@@ -280,7 +280,7 @@ public sealed class PriceService(
         var readAt = DateTime.SpecifyKind(await connection.ExecuteScalarAsync<DateTime>(
             new CommandDefinition("SELECT CAST(SYSUTCDATETIME() AS DATETIME2(3))", cancellationToken: ct)), DateTimeKind.Utc);
         var listings = (await connection.QueryAsync<OverviewListingRow>(new CommandDefinition("""
-            SELECT l.Id, l.SkuId, l.Durum, l.KanalVerisi, snap.KanalStok, snap.CekilmeZamani,
+            SELECT l.Id, l.SkuId, l.Durum, l.KanalVerisi, l.StokKuralTip, l.StokKuralDeger, snap.KanalStok, snap.CekilmeZamani,
                    ISNULL(cap.Durum, @defaultStock) AS StockCapabilityState
               FROM dbo.ChannelListing l
               LEFT JOIN dbo.ChannelCapability cap ON cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'
@@ -313,6 +313,8 @@ public sealed class PriceService(
                         StockTarget = st?.Target,
                         LastSentStock = st?.LastSent,
                         StockCapabilityState = l.StockCapabilityState,
+                        StockRuleType = l.StokKuralTip,
+                        StockRuleValue = l.StokKuralDeger,
                     };
                 }).ToList();
             return new SkuPriceOverview(s.SkuId, s.SkuCode, s.ProductName, s.Barcode, channels.Select(c => c.Preview.ImageUrl).FirstOrDefault(u => u is not null),
@@ -400,6 +402,8 @@ public sealed class PriceService(
         public int SkuId { get; init; }
         public string Durum { get; init; } = "";
         public string? KanalVerisi { get; init; }
+        public string? StokKuralTip { get; init; }
+        public int? StokKuralDeger { get; init; }
         public int? KanalStok { get; init; }
         public DateTime? CekilmeZamani { get; init; }
         public string StockCapabilityState { get; init; } = "";

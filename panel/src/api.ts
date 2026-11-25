@@ -141,6 +141,8 @@ export type SkuChannelPrice = {
   /** ADR-050: kanaldaki durum ve stok. */
   channelStatus?: string | null; channelStock?: number | null; channelStockAtUtc?: string | null;
   stockTarget?: number | null; lastSentStock?: number | null; stockCapabilityState?: string | null;
+  /** ADR-051: ilan stok kuralı (null = ortak stok). */
+  stockRuleType?: 'SABIT' | 'UST_LIMIT' | null; stockRuleValue?: number | null;
 };
 export type SkuPriceOverview = {
   skuId: number; skuCode: string; productName: string; barcode: string | null; imageUrl: string | null;

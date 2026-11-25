@@ -128,7 +128,7 @@ Kilit kalksa da hiçbir iş kendiliğinden kanala gitmez. Panel → Ayarlar → 
   - Bir kanalda onaysız (anında) gönderim isterseniz o kanalın stok yeteneğini **Açık** yapın. **Kapalı**: o kanala hiç stok gitmez.
   - Uyarı: Onaylı kanalda bir satış olduğunda diğer kanallardaki stok da siz onaylayana kadar eski kalır. Onay listesini sık kontrol edin.
 - **Sipariş durumu, iade kararı, soru cevabı:** ilk hafta **Deneme**.
-- **Fiyat:** Trendyol ve Beymen'de **Deneme** ile. Kanal başına farklı fiyat: menüde **Fiyat & Stok Düzenle** (aynı SKU'nun her pazaryerindeki fiyatı, durumu ve stoğu tek satırda; kanal kutusuna elle fiyat, stok kutusuna satılabilir stok yazıp "Değişiklikleri kaydet"; stok defterde sayım olarak düzeltilir ve Onaylı kanallarda Senkron Merkezi'nde onay bekler). Hepsiburada'da KDV teyidi gelene kadar **kapalı** kalır (uygulama zaten engeller).
+- **Fiyat:** Trendyol ve Beymen'de **Deneme** ile. Kanal başına farklı fiyat: menüde **Fiyat & Stok Düzenle** (aynı SKU'nun her pazaryerindeki fiyatı, durumu ve stoğu tek satırda; kanal kutusuna elle fiyat, stok kutusuna satılabilir stok, kanal sütunundaki kanal stoğu kutusuna yalnızca o kanala gidecek adeti yazıp "Değişiklikleri kaydet"; stok defterde sayım olarak düzeltilir ve Onaylı kanallarda Senkron Merkezi'nde onay bekler). Hepsiburada'da KDV teyidi gelene kadar **kapalı** kalır (uygulama zaten engeller).
 
 **Adım 5 — Hepsiburada:** Hepsiburada canlı onayı ve canlı API bilgileri gelince:
 1. Ayarlar → Kanallar → Hepsiburada: ortamı **Canlı** yapın ve bilgileri girin.

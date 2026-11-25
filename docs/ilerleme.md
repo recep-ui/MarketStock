@@ -7,6 +7,11 @@
 
 ---
 
+## Kanal bazlı stok + menü sadeleştirme (2026-11-25, ADR-051)
+
+- Fiyat & Stok Düzenle: kanal hücresinde "kanal stoğu" kutusu (boş = ortak, sayı = o kanala sabit; defteri aşmaz).
+- Menü: Fiyat & Stok Düzenle Stok Listesi'nin altında; Fiyat → Fiyat Kuralları (ürün tablosu oradan kaldırıldı).
+
 ## Fiyat & Stok Düzenle (2026-11-25, ADR-050)
 
 - Yeni menü: eşleşen her ürün tek satırda; görsel, ad, kod, barkod, renk/beden, defter stoğu (düzenlenebilir satılabilir), her kanalda durum, kanal stoğu / gidecek stok, fiyat ve elle fiyat kutusu.

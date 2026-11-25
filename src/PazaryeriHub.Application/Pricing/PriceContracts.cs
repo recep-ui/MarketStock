@@ -120,6 +120,9 @@ public sealed record SkuChannelPrice(
     public int? LastSentStock { get; init; }
     /// <summary>Kanalın STOK yeteneği (KAPALI / DENEME = Onaylı / ACIK).</summary>
     public string? StockCapabilityState { get; init; }
+    /// <summary>İlanın stok kuralı (ADR-042/051): null = ortak stok, SABIT = kanala sabit adet, UST_LIMIT = en fazla adet.</summary>
+    public string? StockRuleType { get; init; }
+    public int? StockRuleValue { get; init; }
 }
 
 /// <summary>SKU ve bütün kanallardaki ilanlarının fiyatları, yan yana.</summary>

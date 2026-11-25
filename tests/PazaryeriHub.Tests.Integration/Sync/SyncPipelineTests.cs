@@ -1163,6 +1163,13 @@ public sealed class SyncPipelineTests(TestDatabase db)
             row.Should().Match<SkuPriceOverview>(r => r.Physical == 10 && r.Reserved == 2 && r.SafetyStock == 1 && r.Available == 7 && r.ReadAtUtc != null);
             var ch = row.Channels.Single(x => x.ListingId == listingId);
             ch.Should().Match<SkuChannelPrice>(x => x.ChannelStock == 5 && x.StockTarget == 7 && x.LastSentStock == 7 && x.ChannelStatus == "Satışta");
+            ch.StockRuleType.Should().BeNull("kural yok: ortak stok");
+
+            // Kanal bazlı stok (ADR-051): ilana sabit 3 → satırda kural ve gidecek 3 görünür
+            (await db.Api.PutAsJsonAsync($"/api/stock/listings/{listingId}/rule", new ListingStockRuleInput("SABIT", 3), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+            ch = (await SkuOverviewAsync(skuId)).Channels.Single(x => x.ListingId == listingId);
+            ch.Should().Match<SkuChannelPrice>(x => x.StockRuleType == "SABIT" && x.StockRuleValue == 3 && x.StockTarget == 3);
         }
         finally
         {

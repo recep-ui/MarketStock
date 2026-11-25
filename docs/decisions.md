@@ -1085,3 +1085,20 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Kapsam dışı:** Komisyon, buybox, "son 10 günün en düşük fiyatı" gibi pazaryeri panel alanları: bu verileri çeken doğrulanmış uç nokta kullanılmıyor (uydurma yok). Kanala özel stok bu ekranda yok; gerekirse ADR-042 ilan stok kuralı (Stok Listesi → kanal sekmesi).
 
 **Doğrulama:** Entegrasyon (`SyncPipelineTests`): satır stok/kanal alanları; elle stok → defter (SAYIM, ELLE_STOK) → mock kanal, fiziksel değişen satır reddedilir, Depo 403. Birim 416/416, entegrasyon 169/169. Playwright: yeni senaryo; tam çalıştırmada 22/23 ("Sipariş listesi" senaryosundaki yarış: filtre sonrası eski satır tıklanıyordu; test doğru satırı bekleyecek şekilde düzeltildi, tekrarlı çalıştırmada geçti). Deneme modunda gerçek katalog verisiyle görsel kontrol.
+
+
+## ADR-051: Fiyat & Stok Düzenle'de kanal bazlı stok; Fiyat sekmesi "Fiyat Kuralları" olarak sadeleşti
+
+**Tarih:** 2026-11-25 · **Durum:** Kabul
+
+**Bağlam:** Kullanıcı, ortak (defter) stoğun yanında aynı ekrandan kanal bazlı stok da değiştirmek istedi. Ayrıca Fiyat sekmesindeki ürün tablosu Fiyat & Stok Düzenle ile aynı olduğu için menünün son kullanıcı için sadeleşmesini istedi.
+
+**Karar:**
+- Kanal bazlı stok, ADR-042'deki ilan stok kuralının **SABIT** türüyle yapılır (yeni tablo/uç nokta yok): kanal hücresinde "kanal stoğu" kutusu; boş = ortak stok (kural kaldırılır), sayı = o ilana sabit adet. Gönderilen değer `MIN(adet, satılabilir, kanal üst limiti)`: defteri aşmaz, fazla satış koruması değişmez. Defter değişmez.
+- `GET /api/prices/skus` kanal satırı `StockRuleType`/`StockRuleValue` taşır. UST_LIMIT kuralı varsa hücrede "en fazla N" yazar; kutuya sayı yazılırsa SABIT ile değişir (özette gösterilir).
+- Kaydetme, mevcut `PUT /api/stock/listings/{id}/rule` ile ilan başına yapılır (her biri kendi transaction'ı + EslestirmeDegisti outbox). Özet "KANAL STOĞU" bölümü eski → yeni ve defteri aşan adette uyarı gösterir.
+- Menü: "Fiyat & Stok Düzenle" Stok Listesi'nin altına; "Fiyat" → **Fiyat Kuralları** (onay bekleyen fiyatlar, kanal kuralları/önizleme, SKU ana fiyatı, ayarlar, geçmiş). Ürün bazında tablo Fiyat sayfasından kaldırıldı (bileşen yalnızca Fiyat & Stok Düzenle'de); sayfa başında yönlendirme notu. Ekrandaki notlar kısa madde listesine indirildi.
+
+**Kapsam dışı:** Stok Listesi → kanal sekmesindeki kural/fiyat düzenleme yerinde bırakıldı (silinmedi); ileride sadeleştirme adayı.
+
+**Doğrulama:** Entegrasyon: satırda kural alanları ve SABIT sonrası gidecek değer; birim 416/416, entegrasyon 169/169. Playwright: ADR-050 senaryosuna kanal stoğu (Trendyol 0 → diğer kanal ortak, defter değişmez → geri al); menü adları testlerde güncellendi. Tam çalıştırma makine yavaşken 19/23; menü adı kaynaklı "Tüm ekranlar" düzeltildi, Sipariş listesi ve ADR-035 tekrarda geçti; ADR-036 (Eşleştirme, bu değişiklikle ilgisiz) hâlâ kararsız. Deneme modunda görsel kontrol.

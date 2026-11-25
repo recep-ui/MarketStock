@@ -254,3 +254,4 @@ button.link.stat-link { font-size: inherit; font-weight: inherit; padding: 0; te
 .save-bar { position: sticky; bottom: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
   padding: 10px 12px; margin-top: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06); }
+.price-cell .cell-block + .cell-block { margin-top: 6px; padding-top: 4px; border-top: 1px dotted #e3e3e3; }

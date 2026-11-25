@@ -328,7 +328,7 @@ test('Tüm ekranlar demo verilerle açılır (hata yok)', async ({ page }) => {
   const screens: [string, string][] = [
     ['Genel Bakış', 'Genel Bakış'], ['Stok Listesi', 'Stok Listesi'], ['Stok Hareketleri', 'Stok Hareketleri'],
     ['Siparişler', 'Siparişler'], ['Raporlar', 'Raporlar'], ['İade / İptal', 'İade / İptal'], ['Eşleştirme', 'Eşleştirme'],
-    ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Fiyat', 'Fiyat'], ['Soru-Cevap', 'Soru-Cevap'],
+    ['Senkron Merkezi', 'Senkron Merkezi'], ['Kanal Stoğu → Defter', 'Kanal Stoğu → Defter'], ['Fiyat & Stok Düzenle', 'Fiyat & Stok Düzenle'], ['Fiyat Kuralları', 'Fiyat Kuralları'], ['Soru-Cevap', 'Soru-Cevap'],
     ['Ayarlar', 'Ayarlar']
   ];
   for (const [link, heading] of screens) {
@@ -544,8 +544,8 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
   const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
   const ty = channels.find(c => c.code === 'TRENDYOL')!;
   try {
-    await page.getByRole('navigation').getByRole('link', { name: 'Fiyat', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Fiyat', exact: true })).toBeVisible();
+    await page.getByRole('navigation').getByRole('link', { name: 'Fiyat Kuralları', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Fiyat Kuralları', exact: true })).toBeVisible();
 
     // 1) Onay bekleyen: Hepsiburada ilanı 300 → 499,90 (%66,63 > %30)
     const approval = page.getByTestId('price-approval-row').filter({ hasText: d.priceSkuCode });
@@ -581,7 +581,7 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
 test('Fiyat: aynı SKU\'nun kanal fiyatları yan yana; kanal bazında ayrı elle fiyat özetli onayla kaydedilir (ADR-049)', async ({ page }) => {
   const d = demo();
   await login(page);
-  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat', exact: true }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat & Stok Düzenle', exact: true }).click();
   await expect(page.getByTestId('price-notes')).toContainText('Nasıl çalışır?');
 
   await page.getByLabel('Fiyat ürün ara').fill(d.priceSkuCode);
@@ -650,6 +650,26 @@ test('Fiyat & Stok Düzenle: tek satırda kanal durumu/stoğu görünür; satıl
   page.once('dialog', dialog => void dialog.accept());
   await page.getByTestId('save-prices').click();
   await expect(row.getByTestId('stock-cell')).toContainText(`Satılabilir: ${before}`);
+
+  // Kanal bazlı stok (ADR-051): yalnızca Trendyol'a 0; defter değişmez, diğer kanal ortak kalır
+  const tyCell = row.getByTestId('price-cell-TRENDYOL');
+  await expect(tyCell.getByTestId('stock-rule')).toContainText('ortak stok');
+  await row.getByLabel(`Trendyol kanal stoğu ${d.priceSkuCode}`).fill('0');
+  let ruleMessage = '';
+  page.once('dialog', dialog => { ruleMessage = dialog.message(); void dialog.accept(); });
+  await page.getByTestId('save-prices').click();
+  await expect(page.getByRole('status')).toContainText('1 ilanın kanal stoğu kaydedildi');
+  expect(ruleMessage).toContain(`${d.priceSkuCode} · Trendyol: ortak stok → kanala özel 0`);
+  await expect(tyCell.getByTestId('stock-rule')).toContainText('kanala özel 0');
+  await expect(tyCell.getByTestId('channel-stock')).toContainText('gidecek 0');
+  await expect(row.getByTestId('price-cell-HEPSIBURADA').getByTestId('stock-rule')).toContainText('ortak stok');
+  await expect(row.getByTestId('stock-cell')).toContainText(`Satılabilir: ${before}`);
+
+  // Geri al: kutuyu boşalt → ortak stok
+  await row.getByLabel(`Trendyol kanal stoğu ${d.priceSkuCode}`).fill('');
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByTestId('save-prices').click();
+  await expect(tyCell.getByTestId('stock-rule')).toContainText('ortak stok');
 });
 
 test('Soru-Cevap: Destek onay kutusunu işaretleyip cevap gönderir; cevap kullanıcı adıyla kaydedilir ve kanal kuyruğuna girer (ADR-029)', async ({ page }) => {

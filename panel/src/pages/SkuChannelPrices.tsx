@@ -79,54 +79,82 @@ function parsePrice(text: string): number | null | 'hata' {
   return n > 0 ? n : 'hata';
 }
 
-function ChannelCell({ c, draft, editable, onDraft }: {
-  c: SkuChannelPrice | undefined; draft: string | undefined; editable: boolean; onDraft: (listingId: number, value: string | undefined) => void;
+/** Kanal stoğu kutusunun mevcut değeri: SABIT kuralın adedi, yoksa '' (ortak stok). */
+const ruleText = (c: SkuChannelPrice) => (c.stockRuleType === 'SABIT' && c.stockRuleValue != null ? String(c.stockRuleValue) : '');
+
+function ChannelCell({ c, draft, ruleDraft, editable, onDraft, onRuleDraft }: {
+  c: SkuChannelPrice | undefined; draft: string | undefined; ruleDraft: string | undefined; editable: boolean;
+  onDraft: (listingId: number, value: string | undefined) => void; onRuleDraft: (listingId: number, value: string | undefined) => void;
 }) {
   if (!c) return <span className="muted small" title="Bu SKU bu kanalda eşleştirilmemiş">eşleşme yok</span>;
   const p = c.preview;
   const current = c.override == null ? '' : String(c.override).replace('.', ',');
   const dirty = draft !== undefined && draft !== current;
   const parsed = draft === undefined ? undefined : parsePrice(draft);
+  const currentRule = ruleText(c);
+  const ruleDirty = ruleDraft !== undefined && ruleDraft !== currentRule;
+  const ruleInvalid = ruleDraft !== undefined && ruleDraft.trim() !== '' && parseStock(ruleDraft) === 'hata';
   const stockDiffers = c.channelStock != null && c.stockTarget != null && c.channelStock !== c.stockTarget;
   const stockTitle = `Kanalda: son mutabakatta pazaryerinde görülen stok${c.channelStockAtUtc ? ` (${formatDateTime(c.channelStockAtUtc)})` : ''}.`
-    + ` Gidecek: defter ve kanal payına göre gönderilecek stok. Son gönderilen: ${c.lastSentStock ?? '—'}.`
+    + ` Gidecek: bu kanala gönderilecek stok. Son gönderilen: ${c.lastSentStock ?? '—'}.`
     + ` Stok gönderimi: ${capabilityLabels[c.stockCapabilityState ?? ''] ?? c.stockCapabilityState ?? '—'}.`;
+  const ruleLabel = c.stockRuleType === 'SABIT' ? `kanala özel ${c.stockRuleValue}`
+    : c.stockRuleType === 'UST_LIMIT' ? `en fazla ${c.stockRuleValue}` : 'ortak stok';
   return (
-    <div className={`price-cell${dirty ? ' dirty' : ''}${c.listingStatus !== 'AKTIF' ? ' muted' : ''}`} data-testid={`price-cell-${c.channelCode}`}>
+    <div className={`price-cell${dirty || ruleDirty ? ' dirty' : ''}${c.listingStatus !== 'AKTIF' ? ' muted' : ''}`} data-testid={`price-cell-${c.channelCode}`}>
       {c.channelStatus && <div className="small" title="Pazaryerinin bildirdiği ürün durumu (son katalog çekimi)" data-testid="channel-status">{c.channelStatus}</div>}
-      <div className={stockDiffers ? 'warn-text' : undefined} title={stockTitle} data-testid="channel-stock">
-        <span className="muted small">Stok: </span>kanalda {c.channelStock ?? '—'} · gidecek {c.stockTarget ?? '—'}
+      <div className="cell-block">
+        <div className={stockDiffers ? 'warn-text' : undefined} title={stockTitle} data-testid="channel-stock">
+          <span className="muted small">Stok: </span>kanalda {c.channelStock ?? '—'} · gidecek <strong>{c.stockTarget ?? '—'}</strong>
+        </div>
+        <div className="muted small" data-testid="stock-rule"
+          title="Ortak stok: defterdeki satılabilir stok gider. Kanala özel: yalnızca bu kanala bu adet gider (defterdeki stoktan fazla olamaz).">
+          {ruleLabel} · {capabilityLabels[c.stockCapabilityState ?? ''] ?? '—'}
+        </div>
+        {editable && (
+          <input
+            className={`price-input${ruleInvalid ? ' invalid' : ''}`}
+            value={ruleDraft ?? currentRule}
+            placeholder="ortak"
+            inputMode="numeric"
+            aria-label={`${channelNames[c.channelCode] ?? c.channelCode} kanal stoğu ${p.skuCode}`}
+            title="Yalnızca bu kanala gidecek sabit adet. Boş bırakılırsa ortak stok (defter) gider. Defterdeki satılabilir stoktan fazlası gönderilmez."
+            onChange={e => onRuleDraft(c.listingId, e.target.value === currentRule ? undefined : e.target.value)}
+          />
+        )}
       </div>
-      <div title="Pazaryerinde şu an görünen fiyat (son katalog/stok çekiminde okunan)">
-        <span className="muted small">Kanalda: </span>{money(p.channelSalePrice)}
-        {p.productUrl && <> <ChannelLink code={c.channelCode} url={p.productUrl} /></>}
+      <div className="cell-block">
+        <div title="Pazaryerinde şu an görünen fiyat (son katalog/stok çekiminde okunan)">
+          <span className="muted small">Fiyat: </span>kanalda {money(p.channelSalePrice)}
+          {p.productUrl && <> <ChannelLink code={c.channelCode} url={p.productUrl} /></>}
+        </div>
+        <div title={p.fromOverride ? 'Elle girilen fiyat (kanal kuralının yerine geçer)' : 'SKU fiyatı × kanal kuralı ile hesaplanan fiyat'}>
+          <span className="muted small">Gidecek: </span><strong>{money(p.newSale)}</strong>
+          {p.fromOverride && <span className="badge" title="Bu kanal için elle girildi">elle</span>}
+          {p.floorApplied && <span className="badge warn" title="Kanal kuralındaki taban fiyat uygulandı">taban</span>}
+        </div>
+        <div className="muted small" title={statusHints[p.status]}>
+          {statusLabels[p.status] ?? p.status}
+          {p.changePercent != null && ` · %${p.changePercent}`}
+          {' · '}{capabilityLabels[c.capabilityState] ?? c.capabilityState}
+          {c.listingStatus !== 'AKTIF' && ' · ilan pasif'}
+        </div>
+        {p.lastSentSale != null && (
+          <div className="muted small" title={c.lastPriceSyncUtc ? `Gönderim: ${formatDateTime(c.lastPriceSyncUtc)}` : undefined}>Son gönderilen: {money(p.lastSentSale)}</div>
+        )}
+        {p.problem && <div className="warn-text small wrap">{p.problem}</div>}
+        {editable && (
+          <input
+            className={`price-input${parsed === 'hata' ? ' invalid' : ''}`}
+            value={draft ?? current}
+            placeholder="kural"
+            inputMode="decimal"
+            aria-label={`${channelNames[c.channelCode] ?? c.channelCode} elle fiyat ${p.skuCode}`}
+            title="Bu kanal için elle satış fiyatı. Boş bırakılırsa kanal kuralı uygulanır."
+            onChange={e => onDraft(c.listingId, e.target.value === current ? undefined : e.target.value)}
+          />
+        )}
       </div>
-      <div title={p.fromOverride ? 'Elle girilen fiyat (kanal kuralının yerine geçer)' : 'SKU fiyatı × kanal kuralı ile hesaplanan fiyat'}>
-        <span className="muted small">Gidecek: </span><strong>{money(p.newSale)}</strong>
-        {p.fromOverride && <span className="badge" title="Bu kanal için elle girildi">elle</span>}
-        {p.floorApplied && <span className="badge warn" title="Kanal kuralındaki taban fiyat uygulandı">taban</span>}
-      </div>
-      <div className="muted small" title={statusHints[p.status]}>
-        {statusLabels[p.status] ?? p.status}
-        {p.changePercent != null && ` · %${p.changePercent}`}
-        {' · '}{capabilityLabels[c.capabilityState] ?? c.capabilityState}
-        {c.listingStatus !== 'AKTIF' && ' · ilan pasif'}
-      </div>
-      {p.lastSentSale != null && (
-        <div className="muted small" title={c.lastPriceSyncUtc ? `Gönderim: ${formatDateTime(c.lastPriceSyncUtc)}` : undefined}>Son gönderilen: {money(p.lastSentSale)}</div>
-      )}
-      {p.problem && <div className="warn-text small wrap">{p.problem}</div>}
-      {editable && (
-        <input
-          className={`price-input${parsed === 'hata' ? ' invalid' : ''}`}
-          value={draft ?? current}
-          placeholder="kural"
-          inputMode="decimal"
-          aria-label={`${channelNames[c.channelCode] ?? c.channelCode} elle fiyat ${p.skuCode}`}
-          title="Bu kanal için elle satış fiyatı. Boş bırakılırsa kanal kuralı uygulanır."
-          onChange={e => onDraft(c.listingId, e.target.value === current ? undefined : e.target.value)}
-        />
-      )}
     </div>
   );
 }
@@ -139,6 +167,7 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
   const [page, setPage] = useState(1);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [stockDrafts, setStockDrafts] = useState<StockDrafts>({});
+  const [ruleDrafts, setRuleDrafts] = useState<Drafts>({}); // listingId → kanala özel stok ('' = ortak)
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const data = useLoad(() => get<Paged<SkuPriceOverview>>(`/api/prices/skus${qs({ search, page, pageSize: 25 })}`), [search, page, refreshKey]);
@@ -154,8 +183,10 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
   const pending = Object.entries(drafts).map(([id, text]) => ({ listingId: Number(id), text, ...byListing.get(Number(id))! })).filter(x => x.c);
   const skuById = useMemo(() => new Map((data.data?.items ?? []).map(s => [s.skuId, s])), [data.data]);
   const pendingStock = Object.entries(stockDrafts).map(([id, text]) => ({ sku: skuById.get(Number(id))!, text })).filter(x => x.sku);
-  const invalid = [...pending.filter(x => parsePrice(x.text) === 'hata'), ...pendingStock.filter(x => parseStock(x.text) === 'hata')];
-  const changeCount = pending.length + pendingStock.length;
+  const invalid: unknown[] = [...pending.filter(x => parsePrice(x.text) === 'hata'), ...pendingStock.filter(x => parseStock(x.text) === 'hata')];
+  const pendingRules = Object.entries(ruleDrafts).map(([id, text]) => ({ listingId: Number(id), text, ...byListing.get(Number(id))! })).filter(x => x.c);
+  invalid.push(...pendingRules.filter(x => x.text.trim() !== '' && parseStock(x.text) === 'hata'));
+  const changeCount = pending.length + pendingStock.length + pendingRules.length;
 
   function setDraft(listingId: number, value: string | undefined) {
     setDrafts(prev => {
@@ -173,9 +204,18 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
     });
   }
 
+  function setRuleDraft(listingId: number, value: string | undefined) {
+    setRuleDrafts(prev => {
+      const next = { ...prev };
+      if (value === undefined) delete next[listingId]; else next[listingId] = value;
+      return next;
+    });
+  }
+
   function clearDrafts() {
     setDrafts({});
     setStockDrafts({});
+    setRuleDrafts({});
   }
 
   function submitSearch(e: FormEvent) {
@@ -194,6 +234,15 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
       return `• ${x.sku.skuCode}: satılabilir ${x.sku.available} → ${t} (fiziksel ${x.sku.physical} → ${t + x.sku.reserved + x.sku.safetyStock})`
         + (targets.length ? ` · kanallar: ${targets.join(', ')}` : '');
     });
+    const ruleLines = pendingRules.map(x => {
+      const name = channelNames[x.c.channelCode] ?? x.c.channelCode;
+      const old = x.c.stockRuleType === 'SABIT' ? `kanala özel ${x.c.stockRuleValue}` : x.c.stockRuleType === 'UST_LIMIT' ? `en fazla ${x.c.stockRuleValue}` : 'ortak stok';
+      const t = x.text.trim();
+      const n = Number(t);
+      const next = t === '' ? `ortak stok (defter: ${x.sku.available})`
+        : `kanala özel ${n}${n > x.sku.available ? ` (defterde ${x.sku.available} var; en fazla ${x.sku.available} gider)` : ''}`;
+      return `• ${x.sku.skuCode} · ${name}: ${old} → ${next}`;
+    });
     const priceLines = pending.map(x => {
       const price = parsePrice(x.text) as number | null;
       const old = x.c.override != null ? `elle ${money(x.c.override)}` : `kural ${money(x.c.preview.newSale)}`;
@@ -206,6 +255,10 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
     if (stockLines.length) {
       text += `STOK: ${stockLines.length} ürün (defterde sayım düzeltmesi)\n${list(stockLines)}\n`
         + 'Yeni stok eşleşen kanallara, kanalın Stok gönderimi ayarına göre gider ("Onaylı" kanallarda Senkron Merkezi\'nde onayınızı bekler).\n\n';
+    }
+    if (ruleLines.length) {
+      text += `KANAL STOĞU: ${ruleLines.length} ilan (defter değişmez)\n${list(ruleLines)}\n`
+        + 'Yalnızca o kanala gidecek stok değişir; kanalın Stok gönderimi ayarına göre gider.\n\n';
     }
     if (priceLines.length) {
       text += `FİYAT: ${priceLines.length} ilan\n${list(priceLines)}\n`
@@ -222,6 +275,14 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
           { changes: pending.map(x => ({ listingId: x.listingId, price: parsePrice(x.text) })) });
         setDrafts({});
         messages.push(`${r.changed} ilan fiyatı kaydedildi.`);
+      }
+      if (pendingRules.length) {
+        for (const x of pendingRules) {
+          const t = x.text.trim();
+          await put(`/api/stock/listings/${x.listingId}/rule`, t === '' ? { type: null, value: null } : { type: 'SABIT', value: Number(t) });
+          setRuleDraft(x.listingId, undefined);
+        }
+        messages.push(`${pendingRules.length} ilanın kanal stoğu kaydedildi.`);
       }
       if (pendingStock.length) {
         const r = await post<StockResult>('/api/stock/available', {
@@ -283,25 +344,26 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
       header: () => <ChannelBadge code={ch.code} />,
       cell: ({ row }) => {
         const list = row.original.channels.filter(c => c.channelId === ch.id);
-        if (list.length === 0) return <ChannelCell c={undefined} draft={undefined} editable={false} onDraft={setDraft} />;
-        return <>{list.map(c => <ChannelCell key={c.listingId} c={c} draft={drafts[c.listingId]} editable={editable} onDraft={setDraft} />)}</>;
+        if (list.length === 0) return <ChannelCell c={undefined} draft={undefined} ruleDraft={undefined} editable={false} onDraft={setDraft} onRuleDraft={setRuleDraft} />;
+        return <>{list.map(c => <ChannelCell key={c.listingId} c={c} draft={drafts[c.listingId]} ruleDraft={ruleDrafts[c.listingId]} editable={editable}
+          onDraft={setDraft} onRuleDraft={setRuleDraft} />)}</>;
       }
     }))
-  ], [columnsChannels, drafts, stockDrafts, editable]);
+  ], [columnsChannels, drafts, stockDrafts, ruleDrafts, editable]);
 
   return (
     <Card title="Ürün bazında fiyat ve stok">
       <div className="notes small" data-testid="price-notes">
-        <p><strong>Nasıl çalışır?</strong> Her pazaryerinin fiyatı <em>SKU fiyatı × kanal kuralı</em> (çarpan, ek, yuvarlama, taban) ile hesaplanır.
-          Bir kanala <strong>elle fiyat</strong> girerseniz o kanalda kural yerine o fiyat kullanılır; diğer kanallar etkilenmez. Kutuyu boşaltmak elle fiyatı kaldırır.</p>
-        <p><strong>Stok</strong> tektir: ürünün defterdeki <em>satılabilir</em> stoğu eşleşen bütün kanallara gider (kanal payı ve ilan kuralına göre).
-          Stok kutusuna yazdığınız sayı defterde sayım düzeltmesi olarak kaydedilir (Stok Hareketleri'nde kaynak <em>ELLE_STOK</em>). Ekranı açtıktan sonra
-          o ürüne stok girişi veya sayım olduysa satır reddedilir; sayfayı yenileyip tekrar deneyin. Kanal hücresindeki <strong>Stok</strong>: pazaryerinde
-          görünen · gidecek değer; ikisi farklıysa turuncu yazılır.</p>
-        <p><strong>Kanalda</strong>: pazaryerinde şu an görünen fiyat · <strong>Gidecek</strong>: kanala gönderilecek fiyat ·
-          <span className="badge">elle</span> bu kanala elle girildi · <span className="badge warn">taban</span> taban fiyat uygulandı ·
-          <strong> Son gönderilen</strong>: en son kanala giden fiyat.</p>
-        <p>Kaydetmek fiyatı hemen göndermez: kanalın <strong>Fiyat gönderimi</strong> kapalıysa gitmez; açıksa eşiği aşan değişiklik "Onay bekleyen fiyatlar"a düşer.
+        <p><strong>Nasıl çalışır?</strong></p>
+        <ul>
+          <li><strong>Ortak stok</strong> (Stok sütunu): ürünün depodaki satılabilir stoğu. Değiştirirseniz bütün kanallar bu sayıyı alır.</li>
+          <li><strong>Kanal stoğu</strong> (kanal sütunundaki üst kutu): yalnızca o pazaryerine gidecek adet. Boş = ortak stok. Depodaki stoktan fazlası gönderilmez.</li>
+          <li><strong>Kanal fiyatı</strong> (kanal sütunundaki alt kutu): yalnızca o pazaryerinin fiyatı. Boş = Fiyat sekmesindeki kanal kuralı.</li>
+          <li><strong>kanalda</strong> = pazaryerinde şu an görünen · <strong>gidecek</strong> = gönderilecek değer; stokta ikisi farklıysa turuncu yazılır.</li>
+          <li>Kaydetmeden önce tüm değişikliklerin özeti gösterilir. Kayıt hemen göndermez: "Onaylı" kanallarda stok Senkron Merkezi'nde, fiyat
+            Fiyat sekmesindeki "Onay bekleyen fiyatlar"da onayınızı bekler; "kapalı" kanala gitmez.</li>
+        </ul>
+        <p>
           {(infos.data ?? []).filter(i => i.vatIncluded !== true).length > 0 && (
             <> KDV dahil olduğu doğrulanamayan kanallar: {(infos.data ?? []).filter(i => i.vatIncluded !== true).map(i => channelNames[i.channelCode] ?? i.channelCode).join(', ')}.</>
           )}</p>
