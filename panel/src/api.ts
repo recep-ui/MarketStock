@@ -138,10 +138,16 @@ export type PricePreviewRow = {
 export type SkuChannelPrice = {
   listingId: number; channelId: number; channelCode: string; listingStatus: string; capabilityState: string; override: number | null;
   lastPriceSyncUtc: string | null; preview: PricePreviewRow;
+  /** ADR-050: kanaldaki durum ve stok. */
+  channelStatus?: string | null; channelStock?: number | null; channelStockAtUtc?: string | null;
+  stockTarget?: number | null; lastSentStock?: number | null; stockCapabilityState?: string | null;
 };
 export type SkuPriceOverview = {
   skuId: number; skuCode: string; productName: string; barcode: string | null; imageUrl: string | null;
   listPrice: number | null; salePrice: number | null; channels: SkuChannelPrice[];
+  /** ADR-050: defter stoğu (tüm depolar). */
+  color?: string | null; size?: string | null; physical: number; reserved: number; safetyStock: number; available: number;
+  hasBalance: boolean; readAtUtc: string | null;
 };
 export type PricePreview = {
   channelId: number; channelCode: string; capabilityState: string; canEnable: boolean; blockReason: string | null; thresholdPercent: number;

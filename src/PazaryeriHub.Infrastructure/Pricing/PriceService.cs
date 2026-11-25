@@ -21,6 +21,7 @@ namespace PazaryeriHub.Infrastructure.Pricing;
 public sealed class PriceService(
     SqlConnectionFactory connectionFactory,
     PriceStore priceStore,
+    PazaryeriHub.Infrastructure.Sync.SyncStore syncStore,
     IEnumerable<IChannelAdapter> adapters,
     ILogger<PriceService> logger) : IPriceService
 {
@@ -259,8 +260,14 @@ public sealed class PriceService(
         var total = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
             $"SELECT COUNT(*) FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId {where}", args, cancellationToken: ct));
         var skus = (await connection.QueryAsync<SkuRow>(new CommandDefinition($"""
-            SELECT s.Id AS SkuId, s.SkuKodu AS SkuCode, p.Ad AS ProductName, s.Barkod AS Barcode, s.ListeFiyati AS ListPrice, s.SatisFiyati AS SalePrice
+            SELECT s.Id AS SkuId, s.SkuKodu AS SkuCode, p.Ad AS ProductName, s.Barkod AS Barcode, s.ListeFiyati AS ListPrice, s.SatisFiyati AS SalePrice,
+                   s.Renk AS Color, s.Beden AS Size,
+                   ISNULL(b.Fiziksel, 0) AS Physical, ISNULL(b.Rezerve, 0) AS Reserved, ISNULL(b.GuvenlikStogu, 0) AS SafetyStock,
+                   ISNULL(b.Satilabilir, 0) AS Available, CAST(CASE WHEN b.SkuId IS NULL THEN 0 ELSE 1 END AS bit) AS HasBalance
               FROM dbo.Sku s JOIN dbo.Product p ON p.Id = s.ProductId
+              OUTER APPLY (SELECT MAX(x.SkuId) AS SkuId, SUM(x.Fiziksel) AS Fiziksel, SUM(x.Rezerve) AS Rezerve,
+                                  SUM(x.GuvenlikStogu) AS GuvenlikStogu, SUM(x.Satilabilir) AS Satilabilir
+                             FROM dbo.StockBalance x WHERE x.SkuId = s.Id) AS b
             {where}
              ORDER BY p.Ad, s.SkuKodu
             OFFSET @skip ROWS FETCH NEXT @take ROWS ONLY
@@ -270,13 +277,23 @@ public sealed class PriceService(
             return new PagedResult<SkuPriceOverview>([], total, p, size);
         }
 
-        var listings = (await connection.QueryAsync<(int Id, int SkuId, string Durum)>(new CommandDefinition("""
-            SELECT l.Id, l.SkuId, l.Durum FROM dbo.ChannelListing l
+        var readAt = DateTime.SpecifyKind(await connection.ExecuteScalarAsync<DateTime>(
+            new CommandDefinition("SELECT CAST(SYSUTCDATETIME() AS DATETIME2(3))", cancellationToken: ct)), DateTimeKind.Utc);
+        var listings = (await connection.QueryAsync<OverviewListingRow>(new CommandDefinition("""
+            SELECT l.Id, l.SkuId, l.Durum, l.KanalVerisi, snap.KanalStok, snap.CekilmeZamani,
+                   ISNULL(cap.Durum, @defaultStock) AS StockCapabilityState
+              FROM dbo.ChannelListing l
+              LEFT JOIN dbo.ChannelCapability cap ON cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'
+              OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
+                            WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
              WHERE l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
-            """, new { ids = JsonSerializer.Serialize(skus.Select(s => s.SkuId)) }, cancellationToken: ct))).ToList();
-        var targets = (await priceStore.ComputeAsync(connection, null, listings.Select(l => l.Id).ToList(), ct)).ToDictionary(t => t.ListingId);
+            """, new { ids = JsonSerializer.Serialize(skus.Select(s => s.SkuId)), defaultStock = ChannelCapabilities.Default(ChannelCapabilities.Stock) },
+            cancellationToken: ct))).ToList();
+        var listingIds = listings.Select(l => l.Id).ToList();
+        var targets = (await priceStore.ComputeAsync(connection, null, listingIds, ct)).ToDictionary(t => t.ListingId);
+        var stockTargets = (await syncStore.ComputeTargetsAsync(connection, null, listingIds, ct)).ToDictionary(t => t.ListingId);
         var threshold = await PriceStore.ThresholdAsync(connection, null, ct);
-        var statusById = listings.ToDictionary(l => l.Id, l => l.Durum);
+        var listingById = listings.ToDictionary(l => l.Id);
 
         var items = skus.Select(s =>
         {
@@ -285,11 +302,25 @@ public sealed class PriceService(
                 .Select(t =>
                 {
                     var row = BuildRow(t, threshold, t.CapabilityState);
-                    return new SkuChannelPrice(t.ListingId, t.ChannelId, t.ChannelCode, statusById[t.ListingId], t.CapabilityState, t.Override,
-                        t.LastPriceSyncUtc is { } d ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : null, row);
+                    var l = listingById[t.ListingId];
+                    var st = stockTargets.GetValueOrDefault(t.ListingId);
+                    return new SkuChannelPrice(t.ListingId, t.ChannelId, t.ChannelCode, l.Durum, t.CapabilityState, t.Override,
+                        t.LastPriceSyncUtc is { } d ? DateTime.SpecifyKind(d, DateTimeKind.Utc) : null, row)
+                    {
+                        ChannelStatus = ListingChannelData.Parse(l.KanalVerisi).ChannelStatus,
+                        ChannelStock = l.KanalStok,
+                        ChannelStockAtUtc = l.CekilmeZamani is { } at ? DateTime.SpecifyKind(at, DateTimeKind.Utc) : null,
+                        StockTarget = st?.Target,
+                        LastSentStock = st?.LastSent,
+                        StockCapabilityState = l.StockCapabilityState,
+                    };
                 }).ToList();
             return new SkuPriceOverview(s.SkuId, s.SkuCode, s.ProductName, s.Barcode, channels.Select(c => c.Preview.ImageUrl).FirstOrDefault(u => u is not null),
-                s.ListPrice, s.SalePrice, channels);
+                s.ListPrice, s.SalePrice, channels)
+            {
+                Color = s.Color, Size = s.Size, Physical = s.Physical, Reserved = s.Reserved, SafetyStock = s.SafetyStock,
+                Available = s.Available, HasBalance = s.HasBalance, ReadAtUtc = readAt,
+            };
         }).ToList();
         return new PagedResult<SkuPriceOverview>(items, total, p, size);
     }
@@ -354,6 +385,24 @@ public sealed class PriceService(
         public string? Barcode { get; init; }
         public decimal? ListPrice { get; init; }
         public decimal? SalePrice { get; init; }
+        public string? Color { get; init; }
+        public string? Size { get; init; }
+        public int Physical { get; init; }
+        public int Reserved { get; init; }
+        public int SafetyStock { get; init; }
+        public int Available { get; init; }
+        public bool HasBalance { get; init; }
+    }
+
+    private sealed class OverviewListingRow
+    {
+        public int Id { get; init; }
+        public int SkuId { get; init; }
+        public string Durum { get; init; } = "";
+        public string? KanalVerisi { get; init; }
+        public int? KanalStok { get; init; }
+        public DateTime? CekilmeZamani { get; init; }
+        public string StockCapabilityState { get; init; } = "";
     }
 
     // ------------------------------------------------------------------ Onaylar

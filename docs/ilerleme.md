@@ -7,6 +7,12 @@
 
 ---
 
+## Fiyat & Stok Düzenle (2026-11-25, ADR-050)
+
+- Yeni menü: eşleşen her ürün tek satırda; görsel, ad, kod, barkod, renk/beden, defter stoğu (düzenlenebilir satılabilir), her kanalda durum, kanal stoğu / gidecek stok, fiyat ve elle fiyat kutusu.
+- Stok kutusu defteri değiştirir (SAYIM, kaynak ELLE_STOK) ve eşleşen tüm kanallara gider (Onaylı kanalda onayla).
+- Testler: birim 416/416, entegrasyon 169/169, Playwright yeni senaryo geçti; "Sipariş listesi" senaryosundaki yarış düzeltildi.
+
 ## Kanal Stoğu → Defter: küçük resimler (2026-11-25)
 
 - Önizleme tablosunda her SKU'nun yanında ürün görseli: önce kaynak kanalın, yoksa diğer kanalların bildirdiği görsel (ADR-042 kuralı: yalnızca https); görsel yoksa yer tutucu.

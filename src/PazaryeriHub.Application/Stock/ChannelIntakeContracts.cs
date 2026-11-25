@@ -159,4 +159,16 @@ public interface IChannelIntakeService
 
     /// <summary>Onaylanan satırları uygular (her satır kendi transaction'ında); ardından SKU'ların tüm aktif ilanları zorla gönderilir.</summary>
     Task<IntakeApplyResult> ApplyAsync(IntakeApplyRequest request, string? user, CancellationToken ct);
+
+    /// <summary>
+    /// Ürün satırından elle satılabilir stok (ADR-050): Kanal Stoğu → Defter ile aynı güvenli yazım (kaynak ELLE_STOK);
+    /// okumadan sonra fiziksel değiştiyse satır reddedilir, sonraki rezervasyonlar hedeften düşülür.
+    /// </summary>
+    Task<IntakeApplyResult> ApplyManualAsync(ManualStockRequest request, string? user, CancellationToken ct);
 }
+
+/// <param name="ExpectedPhysical">Ekranda görülen Fiziksel; uygulamada farklıysa satır reddedilir.</param>
+public sealed record ManualStockRow(int SkuId, int TargetAvailable, int? ExpectedPhysical);
+
+/// <param name="ReadAtUtc">Ekrandaki stok değerlerinin okunduğu an (<c>SkuPriceOverview.ReadAtUtc</c>).</param>
+public sealed record ManualStockRequest(DateTime? ReadAtUtc, IReadOnlyList<ManualStockRow>? Rows);

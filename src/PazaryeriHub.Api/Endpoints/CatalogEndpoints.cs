@@ -69,6 +69,9 @@ public static class CatalogEndpoints
             s.PreviewAsync(sourceChannelId, onlyDifferences ?? false, ct)).RequireAuthorization(Policies.StockWrite);
         stock.MapPost("/channel-intake/apply", (IChannelIntakeService s, ClaimsPrincipal user, IntakeApplyRequest request, CancellationToken ct) =>
             s.ApplyAsync(request, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
+        // Ürün satırından elle satılabilir stok (ADR-050): aynı güvenli yazım, yalnızca Yönetici.
+        stock.MapPost("/available", (IChannelIntakeService s, ClaimsPrincipal user, ManualStockRequest request, CancellationToken ct) =>
+            s.ApplyManualAsync(request, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
         // İlan başına stok kuralı (ADR-042): platform bazlı farklı stok; defteri değiştirmez, kanala çağrı yapmaz.
         stock.MapGet("/listings/{listingId:int}/rule", (IListingStockRuleService s, int listingId, CancellationToken ct) => s.GetAsync(listingId, ct));
         stock.MapPut("/listings/{listingId:int}/rule", (IListingStockRuleService s, ClaimsPrincipal user, int listingId, ListingStockRuleInput input, CancellationToken ct) =>

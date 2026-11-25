@@ -1069,3 +1069,19 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Not:** Kurulu sistemde Trendyol ve Beymen FIYAT yeteneği "Açık" (deneme veritabanından taşındı); elle girilen fiyat bu kanallara eşik içindeyse onaysız gider. Kullanıcıya Onaylı/Kapalı önerildi.
 
 **Doğrulama:** Entegrasyon (`PricePipelineTests`): iki kanalda ayrı fiyat, tek kanalın elle fiyatını kaldırma, geçmiş kayıtları; geçersiz satırda hiçbirinin yazılmaması; Depo 403. Entegrasyon 167/167. Playwright: yeni senaryo + fiyat/tüm ekranlar senaryoları geçti. Deneme modunda tarayıcıda görsel kontrol yapıldı.
+
+## ADR-050: Fiyat & Stok Düzenle: eşleşen ürünün fiyatı ve stoğu tek satırda
+
+**Tarih:** 2026-11-25 · **Durum:** Kabul
+
+**Bağlam:** Kullanıcı, Trendyol satıcı panelindeki gibi her ürünü tek satırda (görsel, ad, kod, barkod, renk, durum, fiyat, stok) görüp eşleşen tüm ürünlerin fiyat ve stoğunu tek yerden düzenlemek istedi. Seçimleri: "Ürün başına tek satır" (kanallar yan yana) ve stok kutusu = "Defter stoğu" (kanala özel stok değil; tek defter ilkesi korunur).
+
+**Karar:**
+- ADR-049'daki ürün bazında tablo genişletildi; yeni menü sayfası **Fiyat & Stok Düzenle** (`/urun-duzenle`) aynı bileşeni tam sayfa gösterir, Fiyat sayfasındaki bölüm de aynıdır.
+- `GET /api/prices/skus` satırı ek olarak: renk/beden, defter stoğu (Fiziksel, Rezerve, Güvenlik, Satılabilir; tüm depolar toplamı), okuma anı (`ReadAtUtc`, veritabanı saati); her kanal ilanı için kanalın bildirdiği durum (`kanalDurumu`), son mutabakattaki kanal stoğu, gidecek stok (`SyncStore.ComputeTargetsAsync`: pay, kanal limiti, ilan kuralı), son gönderilen stok ve STOK yetenek durumu.
+- `POST /api/stock/available` (Yönetici): satırlar (SkuId, hedef satılabilir, görülen Fiziksel). Kanal Stoğu → Defter'in güvenli yazımı (`usp_KanalStokAl`) yeniden kullanılır, kaynak `ELLE_STOK`: Fiziksel = Rezerve + Güvenlik + hedef; okumadan sonra Fiziksel değiştiyse satır reddedilir, sonraki rezervasyonlar hedeften düşülür; her satır kendi transaction'ında (SAYIM hareketi + outbox). Uygulanan SKU'ların aktif ilanları kuyruğa alınır; gönderim kanalın STOK yeteneğine tabidir (Onaylı → Senkron Merkezi onayı). Ortak döngü `ChannelIntakeService.ApplyRowsAsync`'e alındı.
+- Panel: "Stok (defter)" sütunu (satılabilir kutusu, yeni fiziksel önizlemesi), kanal hücresinde durum ve "kanalda · gidecek" stok (farklıysa turuncu); tek "Değişiklikleri kaydet (N)" fiyat + stok için STOK/FİYAT bölümlü "eski → yeni" özeti gösterir.
+
+**Kapsam dışı:** Komisyon, buybox, "son 10 günün en düşük fiyatı" gibi pazaryeri panel alanları: bu verileri çeken doğrulanmış uç nokta kullanılmıyor (uydurma yok). Kanala özel stok bu ekranda yok; gerekirse ADR-042 ilan stok kuralı (Stok Listesi → kanal sekmesi).
+
+**Doğrulama:** Entegrasyon (`SyncPipelineTests`): satır stok/kanal alanları; elle stok → defter (SAYIM, ELLE_STOK) → mock kanal, fiziksel değişen satır reddedilir, Depo 403. Birim 416/416, entegrasyon 169/169. Playwright: yeni senaryo; tam çalıştırmada 22/23 ("Sipariş listesi" senaryosundaki yarış: filtre sonrası eski satır tıklanıyordu; test doğru satırı bekleyecek şekilde düzeltildi, tekrarlı çalıştırmada geçti). Deneme modunda gerçek katalog verisiyle görsel kontrol.

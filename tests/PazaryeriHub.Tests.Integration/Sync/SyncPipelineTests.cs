@@ -9,6 +9,7 @@ using PazaryeriHub.Adapters.Mock;
 using PazaryeriHub.Application.Channels;
 using PazaryeriHub.Application.Common;
 using PazaryeriHub.Application.Orders;
+using PazaryeriHub.Application.Pricing;
 using PazaryeriHub.Application.Stock;
 using PazaryeriHub.Application.Sync;
 using PazaryeriHub.Infrastructure.BackgroundJobs;
@@ -1119,6 +1120,100 @@ public sealed class SyncPipelineTests(TestDatabase db)
             result.Rows.Single(r => r.SkuId == skuB).Should().Match<IntakeRowResult>(r =>
                 r.Outcome == IntakeOutcomes.Rejected && r.Message!.Contains("Önizlemeden sonra"));
             (await db.GetBalanceAsync(skuB))!.Fiziksel.Should().Be(11, "reddedilen satır defteri değiştirmez");
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    // ------------------------------------------------------------------ ürün bazında fiyat + stok tek satırda (ADR-050)
+
+    private async Task<SkuPriceOverview> SkuOverviewAsync(int skuId)
+    {
+        string code;
+        await using (var c = db.Open())
+        {
+            code = await c.ExecuteScalarAsync<string>("SELECT SkuKodu FROM dbo.Sku WHERE Id = @skuId", new { skuId }) ?? "";
+        }
+        var page = (await db.Api.GetFromJsonAsync<PagedResult<SkuPriceOverview>>($"/api/prices/skus?search={Uri.EscapeDataString(code)}", Json, Ct))!;
+        return page.Items.Single(i => i.SkuId == skuId);
+    }
+
+    [Fact]
+    public async Task Urun_satiri_defter_stogu_ve_kanal_stok_bilgilerini_tasir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            var (skuId, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await db.Ledger.SetSafetyStockAsync(new(skuId, db.DefaultWarehouseId, 1), Ct);
+            await db.Ledger.ReserveAsync(new(skuId, db.DefaultWarehouseId, 2), Ct);
+            await SyncOnceAsync();
+            Mock.SetChannelStock(Channel, code, 5);
+            await ReconcileAsync();
+            await using (var c = db.Open())
+            {
+                await c.ExecuteAsync("UPDATE dbo.ChannelListing SET KanalVerisi = @json WHERE Id = @listingId",
+                    new { listingId, json = """{"kanalDurumu":"Satışta"}""" });
+            }
+
+            var row = await SkuOverviewAsync(skuId);
+            row.Should().Match<SkuPriceOverview>(r => r.Physical == 10 && r.Reserved == 2 && r.SafetyStock == 1 && r.Available == 7 && r.ReadAtUtc != null);
+            var ch = row.Channels.Single(x => x.ListingId == listingId);
+            ch.Should().Match<SkuChannelPrice>(x => x.ChannelStock == 5 && x.StockTarget == 7 && x.LastSentStock == 7 && x.ChannelStatus == "Satışta");
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Urun_satirindan_satilabilir_stok_yazilir_tum_kanallara_gider_fiziksel_degistiyse_reddedilir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync();
+        try
+        {
+            // Satılabilir 7 (fiziksel 10, rezerve 2, güvenlik 1)
+            var (skuId, listingId, code) = await SkuWithListingAsync(channelId, 10);
+            await db.Ledger.SetSafetyStockAsync(new(skuId, db.DefaultWarehouseId, 1), Ct);
+            await db.Ledger.ReserveAsync(new(skuId, db.DefaultWarehouseId, 2), Ct);
+            var (skuB, _, _) = await SkuWithListingAsync(channelId, 4);
+            await SyncOnceAsync();
+            var row = await SkuOverviewAsync(skuId);
+            var rowB = await SkuOverviewAsync(skuB);
+
+            using (var depot = await db.ApiHost.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Warehouse))
+            {
+                (await depot.PostAsJsonAsync("/api/stock/available", new ManualStockRequest(row.ReadAtUtc, [new ManualStockRow(skuId, 50, 10)]), Json, Ct))
+                    .StatusCode.Should().Be(HttpStatusCode.Forbidden, "yalnızca Yönetici");
+            }
+
+            // B'ye önizlemeden sonra stok girişi: fiziksel değişti → reddedilir
+            await db.Ledger.ReceiveAsync(new(skuB, db.DefaultWarehouseId, 1), Ct);
+            var response = await db.Api.PostAsJsonAsync("/api/stock/available", new ManualStockRequest(row.ReadAtUtc,
+                [new ManualStockRow(skuId, 50, row.Physical), new ManualStockRow(skuB, 8, rowB.Physical)]), Json, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(Ct));
+            var result = (await response.Content.ReadFromJsonAsync<IntakeApplyResult>(Json, Ct))!;
+
+            result.Rows.Single(r => r.SkuId == skuId).Should().Match<IntakeRowResult>(r => r.Outcome == IntakeOutcomes.Applied && r.Available == 50);
+            result.Rows.Single(r => r.SkuId == skuB).Outcome.Should().Be(IntakeOutcomes.Rejected);
+            (await db.GetBalanceAsync(skuId)).Should().Be(new BalanceRow(53, 2, 1, 50), "Fiziksel = 50 + 2 + 1");
+            (await db.GetBalanceAsync(skuB))!.Fiziksel.Should().Be(5, "reddedilen satır defteri değiştirmez");
+
+            await using (var c = db.Open())
+            {
+                var m = await c.QuerySingleAsync<(string Tip, int Adet, string KaynakTip, string Kullanici)>(
+                    "SELECT TOP (1) Tip, Adet, KaynakTip, Kullanici FROM dbo.StockMovement WHERE SkuId = @skuId ORDER BY Id DESC", new { skuId });
+                m.Should().Be(("SAYIM", 43, "ELLE_STOK", "test-yonetici"));
+            }
+
+            await SyncOnceAsync();
+            Mock.GetChannelStock(Channel, code).Should().Be(50);
+            (await LastSentAsync(listingId)).Should().Be(50);
         }
         finally
         {

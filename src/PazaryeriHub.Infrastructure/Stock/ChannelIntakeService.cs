@@ -119,22 +119,47 @@ public sealed class ChannelIntakeService(
     {
         ArgumentNullException.ThrowIfNull(request);
         var rows = request.Rows ?? [];
+        Validate(rows.Select(r => (r.SkuId, r.TargetAvailable)).ToList(), request.PreviewedAtUtc);
+
+        string channelCode;
+        await using (var connection = await OpenAsync(ct))
+        {
+            channelCode = (await ChannelAsync(connection, request.SourceChannelId, ct)).Kod;
+        }
+        return await ApplyRowsAsync(rows.Select(r => new ManualStockRow(r.SkuId, r.TargetAvailable, r.ExpectedPhysical)).ToList(),
+            request.PreviewedAtUtc!.Value, SourceType, channelCode, user, ct);
+    }
+
+    public const string ManualSourceType = "ELLE_STOK";
+
+    public async Task<IntakeApplyResult> ApplyManualAsync(ManualStockRequest request, string? user, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var rows = request.Rows ?? [];
+        Validate(rows.Select(r => (r.SkuId, r.TargetAvailable)).ToList(), request.ReadAtUtc);
+        return await ApplyRowsAsync(rows, request.ReadAtUtc!.Value, ManualSourceType, "PANEL", user, ct);
+    }
+
+    private void Validate(IReadOnlyList<(int SkuId, int TargetAvailable)> rows, DateTime? referenceUtc) =>
         new Validator()
             .Must(rows.Count > 0, "rows", "En az bir satır seçilmeli.")
             .Must(rows.Count <= MaxRows, "rows", $"Tek seferde en fazla {MaxRows:N0} satır uygulanabilir.")
             .Must(rows.All(r => r.TargetAvailable >= 0), "rows", "Hedef satılabilir stok negatif olamaz.")
             .Must(rows.Select(r => r.SkuId).Distinct().Count() == rows.Count, "rows", "Aynı SKU birden fazla satırda.")
-            .Must(request.PreviewedAtUtc is not null, "previewedAtUtc", "Önizleme zamanı zorunlu; önce önizleyin.")
-            .Must(request.PreviewedAtUtc is not { } pv || pv > clock.GetUtcNow().UtcDateTime.AddHours(-24), "previewedAtUtc",
+            .Must(referenceUtc is not null, "previewedAtUtc", "Önizleme zamanı zorunlu; önce önizleyin.")
+            .Must(referenceUtc is not { } pv || pv > clock.GetUtcNow().UtcDateTime.AddHours(-24), "previewedAtUtc",
                 "Önizleme 24 saatten eski; yeniden önizleyin.")
             .ThrowIfInvalid();
 
-        string channelCode;
+    /// <summary>Satırları uygular (her satır kendi transaction'ında), ardından uygulanan SKU'ların tüm aktif ilanlarını kuyruğa alır.</summary>
+    private async Task<IntakeApplyResult> ApplyRowsAsync(IReadOnlyList<ManualStockRow> rows, DateTime referenceUtc, string sourceType,
+        string sourceLabel, string? user, CancellationToken ct)
+    {
+        var channelCode = sourceLabel;
         int warehouseId;
         Dictionary<int, string> skuCodes;
         await using (var connection = await OpenAsync(ct))
         {
-            channelCode = (await ChannelAsync(connection, request.SourceChannelId, ct)).Kod;
             var (wh, disabled) = await WarehouseAsync(connection, ct);
             if (disabled is not null)
             {
@@ -148,7 +173,7 @@ public sealed class ChannelIntakeService(
         }
 
         var batchId = Guid.NewGuid().ToString("N")[..12];
-        var sourceId = $"{SourceType}:{batchId}:{channelCode}";
+        var sourceId = $"{sourceType}:{batchId}:{channelCode}";
         var results = new List<IntakeRowResult>(rows.Count);
         foreach (var row in rows)
         {
@@ -160,8 +185,8 @@ public sealed class ChannelIntakeService(
             try
             {
                 var r = await ledger.TakeChannelStockAsync(
-                    new StockChangeRequest(row.SkuId, warehouseId, row.TargetAvailable, SourceType, sourceId, user),
-                    row.ExpectedPhysical, request.PreviewedAtUtc, ct);
+                    new StockChangeRequest(row.SkuId, warehouseId, row.TargetAvailable, sourceType, sourceId, user),
+                    row.ExpectedPhysical, referenceUtc, ct);
                 results.Add(new(row.SkuId, code, r.MovementId == 0 ? IntakeOutcomes.Unchanged : IntakeOutcomes.Applied, null,
                     r.Physical, r.Available, r.MovementId == 0 ? null : r.MovementId));
             }
@@ -191,8 +216,8 @@ public sealed class ChannelIntakeService(
         var unchanged = results.Count(r => r.Outcome == IntakeOutcomes.Unchanged);
         var rejected = results.Count(r => r.Outcome == IntakeOutcomes.Rejected);
         logger.LogInformation(
-            "Kanal stoğu deftere alındı: kaynak {Kanal}, parti {Parti}, kullanıcı {Kullanici}: {Uygulanan} uygulandı, {Degismeyen} fark yok, {Reddedilen} reddedildi, {Gonderilen} ilan kuyruğa alındı",
-            channelCode, batchId, user, applied, unchanged, rejected, push.Queued);
+            "Satılabilir stok yazıldı ({KaynakTip}): kaynak {Kanal}, parti {Parti}, kullanıcı {Kullanici}: {Uygulanan} uygulandı, {Degismeyen} fark yok, {Reddedilen} reddedildi, {Gonderilen} ilan kuyruğa alındı",
+            sourceType, channelCode, batchId, user, applied, unchanged, rejected, push.Queued);
         return new IntakeApplyResult(batchId, applied, unchanged, rejected, push.Queued, push.Skipped.Count, results);
     }
 

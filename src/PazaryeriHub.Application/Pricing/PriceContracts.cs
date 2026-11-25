@@ -108,12 +108,36 @@ public sealed record PricePreviewRow(
 /// <param name="Override">İlan için elle girilmiş satış fiyatı (null: kanal kuralı).</param>
 public sealed record SkuChannelPrice(
     int ListingId, int ChannelId, string ChannelCode, string ListingStatus, string CapabilityState, decimal? Override,
-    DateTime? LastPriceSyncUtc, PricePreviewRow Preview);
+    DateTime? LastPriceSyncUtc, PricePreviewRow Preview)
+{
+    /// <summary>Kanalın bildirdiği ürün durumu metni (ör. "Satışta"; ADR-043).</summary>
+    public string? ChannelStatus { get; init; }
+    /// <summary>Son mutabakatta kanalda görülen stok (null: çekilmedi / kanalda yok).</summary>
+    public int? ChannelStock { get; init; }
+    public DateTime? ChannelStockAtUtc { get; init; }
+    /// <summary>Defter ve kurallara göre kanala gidecek stok (ADR-050).</summary>
+    public int? StockTarget { get; init; }
+    public int? LastSentStock { get; init; }
+    /// <summary>Kanalın STOK yeteneği (KAPALI / DENEME = Onaylı / ACIK).</summary>
+    public string? StockCapabilityState { get; init; }
+}
 
 /// <summary>SKU ve bütün kanallardaki ilanlarının fiyatları, yan yana.</summary>
 public sealed record SkuPriceOverview(
     int SkuId, string SkuCode, string ProductName, string? Barcode, string? ImageUrl, decimal? ListPrice, decimal? SalePrice,
-    IReadOnlyList<SkuChannelPrice> Channels);
+    IReadOnlyList<SkuChannelPrice> Channels)
+{
+    public string? Color { get; init; }
+    public string? Size { get; init; }
+    /// <summary>Defter (tüm depolar toplamı; ADR-050). Bakiye satırı yoksa 0 ve <see cref="HasBalance"/> false.</summary>
+    public int Physical { get; init; }
+    public int Reserved { get; init; }
+    public int SafetyStock { get; init; }
+    public int Available { get; init; }
+    public bool HasBalance { get; init; }
+    /// <summary>Stok değerlerinin okunduğu an (veritabanı saati); elle stok yazımında referans.</summary>
+    public DateTime? ReadAtUtc { get; init; }
+}
 
 /// <param name="Price">İlanın elle satış fiyatı; null → kaldırılır (kanal kuralı).</param>
 public sealed record ListingOverrideChange(int ListingId, decimal? Price);

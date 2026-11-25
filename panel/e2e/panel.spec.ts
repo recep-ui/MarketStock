@@ -39,6 +39,8 @@ test('1) Sipariş listesi kanal, durum ve sipariş no ile filtrelenir; detayda z
   await page.getByLabel('Durum', { exact: true }).selectOption({ label: 'Kargoda' });
   await page.getByRole('button', { name: 'Filtrele' }).click();
   await expect(rows).toHaveCount(1);
+  // Önceki filtrenin tek satırı (S6) da 1 sayılır: liste yenilenmeden tıklamamak için doğru satırı bekle
+  await expect(rows.first()).toContainText(`DEMO-${d.tag}-S2`);
   await rows.first().click();
 
   const detail = page.getByTestId('order-detail');
@@ -542,7 +544,7 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
   const channels: { id: number; code: string }[] = await (await page.request.get('/api/channels')).json();
   const ty = channels.find(c => c.code === 'TRENDYOL')!;
   try {
-    await page.getByRole('navigation').getByRole('link', { name: 'Fiyat' }).click();
+    await page.getByRole('navigation').getByRole('link', { name: 'Fiyat', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Fiyat', exact: true })).toBeVisible();
 
     // 1) Onay bekleyen: Hepsiburada ilanı 300 → 499,90 (%66,63 > %30)
@@ -579,7 +581,7 @@ test('Fiyat: önizleme "N ilanın fiyatı değişecek", eşik aşan fiyat Yönet
 test('Fiyat: aynı SKU\'nun kanal fiyatları yan yana; kanal bazında ayrı elle fiyat özetli onayla kaydedilir (ADR-049)', async ({ page }) => {
   const d = demo();
   await login(page);
-  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat' }).click();
+  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat', exact: true }).click();
   await expect(page.getByTestId('price-notes')).toContainText('Nasıl çalışır?');
 
   await page.getByLabel('Fiyat ürün ara').fill(d.priceSkuCode);
@@ -614,6 +616,40 @@ test('Fiyat: aynı SKU\'nun kanal fiyatları yan yana; kanal bazında ayrı elle
   page.once('dialog', dialog => void dialog.accept());
   await page.getByTestId('save-prices').click();
   await expect(hb).not.toContainText('elle');
+});
+
+test('Fiyat & Stok Düzenle: tek satırda kanal durumu/stoğu görünür; satılabilir stok özetli onayla deftere yazılır (ADR-050)', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Fiyat & Stok Düzenle' }).click();
+  await expect(page.getByRole('heading', { name: 'Fiyat & Stok Düzenle' })).toBeVisible();
+
+  await page.getByLabel('Fiyat ürün ara').fill(d.priceSkuCode);
+  await page.getByRole('button', { name: 'Ara', exact: true }).click();
+  const row = page.getByTestId('sku-price-row').filter({ hasText: d.priceSkuCode });
+  await expect(row).toHaveCount(1);
+  await expect(row.getByTestId('price-cell-TRENDYOL').getByTestId('channel-stock')).toContainText('gidecek');
+
+  const input = row.getByLabel(`Satılabilir stok ${d.priceSkuCode}`);
+  const before = Number(await input.inputValue());
+  await input.fill('-1');
+  await expect(page.getByTestId('save-prices')).toBeDisabled();
+  await input.fill(String(before + 3));
+  await expect(row.getByTestId('stock-cell')).toContainText('Yeni fiziksel');
+  await expect(page.getByTestId('save-prices')).toHaveText('Değişiklikleri kaydet (1)');
+
+  let message = '';
+  page.once('dialog', dialog => { message = dialog.message(); void dialog.accept(); });
+  await page.getByTestId('save-prices').click();
+  await expect(page.getByRole('status')).toContainText('1 ürünün stoğu yazıldı');
+  expect(message).toContain(`${d.priceSkuCode}: satılabilir ${before} → ${before + 3}`);
+  await expect(row.getByTestId('stock-cell')).toContainText(`Satılabilir: ${before + 3}`);
+
+  // Geri al
+  await row.getByLabel(`Satılabilir stok ${d.priceSkuCode}`).fill(String(before));
+  page.once('dialog', dialog => void dialog.accept());
+  await page.getByTestId('save-prices').click();
+  await expect(row.getByTestId('stock-cell')).toContainText(`Satılabilir: ${before}`);
 });
 
 test('Soru-Cevap: Destek onay kutusunu işaretleyip cevap gönderir; cevap kullanıcı adıyla kaydedilir ve kanal kuyruğuna girer (ADR-029)', async ({ page }) => {
