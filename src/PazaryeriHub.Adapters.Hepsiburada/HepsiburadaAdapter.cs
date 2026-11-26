@@ -174,8 +174,9 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
 
     /// <summary>
     /// Kanal kataloğu: listing sorgusu <c>GET …/listings/merchantid/{merchantId}?offset&amp;limit</c> (FetchStock ile aynı uç).
-    /// Doğrulanmış alanlar yalnızca <c>hepsiburadaSku</c> (→ Kanal Ürün Kodu), <c>merchantSku</c> (→ satıcı stok kodu) ve
-    /// <c>isSalable</c>; barkod/model/renk/beden bu uçta yok → eşleştirme mevcut eşleştirme ve stok kodu adımlarıyla yapılır.
+    /// Listing yalnızca <c>hepsiburadaSku</c> (→ Kanal Ürün Kodu), <c>merchantSku</c> (→ satıcı stok kodu), <c>price</c> ve
+    /// <c>isSalable</c> taşır. Barkod, ad, marka, kategori, görsel, renk ve beden "Mağaza Bazlı Ürün Bilgisi Listeleme"
+    /// servisinden hbSku ile eklenir (ADR-056). Bu servis okunamazsa katalog listing alanlarıyla devam eder (uyarı loglanır).
     /// İmleç: sıradaki offset.
     /// </summary>
     public async Task<ChannelCatalogPage> FetchCatalogAsync(string? cursor, CancellationToken ct)
@@ -183,27 +184,115 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         const int limit = 100;
         var creds = await CredentialsAsync(ct);
         var offset = cursor is null ? 0 : int.Parse(cursor, CultureInfo.InvariantCulture);
+        if (cursor is null || _productInfo is null)
+        {
+            _productInfo = await LoadProductInfoAsync(creds, ct);
+        }
         var url = $"{creds.ListingBaseUrl}/listings/merchantid/{creds.MerchantId}?offset={offset}&limit={limit}";
         using var doc = await SendAsync(creds, HttpMethod.Get, url, null, ct);
         var items = Items(doc?.RootElement, "listings").ToList();
-        // ADR-031: her HBSKU ayrı varyanttır (model/renk/beden bu uçta yok → ürün oluştururken birleşmez).
+        // ADR-031: her HBSKU ayrı varyanttır (ürün oluştururken birleşmez).
         // Fiyat: "Price" = listingin fiyatı (alan açıklamaları tablosu); ürün sayfası adresi dokümanda yok → link yok.
-        // SIT yanıtıyla görüldü (2026-11-19; ADR-037): JSON'da "price" var, "productName" YOK (ad bu uçtan gelmez; kanal adı boş kalır).
+        // SIT yanıtıyla görüldü (2026-11-19; ADR-037): listing JSON'unda "productName" yok; ad ürün bilgisi servisinden gelir.
         var entries = items
-            .Select(i => (HbSku: Str(i, "hepsiburadaSku"), MerchantSku: Str(i, "merchantSku"), Salable: Prop(i, "isSalable"),
+            .Select(i => (HbSku: Str(i, "hepsiburadaSku")?.Trim(), MerchantSku: Str(i, "merchantSku")?.Trim(), Salable: Prop(i, "isSalable"),
                 Name: Str(i, "productName"), Price: Prop(i, "price")))
             .Where(x => x.HbSku is not null)
-            .Select(x => new ChannelCatalogEntry(
-                ChannelProductCode: x.HbSku!.Trim(), Barcode: null, StockCode: x.MerchantSku?.Trim(), ModelCode: null, Color: null, Size: null,
-                Name: x.Name?.Trim(), Brand: null, Category: null,
-                ChannelStatus: x.Salable?.ValueKind switch { JsonValueKind.True => "Satışta", JsonValueKind.False => "Satışta değil", _ => null },
-                Passive: false,
-                VariantKey: "h" + x.HbSku!.Trim(),
-                SalePrice: x.Price is { ValueKind: JsonValueKind.Number } p && p.TryGetDecimal(out var d) && d > 0 ? d : null))
+            .Select(x =>
+            {
+                var info = PickProductInfo(_productInfo, x.HbSku!, x.MerchantSku);
+                return new ChannelCatalogEntry(
+                    ChannelProductCode: x.HbSku!, Barcode: info?.Barcode, StockCode: x.MerchantSku ?? info?.MerchantSku, ModelCode: null,
+                    Color: info?.Color, Size: info?.Size,
+                    Name: x.Name?.Trim() ?? info?.Name, Brand: info?.Brand, Category: info?.Category,
+                    ChannelStatus: x.Salable?.ValueKind switch { JsonValueKind.True => "Satışta", JsonValueKind.False => "Satışta değil", _ => null },
+                    Passive: false,
+                    VariantKey: "h" + x.HbSku!,
+                    VariantAttributes: info?.VariantAttributes,
+                    SalePrice: x.Price is { ValueKind: JsonValueKind.Number } p && p.TryGetDecimal(out var d) && d > 0 ? d : null,
+                    ImageUrl: info?.ImageUrl);
+            })
             .ToList();
         var next = items.Count < limit ? null : (offset + limit).ToString(CultureInfo.InvariantCulture);
         return new ChannelCatalogPage(entries, next);
     }
+
+    /// <summary>Ürün bilgisi servisinin bir satırı (yalnızca katalogda kullanılan alanlar).</summary>
+    internal sealed record ProductInfo(string? MerchantSku, string? Barcode, string? Name, string? Brand, string? Category,
+        string? Color, string? Size, string? VariantAttributes, string? ImageUrl);
+
+    /// <summary>Tek katalog çekimi boyunca (aynı adaptör örneği) hbSku → ürün bilgisi satırları.</summary>
+    private Dictionary<string, List<ProductInfo>>? _productInfo;
+
+    /// <summary>Ürün bilgisi servisinin en fazla sayfa sayısı (100'lük; 50.000 ürün).</summary>
+    private const int MaxProductInfoPages = 500;
+
+    /// <summary>
+    /// Mağaza Bazlı Ürün Bilgisi Listeleme: <c>GET {mpop}/api/products/all-products-of-merchant/{merchantId}?page&amp;size</c>.
+    /// Uç ve parametreler resmi dokümandan; yanıt şeması dokümanda yok, SIT'te okundu (2026-11-26): kök
+    /// <c>{success, last, data[]}</c>, satır <c>{merchantSku, barcode, hbSku, productName, brand, categoryName, images[],
+    /// variantTypeAttributes[{name, value}]}</c>; renk <c>renk_variant_property</c>, beden <c>beden_variant_property</c>.
+    /// Sayfa boyutu: katalog dokümanı "Size 100 ile sınırlıdır" dediği için 100. Hata olursa boş sözlük (katalog devam eder).
+    /// </summary>
+    private async Task<Dictionary<string, List<ProductInfo>>> LoadProductInfoAsync(HepsiburadaCredentials creds, CancellationToken ct)
+    {
+        const int size = 100;
+        var result = new Dictionary<string, List<ProductInfo>>(StringComparer.Ordinal);
+        try
+        {
+            for (var page = 0; page < MaxProductInfoPages; page++)
+            {
+                using var doc = await SendAsync(creds, HttpMethod.Get,
+                    $"{creds.ProductBaseUrl}/api/products/all-products-of-merchant/{creds.MerchantId}?page={page}&size={size}", null, ct);
+                var rows = Items(doc?.RootElement, "data").ToList();
+                foreach (var r in rows)
+                {
+                    if (Str(r, "hbSku")?.Trim() is not { } hbSku)
+                    {
+                        continue;
+                    }
+                    if (!result.TryGetValue(hbSku, out var list))
+                    {
+                        result[hbSku] = list = [];
+                    }
+                    list.Add(ToProductInfo(r));
+                }
+                var last = doc?.RootElement is { ValueKind: JsonValueKind.Object } root && Prop(root, "last") is { ValueKind: JsonValueKind.True };
+                if (last || rows.Count < size)
+                {
+                    break;
+                }
+            }
+        }
+        catch (ChannelApiException ex)
+        {
+            // Katalog yine listing alanlarıyla gelir; eşleştirme stok koduna kalır.
+            logger.LogWarning("Hepsiburada ürün bilgisi okunamadı ({Hata}); katalog barkod/ad/renk/beden olmadan çekiliyor.", ex.Message);
+        }
+        return result;
+    }
+
+    internal static ProductInfo ToProductInfo(JsonElement r)
+    {
+        string? Attr(string name) => Prop(r, "variantTypeAttributes") is { ValueKind: JsonValueKind.Array } attrs
+            ? attrs.EnumerateArray().Where(a => string.Equals(Str(a, "name"), name, StringComparison.OrdinalIgnoreCase))
+                .Select(a => Str(a, "value")?.Trim()).FirstOrDefault(v => !string.IsNullOrEmpty(v))
+            : null;
+        var color = Attr("renk_variant_property");
+        var size = Attr("beden_variant_property");
+        var described = new[] { color is null ? null : $"Renk: {color}", size is null ? null : $"Beden: {size}" }.OfType<string>().ToList();
+        var image = Prop(r, "images") is { ValueKind: JsonValueKind.Array } imgs
+            ? imgs.EnumerateArray().Where(i => i.ValueKind == JsonValueKind.String).Select(i => i.GetString()?.Trim())
+                .FirstOrDefault(u => u is not null && u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            : null;
+        return new ProductInfo(Str(r, "merchantSku")?.Trim(), Str(r, "barcode")?.Trim(), Str(r, "productName")?.Trim(), Str(r, "brand")?.Trim(),
+            Str(r, "categoryName")?.Trim(), color, size, described.Count > 0 ? string.Join("; ", described) : null, image);
+    }
+
+    /// <summary>Aynı hbSku birden fazla satırda gelebiliyor (SIT): listing'in merchantSku'suyla uyan satır, yoksa ilki.</summary>
+    private static ProductInfo? PickProductInfo(Dictionary<string, List<ProductInfo>>? map, string hbSku, string? merchantSku) =>
+        map is null || !map.TryGetValue(hbSku, out var list) ? null
+            : list.FirstOrDefault(p => merchantSku is not null && string.Equals(p.MerchantSku, merchantSku, StringComparison.Ordinal)) ?? list[0];
 
     // ------------------------------------------------------------------ Siparişler
 

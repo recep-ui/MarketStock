@@ -1219,3 +1219,36 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - Birim testleri: `ChannelCatalogMatcherTests` 6 yeni test. Üç örnek: `MİCROBORNOZ21`, `MARINE85150LACIVERT`, `STRIPEBORNOZ0`.
 - Mevcut testler korundu: Türkçe i ayrımı otomatik bağlamada korunuyor; model kodu harf farkıyla bağlanmıyor. Unit 445/445.
 - Kurulu veride aynı katlama 314 bekleyen üründen 25'ine tek öneri veriyor, birden fazla adaylı ürün yok.
+
+## ADR-056: Hepsiburada kataloğu ürün bilgisi servisiyle zenginleştirilir
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul
+
+**Bağlam:**
+- Hepsiburada listing sorgusu yalnızca HBSKU, satıcı stok kodu, fiyat ve satış durumu veriyor (ADR-037, ADR-055).
+- Canlıda 314 ürünün 289'unda satıcı stok kodu bizdeki koddan farklı. Barkod, ad, renk ve beden olmadan eşleştirme ve öneri yapılamıyor.
+- Resmi dokümanda "Mağaza Bazlı Ürün Bilgisi Listeleme" (`GET mpop…/product/api/products/all-products-of-merchant/{merchantId}?page&size`) var. Dokümana göre ürünleri özellik değerleriyle birlikte döndürüyor, ancak yanıt şeması dokümanda yok.
+- Şema test ortamında (SIT) okundu (2026-11-26, yalnızca GET). Ayrıntı `docs/kanal-api-notlari.md` içinde.
+
+**Karar:**
+- `FetchCatalogAsync` ilk sayfada ürün bilgisi servisinin tüm sayfalarını okur (100'lük) ve sonucu hbSku'ya göre katalog çekimi boyunca tutar. Listing satırına şu alanlar eklenir:
+  - barkod, ad, marka, kategori, ilk https görsel;
+  - renk (`renk_variant_property`) ve beden (`beden_variant_property`); varyant metni "Renk: …; Beden: …".
+- Aynı hbSku birden fazla satırdaysa listing'in merchantSku'suyla uyan satır seçilir, yoksa ilki.
+- Model kodu verilmez (`variantGroupId` HB'nin grup kodu). ADR-031 değişmedi: her HBSKU ayrı varyant.
+- Ürün bilgisi servisi hata verirse katalog eskisi gibi listing alanlarıyla gelir ve uyarı loglanır. Böylece doğrulanmamış canlı adres katalog çekimini durdurmaz.
+- Canlı adres `https://mpop.hepsiburada.com/product`; dokümandaki "-sit çıkarılır" kuralıyla belirlendi. `// TODO: doğrulanmalı`.
+- Eşleşmeyenler anahtarı "barkod, yoksa kanal ürün kodu" olduğu için barkod gelince ürünler ikinci kez açılırdı. Bunu önlemek için:
+  - Anahtarı kanal ürün kodu olan eski kayıt aynı koddan bulunup barkod anahtarına taşınır.
+  - Eşleşen öğenin kanal ürün kodu da "çözüldü" sayılır; eski kayıt BAGLANDI olur.
+
+**Doğrulama:**
+- Contract testleri:
+  - SIT yanıtından kısaltılmış örnekle alan eşlemesi ve aynı hbSku seçimi.
+  - Sayfalama ve tek seferlik okuma.
+  - Servis hatasında devam.
+  - Canlı/SIT adresi.
+- Entegrasyon testi: barkod sonradan gelince eski kayıt taşınır, eşleşen kapanır.
+- Unit 449/449, entegrasyon 172/172.
+- SIT'te gerçek adaptörle uçtan uca çalıştırıldı (yalnızca okuma). 30 ilanın 30'u barkod, ad ve görselle geldi. SIT ürünlerinde varyant özelliği olmadığı için renk ve beden gelmedi.
+- Canlıda doğrulanmadı.

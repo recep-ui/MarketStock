@@ -22,6 +22,12 @@ public sealed record HepsiburadaCredentials(string MerchantId, string UserName, 
 
     public string OrderBaseUrl => Environment == Test ? "https://oms-external-sit.hepsiburada.com" : "https://oms-external.hepsiburada.com";
 
+    /// <summary>
+    /// Katalog servisleri (Mağaza Bazlı Ürün Bilgisi Listeleme vb.). Doküman yalnızca SIT adresini veriyor; canlı adres
+    /// "-sit çıkarılır" kuralıyla (docs/kanal-api-notlari.md). // TODO: doğrulanmalı — canlıda ilk başarılı çekimle.
+    /// </summary>
+    public string ProductBaseUrl => Environment == Test ? "https://mpop-sit.hepsiburada.com/product" : "https://mpop.hepsiburada.com/product";
+
     /// <summary>User-Agent zorunlu; biçimi dokümanda tanımlı değil. // TODO: doğrulanmalı</summary>
     public string EffectiveUserAgent => string.IsNullOrWhiteSpace(UserAgent) ? "PazaryeriHub" : UserAgent.Trim();
 

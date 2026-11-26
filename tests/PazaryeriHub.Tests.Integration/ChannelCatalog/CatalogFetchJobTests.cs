@@ -157,6 +157,47 @@ public sealed class CatalogFetchJobTests(TestDatabase db)
         }
     }
 
+    /// <summary>
+    /// ADR-056: Hepsiburada önce barkodsuz geliyordu (eşleşmeyen kaydın anahtarı = kanal ürün kodu). Barkod gelmeye başlayınca
+    /// eski kayıt kanal ürün koduyla bulunup barkod anahtarına taşınır: aynı ürün ikinci kez açılmaz; eşleşen ürünün eski kaydı bağlandı olur.
+    /// </summary>
+    [Fact]
+    public async Task Barkod_sonradan_gelince_eski_kanal_kodlu_eslesmeyen_kayit_tasinir_ikinci_kez_acilmaz()
+    {
+        db.SkipIfUnavailable();
+        var p = "KH" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var channelId = await ChannelIdAsync();
+        var known = await db.CreateSkuAsync(barcode: $"{p}-B1");
+        try
+        {
+            // 1. çekim: barkod yok → anahtar kanal ürün kodu
+            Mock.SetCatalog(Channel, [CodeEntry($"{p}-HB1", null), CodeEntry($"{p}-HB2", null)]);
+            await RunAsync(channelId, validateOnly: false);
+            // 2. çekim: barkodlar geldi; HB1 barkodla eşleşir, HB2 yine eşleşmez
+            Mock.SetCatalog(Channel, [CodeEntry($"{p}-HB1", $"{p}-B1"), CodeEntry($"{p}-HB2", $"{p}-B2")]);
+            var applied = await RunAsync(channelId, validateOnly: false);
+            applied!.MatchedByBarcode.Should().Be(1);
+
+            await using var c = db.Open();
+            (await c.QueryAsync<(string KanalAnahtar, string KanalUrunKodu, string? KanalBarkod, string Durum)>(
+                "SELECT KanalAnahtar, KanalUrunKodu, KanalBarkod, Durum FROM dbo.UnmatchedChannelItem WHERE ChannelId = @channelId AND KanalUrunKodu LIKE @p",
+                new { channelId, p = p + "%" })).Should().BeEquivalentTo(new[]
+            {
+                ($"{p}-HB1", $"{p}-HB1", (string?)null, "BAGLANDI"),
+                ($"{p}-B2", $"{p}-HB2", (string?)$"{p}-B2", "BEKLIYOR")
+            });
+            (await c.ExecuteScalarAsync<int>("SELECT SkuId FROM dbo.ChannelListing WHERE ChannelId = @channelId AND KanalBarkod = @b",
+                new { channelId, b = $"{p}-B1" })).Should().Be(known);
+        }
+        finally
+        {
+            Mock.SetCatalog(Channel, []);
+        }
+    }
+
+    private static ChannelCatalogEntry CodeEntry(string code, string? barcode) =>
+        new(code, barcode, null, null, null, null, Guid.NewGuid().ToString("N"), null, null, "Satışta", false);
+
     private static ChannelCatalogEntry Entry(string? barcode, bool passive = false) =>
         new(null, barcode, null, null, null, null, "Katalog test ürünü", null, null, passive ? "Arşivlendi" : "Satışta", passive);
 

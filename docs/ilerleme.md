@@ -7,6 +7,13 @@
 
 ---
 
+## Hepsiburada kataloğu: barkod, ad, renk ve beden (2026-11-26, ADR-056)
+
+- Katalog çekimi artık HB "Mağaza Bazlı Ürün Bilgisi Listeleme" servisinden barkod, ad, marka, kategori, görsel, renk ve beden ekliyor. Yanıt şeması SIT'te okundu.
+- Servis hata verirse katalog eskisi gibi gelir. Canlı adres (`mpop.hepsiburada.com`) doğrulanmadı.
+- Eşleşmeyenlerdeki eski (kanal kodlu) kayıtlar barkod anahtarına taşınıyor; ürünler ikinci kez açılmıyor.
+- Unit 449/449, entegrasyon 172/172. Kurulu sisteme ulaşması için yeni paket gerekir.
+
 ## Hepsiburada eşleştirmesi: harf farkıyla kod önerisi (2026-11-26, ADR-055)
 
 - Canlı HB'den 314 ürün çekildi, 0 eşleşti. HB listing servisi barkod, ad, renk ve beden döndürmüyor; eldeki tek bağ satıcı stok kodu.

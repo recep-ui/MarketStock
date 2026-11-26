@@ -359,10 +359,109 @@ public sealed class HepsiburadaAdapterContractTests
 
         var page = await adapter.FetchCatalogAsync("200", Ct);
 
-        http.Requests.Single().Uri.ToString().Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}?offset=200&limit=100");
+        http.Requests.Single(r => r.Uri.Host.StartsWith("listing", StringComparison.Ordinal)).Uri.ToString()
+            .Should().Be($"https://listing-external-sit.hepsiburada.com/listings/merchantid/{MerchantId}?offset=200&limit=100");
         page.NextCursor.Should().BeNull("100'den az kayıt → son sayfa");
         page.Items.Should().Equal(
             new ChannelCatalogEntry("HBV0000106NM0", null, "SC-1", null, null, null, "Chain Havlu", null, null, "Satışta", false, "hHBV0000106NM0", SalePrice: 349.9m),
             new ChannelCatalogEntry("HBV0000106NM1", null, null, null, null, null, null, null, null, "Satışta değil", false, "hHBV0000106NM1"));
+    }
+
+    // ------------------------------------------------------------------ katalog: Mağaza Bazlı Ürün Bilgisi Listeleme (ADR-056)
+
+    /// <summary>
+    /// SIT'ten alınan gerçek yanıtın kısaltılmışı (2026-11-26, GET mpop-sit…/product/api/products/all-products-of-merchant/{id}).
+    /// Kök: {success, code, totalElements, totalPages, number, last, data[]}; renk/beden variantTypeAttributes içinde.
+    /// Aynı hbSku birden fazla satırda gelebiliyor (farklı merchantSku).
+    /// </summary>
+    private const string ProductInfoPage = """
+        {"success":true,"code":0,"version":1,"message":null,"totalElements":3,"totalPages":1,"number":0,"numberOfElements":3,"first":true,"last":true,
+         "data":[
+          {"merchantSku":"8698642021921","barcode":"8698642021921","hbSku":"HBV1","variantGroupId":"ROYALKIMONO",
+           "productName":"Soft cotton created by gökhan Royal Kimono","brand":"Soft Cotton","images":["https://productimages.hepsiburada.net/s/777/1500/1.jpg"],
+           "categoryId":60005084,"categoryName":"Bornoz","tax":"18.0","price":"","description":"","status":"MATCHED",
+           "baseAttributes":[{"name":"UrunAdi","value":"Soft cotton created by gökhan Royal Kimono","mandatory":true}],
+           "variantTypeAttributes":[{"name":"renk_variant_property","value":"Beyaz","mandatory":true},{"name":"beden_variant_property","value":"S","mandatory":true}],
+           "productAttributes":[{"name":"tipi","value":"Bornoz","mandatory":true}],"validationResults":[],"rejectReasons":[]},
+          {"merchantSku":"HBV-ESKI","barcode":"1111111111111","hbSku":"HBV2","variantGroupId":"G2","productName":"Yanlış satır","brand":"X",
+           "images":[],"categoryName":"Havlu","status":"MATCHED","variantTypeAttributes":[],"productAttributes":[]},
+          {"merchantSku":"SC-HAVLU-2","barcode":"8680000000002","hbSku":"HBV2","variantGroupId":"G2","productName":"Chain Havlu 50x90","brand":"Soft Cotton",
+           "images":["https://productimages.hepsiburada.net/s/1/500/2.jpg"],"categoryName":"Havlu","status":"MATCHED","variantTypeAttributes":[],"productAttributes":[]}
+         ]}
+        """;
+
+    private const string TwoListings = """
+        {"listings":[{"HepsiburadaSku":"HBV1","MerchantSku":"8698642021921","Price":899.9,"IsSalable":true},
+                     {"HepsiburadaSku":"HBV2","MerchantSku":"SC-HAVLU-2","IsSalable":false},
+                     {"HepsiburadaSku":"HBV3","MerchantSku":"YOK-1","IsSalable":true}]}
+        """;
+
+    [Fact]
+    public async Task Katalog_urun_bilgisi_servisinden_barkod_ad_marka_renk_beden_ve_gorsel_eklenir()
+    {
+        var (adapter, http) = Create();
+        http.Respond = u => (HttpStatusCode.OK, u.Host.StartsWith("mpop", StringComparison.Ordinal) ? ProductInfoPage : TwoListings);
+
+        var page = await adapter.FetchCatalogAsync(null, Ct);
+
+        http.Requests.Select(r => r.Uri.ToString()).Should().Contain(
+            $"https://mpop-sit.hepsiburada.com/product/api/products/all-products-of-merchant/{MerchantId}?page=0&size=100");
+        http.Requests.Should().OnlyContain(r => r.Method == HttpMethod.Get);
+        page.Items[0].Should().Be(new ChannelCatalogEntry("HBV1", "8698642021921", "8698642021921", null, "Beyaz", "S",
+            "Soft cotton created by gökhan Royal Kimono", "Soft Cotton", "Bornoz", "Satışta", false, "hHBV1",
+            VariantAttributes: "Renk: Beyaz; Beden: S", SalePrice: 899.9m, ImageUrl: "https://productimages.hepsiburada.net/s/777/1500/1.jpg"));
+        // Aynı hbSku iki satırda: listing'in merchantSku'suyla uyan satır seçilir
+        page.Items[1].Barcode.Should().Be("8680000000002");
+        page.Items[1].Name.Should().Be("Chain Havlu 50x90");
+        // Ürün bilgisinde olmayan ilan eskisi gibi yalnızca listing alanlarıyla gelir
+        page.Items[2].Should().Be(new ChannelCatalogEntry("HBV3", null, "YOK-1", null, null, null, null, null, null, "Satışta", false, "hHBV3"));
+    }
+
+    [Fact]
+    public async Task Urun_bilgisi_tum_sayfalari_bir_kez_cekilir_sonraki_katalog_sayfalarinda_tekrar_cekilmez()
+    {
+        var (adapter, http) = Create();
+        http.Respond = u =>
+        {
+            if (!u.Host.StartsWith("mpop", StringComparison.Ordinal))
+            {
+                var many = string.Join(',', Enumerable.Range(0, 100).Select(i => $$"""{"HepsiburadaSku":"HBV{{i}}","MerchantSku":"M{{i}}"}"""));
+                return (HttpStatusCode.OK, $$"""{"listings":[{{many}}]}""");
+            }
+            // 1. sayfa dolu (100 satır), 2. sayfa son
+            var rows = string.Join(',', Enumerable.Range(0, 100).Select(i => $$"""{"hbSku":"HBV{{i}}","barcode":"B{{i}}"}"""));
+            return u.Query.Contains("page=1", StringComparison.Ordinal)
+                ? (HttpStatusCode.OK, """{"success":true,"number":1,"last":true,"data":[]}""")
+                : (HttpStatusCode.OK, $$"""{"success":true,"number":0,"last":false,"data":[{{rows}}]}""");
+        };
+
+        var first = await adapter.FetchCatalogAsync(null, Ct);
+        await adapter.FetchCatalogAsync(first.NextCursor, Ct);
+
+        http.Requests.Where(r => r.Uri.Host.StartsWith("mpop", StringComparison.Ordinal)).Select(r => r.Uri.Query)
+            .Should().Equal("?page=0&size=100", "?page=1&size=100");
+    }
+
+    [Fact]
+    public async Task Urun_bilgisi_servisi_hata_verirse_katalog_listing_alanlariyla_devam_eder()
+    {
+        var (adapter, http) = Create();
+        http.Respond = u => u.Host.StartsWith("mpop", StringComparison.Ordinal)
+            ? (HttpStatusCode.Forbidden, """{"message":"yetkisiz"}""")
+            : (HttpStatusCode.OK, TwoListings);
+
+        var page = await adapter.FetchCatalogAsync(null, Ct);
+
+        page.Items.Should().HaveCount(3);
+        page.Items[0].Barcode.Should().BeNull();
+        page.Items[0].StockCode.Should().Be("8698642021921");
+    }
+
+    [Fact]
+    public void Urun_bilgisi_adresi_canlida_sit_eki_olmadan()
+    {
+        HepsiburadaCredentials.Parse($$"""{"merchantId":"{{MerchantId}}","userName":"{{MerchantId}}","password":"p","environment":"Prod"}""").ProductBaseUrl
+            .Should().Be("https://mpop.hepsiburada.com/product");
+        HepsiburadaCredentials.Parse(Creds).ProductBaseUrl.Should().Be("https://mpop-sit.hepsiburada.com/product");
     }
 }

@@ -99,6 +99,7 @@ public sealed class ChannelCatalogService(
             var (change, _) = Upsert(state, sku.SkuId, channel.Id, item, source, changedListings);
             counts.Count(m.Step!.Value, change);
             resolvedKeys.Add(item.Key);
+            AddCodeKey(resolvedKeys, item);
             rows.Add(Row(item, CatalogRowOutcomes.Matched, sku.SkuCode, StepName(m.Step), change, null, null, null));
         }
 
@@ -110,6 +111,7 @@ public sealed class ChannelCatalogService(
             {
                 unmatched.Remove(match);
                 resolvedKeys.Add(match.Item.Key);
+                AddCodeKey(resolvedKeys, match.Item);
                 rows.Add(Row(match.Item, CatalogRowOutcomes.Created, skuCode, null, "YENI", detail, null, null));
             }
             counts.NewSkuListings = created.Count;
@@ -361,10 +363,24 @@ public sealed class ChannelCatalogService(
         return code.Length is > 0 and <= Application.Catalog.CatalogLimits.SkuCode ? code : null;
     }
 
+    /// <summary>ADR-056: eşleşen öğenin kanal ürün kodu da çözüldü sayılır (eski, kodla anahtarlanmış eşleşmeyen kaydı kapatmak için).</summary>
+    private static void AddCodeKey(HashSet<string> resolvedKeys, ChannelCatalogItem item)
+    {
+        if (item.ChannelProductCode is { Length: > 0 } code)
+        {
+            resolvedKeys.Add(code);
+        }
+    }
+
     private async Task UpsertUnmatchedAsync(int channelId, string source, List<CatalogMatch> unmatched, HashSet<string> resolvedKeys, string? user, DateTime now, CancellationToken ct)
     {
         var existing = (await db.UnmatchedChannelItems.Where(u => u.ChannelId == channelId).ToListAsync(ct))
             .ToDictionary(u => u.ChannelKey, StringComparer.Ordinal);
+        // ADR-056: barkodu önceden gelmeyen kanal (Hepsiburada) kaydı kanal ürün koduyla anahtarlanmıştı; barkod gelince
+        // aynı kayıt bu koddan bulunup yeni anahtara taşınır (ürün ikinci kez açılmaz).
+        var byCodeKey = existing.Values
+            .Where(u => u.ChannelProductCode is not null && string.Equals(u.ChannelKey, u.ChannelProductCode, StringComparison.Ordinal))
+            .ToDictionary(u => u.ChannelProductCode!, StringComparer.Ordinal);
 
         foreach (var m in unmatched)
         {
@@ -373,7 +389,15 @@ public sealed class ChannelCatalogService(
             {
                 continue;
             }
-            if (!existing.TryGetValue(item.Key, out var row))
+            if (!existing.TryGetValue(item.Key, out var row)
+                && item.ChannelProductCode is not null && byCodeKey.Remove(item.ChannelProductCode, out var moved))
+            {
+                existing.Remove(moved.ChannelKey);
+                moved.ChannelKey = item.Key;
+                existing[item.Key] = moved;
+                row = moved;
+            }
+            if (row is null)
             {
                 row = new UnmatchedChannelItemEntity { ChannelId = channelId, ChannelKey = item.Key, FirstSeenUtc = now, Status = UnmatchedStatuses.Pending };
                 db.UnmatchedChannelItems.Add(row);
