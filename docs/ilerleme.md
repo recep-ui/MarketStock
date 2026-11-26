@@ -7,6 +7,13 @@
 
 ---
 
+## Hepsiburada'nın ürettiği barkod yerine stok kodu (2026-11-26, ADR-057)
+
+- Canlı: ürün bilgisi servisi çalıştı (mpop adresi doğrulandı); 314 üründen 81'i eşleşti, 38 SKU açıldı, 195'i eşleşmedi.
+- Hepsiburada'nın barkodsuz ürünlere ürettiği değerin (`SoftCottonCreatedbyGökhan…`) yerine stok kodu barkod oluyor. Eşleşmeyen kayıtlar ürün koduyla taşınıyor.
+- Kurulu veride 23 SKU'nun barkodu stok koduyla düzeltildi (kullanıcı onayıyla).
+- 195 ürün kullanıcı tarafından panelden incelenecek. Unit 455/455, entegrasyon 173/173.
+
 ## Hepsiburada kataloğu: barkod, ad, renk ve beden (2026-11-26, ADR-056)
 
 - Katalog çekimi artık HB "Mağaza Bazlı Ürün Bilgisi Listeleme" servisinden barkod, ad, marka, kategori, görsel, renk ve beden ekliyor. Yanıt şeması SIT'te okundu.

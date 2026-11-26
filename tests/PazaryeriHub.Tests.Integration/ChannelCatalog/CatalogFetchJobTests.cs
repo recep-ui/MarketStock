@@ -195,6 +195,38 @@ public sealed class CatalogFetchJobTests(TestDatabase db)
         }
     }
 
+    /// <summary>
+    /// ADR-057: kanal barkodu değişirse (HB'nin ürettiği barkod → stok kodu) eşleşmeyen kayıt kanal ürün koduyla bulunup yeni anahtara
+    /// taşınır; ilanlı öğede ilanın kanal barkodu güncellenir.
+    /// </summary>
+    [Fact]
+    public async Task Kanal_barkodu_degisince_eslesmeyen_kayit_urun_koduyla_tasinir_ilan_barkodu_guncellenir()
+    {
+        db.SkipIfUnavailable();
+        var p = "KG" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var channelId = await ChannelIdAsync();
+        var known = await db.CreateSkuAsync(barcode: $"{p}-ESKI1");
+        try
+        {
+            Mock.SetCatalog(Channel, [CodeEntry($"{p}-HB1", $"{p}-ESKI1"), CodeEntry($"{p}-HB2", $"{p}-ESKI2")]);
+            await RunAsync(channelId, validateOnly: false);
+            Mock.SetCatalog(Channel, [CodeEntry($"{p}-HB1", $"{p}-YENI1"), CodeEntry($"{p}-HB2", $"{p}-YENI2")]);
+            var applied = await RunAsync(channelId, validateOnly: false);
+            applied!.MatchedExisting.Should().Be(1, "ilan kanal ürün koduyla tanınır");
+
+            await using var c = db.Open();
+            (await c.QueryAsync<(string KanalAnahtar, string Durum)>(
+                "SELECT KanalAnahtar, Durum FROM dbo.UnmatchedChannelItem WHERE ChannelId = @channelId AND KanalUrunKodu LIKE @p",
+                new { channelId, p = p + "%" })).Should().BeEquivalentTo(new[] { ($"{p}-YENI2", "BEKLIYOR") });
+            (await c.ExecuteScalarAsync<string>("SELECT KanalBarkod FROM dbo.ChannelListing WHERE ChannelId = @channelId AND SkuId = @known",
+                new { channelId, known })).Should().Be($"{p}-YENI1");
+        }
+        finally
+        {
+            Mock.SetCatalog(Channel, []);
+        }
+    }
+
     private static ChannelCatalogEntry CodeEntry(string code, string? barcode) =>
         new(code, barcode, null, null, null, null, Guid.NewGuid().ToString("N"), null, null, "Satışta", false);
 

@@ -376,11 +376,14 @@ public sealed class ChannelCatalogService(
     {
         var existing = (await db.UnmatchedChannelItems.Where(u => u.ChannelId == channelId).ToListAsync(ct))
             .ToDictionary(u => u.ChannelKey, StringComparer.Ordinal);
-        // ADR-056: barkodu önceden gelmeyen kanal (Hepsiburada) kaydı kanal ürün koduyla anahtarlanmıştı; barkod gelince
-        // aynı kayıt bu koddan bulunup yeni anahtara taşınır (ürün ikinci kez açılmaz).
+        // ADR-056/057: kanal barkodu değişince (önce yoktu → geldi; HB'nin ürettiği barkod → stok kodu) anahtar da değişir.
+        // Aynı kayıt kanal ürün kodundan bulunup yeni anahtara taşınır (ürün ikinci kez açılmaz). Kod birden fazla kayıtta
+        // geçiyorsa hangisi olduğu bilinemez → taşınmaz.
         var byCodeKey = existing.Values
-            .Where(u => u.ChannelProductCode is not null && string.Equals(u.ChannelKey, u.ChannelProductCode, StringComparison.Ordinal))
-            .ToDictionary(u => u.ChannelProductCode!, StringComparer.Ordinal);
+            .Where(u => u.ChannelProductCode is not null)
+            .GroupBy(u => u.ChannelProductCode!, StringComparer.Ordinal)
+            .Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single(), StringComparer.Ordinal);
 
         foreach (var m in unmatched)
         {

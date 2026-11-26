@@ -1252,3 +1252,32 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - Unit 449/449, entegrasyon 172/172.
 - SIT'te gerçek adaptörle uçtan uca çalıştırıldı (yalnızca okuma). 30 ilanın 30'u barkod, ad ve görselle geldi. SIT ürünlerinde varyant özelliği olmadığı için renk ve beden gelmedi.
 - Canlıda doğrulanmadı.
+
+## ADR-057: Hepsiburada'nın ürettiği barkod yerine satıcı stok kodu
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul
+
+**Bağlam:**
+- ADR-056 canlıda çalıştı. Ürün bilgisi servisi 200 döndü, böylece canlı adres `mpop.hepsiburada.com` doğrulandı.
+- Sonuç: 314 ürünün 81'i barkodla eşleşti, 38'inden SKU oluşturuldu, 195'i eşleşmedi.
+- Barkodsuz ürünlerde Hepsiburada kendi değerini üretiyor: `SoftCottonCreatedbyGökhan` + GUID parçası (ör. `…090cad47-469`, 37 karakter).
+  - Veritabanında bu desene uyan 187 değer var: 141'i eşleşmeyen kayıtlarda, 23'ü SKU barkodunda, 23'ü ilanlarda.
+  - Gerçek barkodların hiçbiri bu desene uymuyor.
+- Bu değerler SKU barkoduna yazılmıştı (21'i yeni açılan SKU'larda, 2'si daha eski SKU'larda). Kullanıcı bunların yerine Hepsiburada stok kodunun kullanılmasını istedi.
+
+**Karar:**
+- `HepsiburadaAdapter.IsGeneratedBarcode`: değer en az 13 karakter, rakamla başlamıyor ve `[0-9a-f]{8}-[0-9a-f]{3,4}` ile bitiyorsa üretilmiş barkod sayılır.
+- Üretilmiş barkod yerine katalog öğesinin barkodu satıcı stok kodu olur. Stok kodu önce listing'den, yoksa ürün bilgisinden alınır. Böylece:
+  - SKU açılırken barkod = stok kodu olur;
+  - mevcut ilanın kanal barkodu bir sonraki çekimde güncellenir (ilan kanal ürün koduyla tanınır).
+- Eşleşmeyenler: kanal barkodu değişince anahtar da değişir. ADR-056'nın taşıma kuralı genişletildi:
+  - Kanal ürün kodu tek bir kayıtta geçiyorsa, anahtarı ne olursa olsun o kayıt yeni anahtara taşınır.
+  - Kod birden fazla kayıtta geçiyorsa taşınmaz.
+- Veri düzeltmesi (kullanıcı onayıyla, 2026-11-26): kurulu veritabanında üretilmiş barkodu taşıyan 23 SKU'nun barkodu HB stok koduyla değiştirildi. Bu değer 23'ünde de SKU koduyla aynı.
+  - Önce deneme çalıştırıldı: çakışma yok. Ardından tek transaction'da uygulandı.
+  - Doğrudan SQL olduğu için işlem geçmişine (`AuditLog`, HTTP isteği kaydı) düşmedi.
+- 195 eşleşmeyen ürün için yeni SKU açılmadı. Kullanıcı önerileri panelden tek tek inceleyecek. Öneriler ad benzerliğine dayandığı için renk ve beden tutmayabilir.
+
+**Doğrulama:**
+- Birim testleri: üretilmiş barkod tanıma (5 örnek), barkod yerine stok kodu (listing'de stok kodu yoksa ürün bilgisinden). Unit 455/455.
+- Entegrasyon testi: barkod değişince eşleşmeyen kayıt ürün koduyla taşınır, ilan barkodu güncellenir. Entegrasyon 173/173.

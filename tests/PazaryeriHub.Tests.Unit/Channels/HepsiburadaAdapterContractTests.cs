@@ -464,4 +464,30 @@ public sealed class HepsiburadaAdapterContractTests
             .Should().Be("https://mpop.hepsiburada.com/product");
         HepsiburadaCredentials.Parse(Creds).ProductBaseUrl.Should().Be("https://mpop-sit.hepsiburada.com/product");
     }
+
+    [Theory]
+    // Canlıda (2026-11-26) barkodsuz ürünlerde HB "<satıcı adı><GUID parçası>" üretiyor: 187 değerin hepsi bu biçimde, 37 karakter.
+    [InlineData("SoftCottonCreatedbyGökhan090cad47-469", true)]
+    [InlineData("SoftCottonCreatedbyGökhan090cad47-4690", true)]
+    [InlineData("8698642021921", false)]
+    [InlineData("LordHavlu0005", false)]
+    [InlineData("SC-GLOR-BRN-1P-M-PUDRA", false)]
+    public void Hepsiburadanin_urettigi_barkod_taninir(string barcode, bool generated) =>
+        HepsiburadaAdapter.IsGeneratedBarcode(barcode).Should().Be(generated);
+
+    [Fact]
+    public async Task Hepsiburadanin_urettigi_barkod_yerine_stok_kodu_barkod_olur()
+    {
+        var (adapter, http) = Create();
+        http.Respond = u => (HttpStatusCode.OK, u.Host.StartsWith("mpop", StringComparison.Ordinal)
+            ? """{"last":true,"data":[{"merchantSku":"LOFT1","barcode":"SoftCottonCreatedbyGökhan67484b91-3ce","hbSku":"HBV9","productName":"LOFT Paspas"},{"merchantSku":"X2","barcode":"SoftCottonCreatedbyGökhan11111111-222","hbSku":"HBV8","productName":"Kodsuz"}]}"""
+            : """{"listings":[{"HepsiburadaSku":"HBV9","MerchantSku":"LOFT1"},{"HepsiburadaSku":"HBV8","MerchantSku":null}]}""");
+
+        var page = await adapter.FetchCatalogAsync(null, Ct);
+
+        page.Items[0].Barcode.Should().Be("LOFT1");
+        page.Items[0].StockCode.Should().Be("LOFT1");
+        // Listing'de stok kodu yoksa ürün bilgisindeki stok kodu kullanılır
+        page.Items[1].Barcode.Should().Be("X2");
+    }
 }

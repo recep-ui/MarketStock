@@ -19,7 +19,7 @@ namespace PazaryeriHub.Adapters.Hepsiburada;
 /// (<c>items.sku</c>) taşır; stok güncelleme de HBSKU kabul eder.
 /// </para>
 /// </summary>
-public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore credentials, TimeProvider clock, ILogger<HepsiburadaAdapter> logger)
+public sealed partial class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore credentials, TimeProvider clock, ILogger<HepsiburadaAdapter> logger)
     : IChannelAdapter
 {
     public const string Code = "HEPSIBURADA";
@@ -201,8 +201,11 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
             .Select(x =>
             {
                 var info = PickProductInfo(_productInfo, x.HbSku!, x.MerchantSku);
+                var stockCode = x.MerchantSku ?? info?.MerchantSku;
+                // ADR-057: barkodsuz ürüne HB'nin ürettiği değer gerçek barkod değil → yerine satıcı stok kodu
+                var barcode = IsGeneratedBarcode(info?.Barcode) ? stockCode : info?.Barcode;
                 return new ChannelCatalogEntry(
-                    ChannelProductCode: x.HbSku!, Barcode: info?.Barcode, StockCode: x.MerchantSku ?? info?.MerchantSku, ModelCode: null,
+                    ChannelProductCode: x.HbSku!, Barcode: barcode, StockCode: stockCode, ModelCode: null,
                     Color: info?.Color, Size: info?.Size,
                     Name: x.Name?.Trim() ?? info?.Name, Brand: info?.Brand, Category: info?.Category,
                     ChannelStatus: x.Salable?.ValueKind switch { JsonValueKind.True => "Satışta", JsonValueKind.False => "Satışta değil", _ => null },
@@ -216,6 +219,17 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var next = items.Count < limit ? null : (offset + limit).ToString(CultureInfo.InvariantCulture);
         return new ChannelCatalogPage(entries, next);
     }
+
+    /// <summary>
+    /// ADR-057: Hepsiburada barkodsuz ürüne "&lt;satıcı adı&gt;&lt;GUID parçası&gt;" biçiminde bir değer üretiyor
+    /// (canlı, 2026-11-26: ör. "…Gökhan090cad47-469"; 187 değerin hepsi bu biçimde, gerçek barkodların hiçbiri değil).
+    /// Rakamla başlamayan ve 8 onaltılık + "-" + 3–4 onaltılık karakterle biten değer üretilmiş sayılır.
+    /// </summary>
+    internal static bool IsGeneratedBarcode(string? barcode) =>
+        barcode is { Length: >= 13 } && !char.IsDigit(barcode[0]) && GeneratedBarcodeTail().IsMatch(barcode);
+
+    [System.Text.RegularExpressions.GeneratedRegex("[0-9a-fA-F]{8}-[0-9a-fA-F]{3,4}$")]
+    private static partial System.Text.RegularExpressions.Regex GeneratedBarcodeTail();
 
     /// <summary>Ürün bilgisi servisinin bir satırı (yalnızca katalogda kullanılan alanlar).</summary>
     internal sealed record ProductInfo(string? MerchantSku, string? Barcode, string? Name, string? Brand, string? Category,

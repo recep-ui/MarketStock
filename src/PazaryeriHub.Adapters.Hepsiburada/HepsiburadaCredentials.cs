@@ -24,7 +24,7 @@ public sealed record HepsiburadaCredentials(string MerchantId, string UserName, 
 
     /// <summary>
     /// Katalog servisleri (Mağaza Bazlı Ürün Bilgisi Listeleme vb.). Doküman yalnızca SIT adresini veriyor; canlı adres
-    /// "-sit çıkarılır" kuralıyla (docs/kanal-api-notlari.md). // TODO: doğrulanmalı — canlıda ilk başarılı çekimle.
+    /// "-sit çıkarılır" kuralıyla (docs/kanal-api-notlari.md). Canlıda doğrulandı (2026-11-26, 200).
     /// </summary>
     public string ProductBaseUrl => Environment == Test ? "https://mpop-sit.hepsiburada.com/product" : "https://mpop.hepsiburada.com/product";
 
