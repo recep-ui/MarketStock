@@ -1,4 +1,5 @@
-import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
+import type { ReactNode } from 'react';
+import { flexRender, getCoreRowModel, useReactTable, type CellContext, type ColumnDef } from '@tanstack/react-table';
 
 type Props<T> = {
   columns: ColumnDef<T, any>[];
@@ -10,6 +11,15 @@ type Props<T> = {
   onRowClick?: (row: T) => void;
   selectedKey?: (row: T) => boolean;
 };
+
+/**
+ * Hücreyi düz fonksiyon çağrısıyla üretir. flexRender hücre fonksiyonunu React bileşeni olarak bağlar; sütunlar her tuşta yeniden
+ * oluşturulursa (ör. taslak değerlere bağlı useMemo) bileşen tipi değişir, hücre baştan bağlanır ve içindeki kutu odağı kaybeder.
+ * Düz çağrıda hücrenin döndürdüğü öğeler (ör. ChannelCell) aynı tipte kalır; odak ve yazılan değer korunur. Hücreler hook kullanmamalı.
+ */
+function renderCell<T>(cell: ColumnDef<T, any>['cell'], context: CellContext<T, any>): ReactNode {
+  return typeof cell === 'function' ? (cell as (c: CellContext<T, any>) => ReactNode)(context) : flexRender(cell, context);
+}
 
 /** TanStack Table tabanlı tablo. Sayfalama sunucu tarafında yapılır (bkz. Pager). */
 export function DataTable<T>({ columns, data, loading, empty, rowClassName, rowTestId, onRowClick, selectedKey }: Props<T>) {
@@ -36,7 +46,7 @@ export function DataTable<T>({ columns, data, loading, empty, rowClassName, rowT
               onClick={onRowClick ? () => onRowClick(row.original) : undefined}
             >
               {row.getVisibleCells().map(cell => (
-                <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                <td key={cell.id}>{renderCell(cell.column.columnDef.cell, cell.getContext())}</td>
               ))}
             </tr>
           ))}

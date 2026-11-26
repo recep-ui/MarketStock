@@ -7,6 +7,13 @@
 
 ---
 
+## Düzeltme: fiyat kutusu her rakamda odağı kaybediyordu (2026-11-27)
+
+- Belirti: Fiyat & Stok Düzenle tablosunda elle fiyat / kanal stoğu kutusuna her rakamdan sonra yeniden tıklamak gerekiyordu.
+- Kök neden: TanStack `flexRender` hücre fonksiyonunu React bileşeni olarak bağlıyor; sütunlar taslak değerlere bağlı `useMemo` ile her tuşta yeniden oluşunca bileşen tipi değişiyor, hücre baştan bağlanıyor ve odak kayboluyordu. Mevcut e2e `fill()` kullandığı için yakalamıyordu.
+- Düzeltme: `DataTable` hücre fonksiyonunu düz çağırıyor (bütün tablolar için ortak). Varyant fiyatı kutusu ve diğer fiyat formları düz tablo/form olduğu için etkilenmiyordu; testle doğrulandı.
+- Test: Playwright'ta kutuya bir kez tıklayıp tuş tuş yazma senaryosu (önce başarısız, düzeltmeden sonra geçiyor). Tam Playwright paketi 29/29, `npm run build` temiz.
+
 ## Excel'e aktar her ekranda, varyantlara toplu fiyat, sabit sol menü (2026-11-27, ADR-060/061/062)
 
 - **Excel'e aktar:** bütün liste ekranlarında aynı düğme (`ExportButton`) ve tek uç (`POST /api/export/xlsx`, ClosedXML). Sayfalanmış listelerde filtreye uyan bütün kayıtlar liste ucundan çekilir (rol yetkisi ve Destek maskelemesi aynen geçerli); sayfalanmamış tablolar ekrandan okunur. Siparişler'deki satır bazlı Excel olduğu gibi kaldı.

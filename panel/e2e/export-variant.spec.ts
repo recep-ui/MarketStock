@@ -145,3 +145,31 @@ test('Sol menü sayfa kaydırılınca yerinde kalır; dar ekranda üstte ve sabi
   expect(await page.locator('aside.sidebar').evaluate(el => getComputedStyle(el).position)).toBe('static');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
+
+test('Fiyat kutuları: tek tıklamayla art arda yazılan rakamların hepsi girilir, odak kaybolmaz', async ({ page }) => {
+  const d = demo();
+  await login(page);
+  // Fiyat & Stok Düzenle: satır içi elle fiyat ve kanal stoğu kutuları (TanStack tablo hücresi)
+  await page.goto(`/urun-duzenle?ara=${encodeURIComponent(d.priceSkuCode)}`);
+  const row = page.getByTestId('sku-price-row').filter({ hasText: d.priceSkuCode });
+  await expect(row).toHaveCount(1);
+  for (const [label, text] of [[`Hepsiburada elle fiyat ${d.priceSkuCode}`, '1249,90'], [`Hepsiburada kanal stoğu ${d.priceSkuCode}`, '12']]) {
+    const input = row.getByLabel(label);
+    await input.click();
+    await page.keyboard.type(text, { delay: 30 });
+    await expect(input).toBeFocused();
+    await expect(input).toHaveValue(text);
+  }
+  await page.getByRole('button', { name: 'Vazgeç' }).click();
+
+  // Varyantlara toplu fiyat kutusu
+  await page.goto('/stok?kanal=HEPSIBURADA');
+  await page.getByLabel('Kanal ilanlarında bul').fill(d.skuCodes[0]);
+  await page.getByRole('button', { name: 'Filtrele' }).click();
+  await page.getByTestId('channel-stock-row').first().getByTestId('variant-price-open').click();
+  const variant = page.getByTestId('variant-price-input');
+  await variant.click();
+  await page.keyboard.type('1.249,90', { delay: 30 });
+  await expect(variant).toBeFocused();
+  await expect(variant).toHaveValue('1.249,90');
+});
