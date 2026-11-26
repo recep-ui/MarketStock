@@ -1188,3 +1188,34 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Doğrulama:**
 - Birim testi: `Yetkisiz_hatasi_hangi_alana_ne_yazilacagini_soyler` (önce kırmızı). Unit 439/439.
 - Playwright (ADR-054 senaryosu): etiketler ve açıklama görünür; kullanıcı adı `firmaadi_dev` iken uyarı çıkar, Mağaza ID girilince kalkar. Form kaydedilmez. ADR-033 senaryosuyla birlikte geçti.
+
+## ADR-055: Harf farkıyla uyan stok kodu yalnızca öneri olur (Hepsiburada eşleştirmesi)
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul
+
+**Bağlam:**
+- Canlı Hepsiburada'dan 314 ürün çekildi, hiçbiri eşleşmedi. Kurulu veritabanı yalnızca okundu.
+- Hepsiburada listing sorgusu yalnızca `hepsiburadaSku`, `merchantSku`, `price` ve `isSalable` döndürüyor. Barkod, ad, renk ve beden yok (ADR-037). Eşleştirmede kullanılabilecek tek alan satıcı stok kodu.
+- Satıcı stok kodlarının bir kısmı bizdeki kodla aynı, ama büyük harfle ve kimi zaman Türkçe İ ile yazılmış (`MİCROBORNOZ21` ↔ `Microbornoz21`). Kodlar ikili (BIN2) karşılaştırıldığı için bunlar tutmadı. Bu yolla 25 ürün tek SKU'ya uyuyor.
+- Kalan 289 üründe Hepsiburada'daki kod bizdekinden gerçekten farklı (ör. `AXELBORNOZ6` ↔ `AxelBornoz006`). Bu ürünler kodla eşleştirilemez.
+- Harf farkını otomatik bağlamada yok saymak güvenli değil. Model düzeyindeki bir stok kodu (`Chain75150`), harf farkıyla başka bir SKU koduna (`CHAIN75150`) uyabilir; mevcut `VariantGroupingTests` bunu yakalıyor.
+
+**Karar:**
+- Eşleştirme adımları ve ikili kod karşılaştırması değişmedi.
+- Eşleşmeyen satırın satıcı stok kodu, bir SkuKodu'na veya SKU barkoduna yalnızca büyük/küçük harf ve I/İ/ı farkıyla uyuyorsa ve bu tek bir SKU ise **öneri** üretilir:
+  - Skor 1.
+  - Açıklama: "yalnızca harf farkıyla uyuyor; doğruysa onaylayın".
+  - Bağlama kullanıcının onayıyla mevcut eşleşmeyenler akışından yapılır.
+- Kod önerisi ad benzerliği önerisinden önce gelir.
+- Belirsiz ve çakışma satırları etkilenmez; açıklamaları korunur.
+- Anahtar `CatalogText.FoldCode`: kırp; i, ı, İ → I; gerisi kültürden bağımsız büyük harf. Tire, boşluk ve rakam korunur.
+
+**Açık konu:**
+- Hepsiburada resmi dokümanında "Mağaza Bazlı Ürün Bilgisi Listeleme" var: `GET mpop…/product/api/products/all-products-of-merchant/{merchantId}?barcode&merchantSku&hbSku&page&size`.
+- Doküman bu servisin ürünleri "özellik değerleriyle birlikte" döndürdüğünü söylüyor, ama yanıt şeması dokümanda yok.
+- Barkod, ad, renk ve beden için bu servis kullanılmalı. Alan adları uydurulmamalı: önce test ortamından (SIT) örnek yanıt alınmalı ve contract test yazılmalı.
+
+**Doğrulama:**
+- Birim testleri: `ChannelCatalogMatcherTests` 6 yeni test. Üç örnek: `MİCROBORNOZ21`, `MARINE85150LACIVERT`, `STRIPEBORNOZ0`.
+- Mevcut testler korundu: Türkçe i ayrımı otomatik bağlamada korunuyor; model kodu harf farkıyla bağlanmıyor. Unit 445/445.
+- Kurulu veride aynı katlama 314 bekleyen üründen 25'ine tek öneri veriyor, birden fazla adaylı ürün yok.

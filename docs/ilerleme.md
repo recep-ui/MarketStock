@@ -7,6 +7,13 @@
 
 ---
 
+## Hepsiburada eşleştirmesi: harf farkıyla kod önerisi (2026-11-26, ADR-055)
+
+- Canlı HB'den 314 ürün çekildi, 0 eşleşti. HB listing servisi barkod, ad, renk ve beden döndürmüyor; eldeki tek bağ satıcı stok kodu.
+- 25 ürünün kodu bizdekiyle aynı, yalnızca harf farkı var (`MİCROBORNOZ21` ↔ `Microbornoz21`). Bunlar artık Eşleşmeyenler'de öneri olarak çıkıyor; otomatik bağlanmıyor.
+- 289 üründe kod gerçekten farklı. Bunlar için Hepsiburada'nın "Mağaza Bazlı Ürün Bilgisi Listeleme" servisi gerekiyor; yanıt şeması dokümanda yok, önce SIT örneği alınmalı.
+- Unit 445/445.
+
 ## Hepsiburada API bilgisi alanları netleşti (2026-11-26, ADR-054)
 
 - Canlı HB 401 aldı: kullanıcı adına entegratör adı yazılmıştı. SIT'te çalışan biçim: kullanıcı adı = Mağaza ID, şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı.

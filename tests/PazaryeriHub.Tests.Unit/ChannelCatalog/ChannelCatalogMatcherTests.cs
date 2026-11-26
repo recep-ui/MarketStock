@@ -46,6 +46,53 @@ public sealed class ChannelCatalogMatcherTests
         result[1].Detail.Should().Contain("2 satırda");
     }
 
+    [Theory]
+    // Hepsiburada satıcı stok kodunu büyük harfe çevirip Türkçe İ kullanıyor (canlı veri, 2026-11-26; ADR-055).
+    // Kodlar ikili karşılaştırılır (otomatik bağlama yok); harf farkıyla tek SKU tutuyorsa yalnızca ÖNERİ olur.
+    [InlineData("MİCROBORNOZ21", "Microbornoz21")]
+    [InlineData("MARINE85150LACIVERT", "Marine85150Lacivert")]
+    [InlineData("STRIPEBORNOZ0", "Strıpebornoz0")]
+    public void Stok_kodu_harf_farkiyla_tutuyorsa_baglanmaz_oneri_olur(string channelCode, string ourCode)
+    {
+        var skus = new[] { Sku(1, ourCode), Sku(2, "BASKA-KOD") };
+        var r = ChannelCatalogMatcher.Match([Item(2, stock: channelCode, code: "HBV1")], skus, []).Single();
+
+        r.IsMatched.Should().BeFalse();
+        r.Suggestion!.SkuId.Should().Be(1);
+        r.SuggestionScore.Should().Be(1m);
+        r.Detail.Should().Contain("harf farkı");
+    }
+
+    [Fact]
+    public void Stok_kodu_harf_farkiyla_SKU_barkoduna_uyuyorsa_da_oneri_olur()
+    {
+        // Trendyol'dan gelen SKU'larda barkod alanı çoğu zaman metin koddur (ör. "AxelBornoz006")
+        var skus = new[] { Sku(1, "AXELBORNOZ-L", barcode: "AxelBornoz006") };
+        var r = ChannelCatalogMatcher.Match([Item(2, stock: "AXELBORNOZ006", code: "HBV1")], skus, []).Single();
+
+        r.IsMatched.Should().BeFalse();
+        r.Suggestion!.SkuId.Should().Be(1);
+    }
+
+    [Fact]
+    public void Harf_farkiyla_birden_fazla_SKU_tutuyorsa_oneri_yok()
+    {
+        var skus = new[] { Sku(1, "Abc1"), Sku(2, "ABC1-X", barcode: "aBc1") };
+        var r = ChannelCatalogMatcher.Match([Item(2, stock: "ABC1", code: "HBV1")], skus, []).Single();
+
+        r.IsMatched.Should().BeFalse();
+        r.Suggestion.Should().BeNull();
+    }
+
+    [Fact]
+    public void Kod_onerisi_ad_benzerligi_onerisinden_once_gelir()
+    {
+        var skus = new[] { Sku(1, "Abc1", name: "Başka Ürün"), Sku(2, "X-2", name: "Pamuklu Bornoz") };
+        var r = ChannelCatalogMatcher.Match([Item(2, stock: "ABC1", name: "Pamuklu Bornoz", code: "HBV1")], skus, []).Single();
+
+        r.Suggestion!.SkuId.Should().Be(1);
+    }
+
     [Fact]
     public void Model_renk_beden_tek_adayda_eslesir_harf_ve_bosluk_duyarsiz()
     {

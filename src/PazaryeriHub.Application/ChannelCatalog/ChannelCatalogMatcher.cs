@@ -147,6 +147,7 @@ public static class ChannelCatalogMatcher
             results[i] = MatchOne(items[i], skuById, byBarcode, byCode, byModelColorSize, listingByBarcode, listingByCode, stockCodeCounts, modelKeyCounts);
         }
 
+        AddCodeSuggestions(results, skus);
         AddSuggestions(results, skus);
         return results;
     }
@@ -221,6 +222,55 @@ public static class ChannelCatalogMatcher
     private static CatalogMatch Unmatched(ChannelCatalogItem item, string reason, string detail) =>
         new(item, null, null, reason, detail, null, null);
 
+    // ------------------------------------------------------------------ Harf farkıyla kod önerisi
+
+    /// <summary>
+    /// ADR-055: satıcı stok kodu bir SkuKodu'na veya SKU barkoduna yalnızca büyük/küçük harf ve Türkçe I/İ/ı farkıyla uyuyorsa
+    /// (ör. Hepsiburada "MİCROBORNOZ21" ↔ "Microbornoz21") ÖNERİ üretilir (skor 1). Otomatik bağlanmaz: kodlar ikili
+    /// karşılaştırılır ve model düzeyindeki bir stok kodu ("Chain75150") başka bir SKU koduna ("CHAIN75150") harf farkıyla
+    /// uyabilir. Harf farkıyla birden fazla SKU tutuyorsa öneri yok.
+    /// </summary>
+    private static void AddCodeSuggestions(CatalogMatch[] results, IReadOnlyList<CatalogSkuRef> skus)
+    {
+        if (results.All(r => r.IsMatched || r.Item.StockCode is null))
+        {
+            return;
+        }
+        var byFolded = new Dictionary<string, List<CatalogSkuRef>>(StringComparer.Ordinal);
+        foreach (var s in skus)
+        {
+            foreach (var code in new[] { s.SkuCode, s.Barcode }.Where(c => !string.IsNullOrWhiteSpace(c)).Select(CatalogText.FoldCode).Distinct())
+            {
+                if (!byFolded.TryGetValue(code, out var list))
+                {
+                    byFolded[code] = list = [];
+                }
+                if (!list.Exists(x => x.SkuId == s.SkuId))
+                {
+                    list.Add(s);
+                }
+            }
+        }
+
+        for (var i = 0; i < results.Length; i++)
+        {
+            var r = results[i];
+            // Yalnızca hiç aday bulunamayanlar: belirsiz/çakışma satırının açıklaması korunur
+            if (r.Reason != UnmatchedReasons.NoMatch || r.Item.StockCode is null
+                || !byFolded.TryGetValue(CatalogText.FoldCode(r.Item.StockCode), out var candidates) || candidates.Count != 1)
+            {
+                continue;
+            }
+            var sku = candidates[0];
+            results[i] = r with
+            {
+                Suggestion = sku,
+                SuggestionScore = 1m,
+                Detail = $"Satıcı stok kodu {sku.SkuCode} SKU'suna yalnızca harf farkıyla (büyük/küçük, I/İ) uyuyor; doğruysa onaylayın.",
+            };
+        }
+    }
+
     // ------------------------------------------------------------------ Ad benzerliği önerisi
 
     private static void AddSuggestions(CatalogMatch[] results, IReadOnlyList<CatalogSkuRef> skus)
@@ -239,7 +289,7 @@ public static class ChannelCatalogMatcher
         for (var i = 0; i < results.Length; i++)
         {
             var r = results[i];
-            if (r.IsMatched || r.Item.Name is null)
+            if (r.IsMatched || r.Item.Name is null || r.Suggestion is not null)
             {
                 continue;
             }
@@ -310,6 +360,25 @@ public static class ChannelCatalogMatcher
 public static class CatalogText
 {
     private static readonly CultureInfo Turkish = CultureInfo.GetCultureInfo("tr-TR");
+
+    /// <summary>
+    /// Kod öneri anahtarı (ADR-055): kırp, I/İ/ı/i → I, gerisi kültürden bağımsız büyük harf. Tire, boşluk, rakam korunur.
+    /// Kanallar kodu Türkçe ya da İngilizce kuralla büyütebildiği için iki yazım da aynı anahtara düşer. Yalnızca öneri içindir.
+    /// </summary>
+    public static string FoldCode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "";
+        }
+        var trimmed = value.Trim();
+        var sb = new StringBuilder(trimmed.Length);
+        foreach (var ch in trimmed)
+        {
+            sb.Append(ch is 'i' or 'ı' or 'İ' ? 'I' : char.ToUpperInvariant(ch));
+        }
+        return sb.ToString();
+    }
 
     /// <summary>
     /// Karşılaştırma için: kırp, Türkçe kurallarıyla büyük harf, harf/rakam dışını boşluk yap, ardışık boşlukları tekle.
