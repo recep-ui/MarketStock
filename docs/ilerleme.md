@@ -7,6 +7,12 @@
 
 ---
 
+## Depo Excel'i → ortak SKU geçiş aracı (2026-11-26, ADR-059)
+
+- `tools/PazaryeriHub.Tools.DepoGecis`: onay dosyasından plan (deneme) ve uygulama. Her depo satırı bir ortak SKU; stok depo Excel'inden (SAYIM); kesin eşleşen 468 kanal ürünü taşınır/bağlanır; bütün ilanları giden eski SKU'lar 0'a sayılır.
+- Kurulu sistemde deneme hatasız; yedek alındı. Uygulama kullanıcı onayını bekliyor. Kanal stok gönderimi kapalı kalıyor.
+- Unit 467/467, entegrasyon 174/174.
+
 ## Trendyol rengi okunuyor; depo Excel'i eşleştirme denemesi (2026-11-26, ADR-058)
 
 - Trendyol renk özelliği canlıda düz biçimde geliyormuş; adaptör artık okuyor (584/584 varyantta renk). Unit 456/456.

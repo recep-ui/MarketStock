@@ -59,6 +59,8 @@ public static class DependencyInjection
         services.AddScoped<IChannelCommandService, ChannelCommandService>();
         services.AddScoped<IExcelTransferService, ExcelTransferService>();
         services.AddScoped<PazaryeriHub.Application.ChannelCatalog.IChannelCatalogService, ChannelCatalog.ChannelCatalogService>();
+        // Depo Excel'i → ortak SKU geçişi (ADR-059; komut satırı aracından çalıştırılır)
+        services.AddScoped<DepotMigration.DepotMigrationService>();
 
         // Siparişler (Dapper). Kanal adaptörleri (IChannelAdapter) bileşim kökünde (Api) kaydedilir.
         services.AddOptions<OrderOptions>().BindConfiguration(OrderOptions.SectionName);

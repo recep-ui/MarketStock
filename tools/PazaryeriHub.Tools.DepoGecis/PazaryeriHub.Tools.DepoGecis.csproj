@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Depo Excel'i → ortak SKU geçiş aracı (ADR-059). Onay dosyasını (Depo-Ortak-SKU-Onay.xlsx) okur; varsayılan DENEME (yalnızca rapor),
+    "uygula" adımıyla geçişi mevcut servislerle yapar. Uygulamanın parçası değildir (Api'ye girmez).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>PazaryeriHub.Tools.DepoGecis</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PazaryeriHub.Infrastructure\PazaryeriHub.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

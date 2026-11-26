@@ -1305,3 +1305,51 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - Contract test: canlı yanıttan kısaltılmış örnek; 47 önceliği, yalnız 348 olduğunda o, ürün düzeyi ebatın beden sayılmaması.
 - Eski doküman biçimi testi korundu. Unit 456/456.
 - Canlıda düzeltilmiş adaptörle tüm katalog okundu (yalnızca okuma): 584/584 varyantta renk var.
+
+## ADR-059: Depo Excel'i → ortak SKU geçişi (komut satırı aracı)
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul (uygulama kullanıcı onayına bağlı)
+
+**Bağlam:**
+- Kullanıcının depo Excel'i ("SOFT STOK 1": Model, Varyant, Ürün Cinsi, Beden, Serbest Miktar) bütün kanalların stok kaynağı.
+  - 872 satır, 127 model, kod ya da barkod yok.
+  - Dosya yarım kaydedilmişti; sayfa verisi kurtarıldı.
+- Kanallardaki ürünler bugün kanal kodlarından türemiş SKU'lara bağlı. Aynı mal kanallarda farklı SKU'larda.
+- Kullanıcı kararları (2026-11-26):
+  - Depo Excel'i stok için esas.
+  - Her depo satırı bir ortak SKU olur.
+  - Kesin eşleşen kanal ürünleri bu SKU'lara bağlanır; kalanlar onay dosyasıyla sonra taşınır.
+  - Kanallardaki stok şimdilik değişmemeli. Trendyol ve Hepsiburada STOK yeteneği kapalı, Beymen mock; araç yeteneklere dokunmaz.
+- Eşleştirme (model + renk + beden) panelin dışında, onay dosyası üzerinden yapıldı (`depo-eslestirme/Depo-Ortak-SKU-Onay.xlsx`, repoya girmez).
+  - Trendyol rengi ADR-058 ile geldi.
+  - 1.098 kanal öğesinin 468'i tek depo satırına oturdu.
+
+**Karar:**
+- Planlama saf fonksiyon (`DepotMigrationPlanner`):
+  - Her depo satırı → SKU. Kod zaten varsa o SKU kullanılır ve stoğu değiştirilmez.
+  - Atanan ilanlar taşınır; yerindeki ilan taşınmaz.
+  - Bekleyen eşleşmeyenler bağlanır.
+  - Bütün ilanları taşınan eski SKU 0'a sayılır; rezervi varsa sıfırlanmaz, uyarı verilir.
+  - Negatif depo miktarı 0 sayılır (defter negatif tutmaz), uyarı verilir.
+  - Hata durumları: tekrar eden kod, bilinmeyen ilan/satır, çift atama, alan sınırı. Herhangi bir hata varsa hiçbir şey uygulanmaz.
+- Uygulama (`DepotMigrationService`) yalnızca mevcut servislerle yapılır; böylece transaction, hareket ve outbox kuralları korunur:
+  - `CreateProductAsync`: model başına bir ürün; renk = varyantın Türkçe kısmı; barkod boş.
+  - `AdjustToCountAsync`: SAYIM hareketi, kaynak `DEPO_GECIS`.
+  - `UpsertListingAsync`: ilan taşıma.
+  - `LinkUnmatchedAsync`: eşleşmeyen bağlama.
+- Her adım kendi transaction'ında çalışır. Yeniden çalıştırmak güvenlidir.
+- Fiyat kopyalanmaz: yeni SKU'da fiyat yok, bu yüzden kanala fiyat gitmez. Fiyatlar sonra girilir.
+- Araç `tools/PazaryeriHub.Tools.DepoGecis`: `deneme` (varsayılan, yalnızca rapor) ve `uygula`; hedef `--test` ya da `--kurulu`.
+  - Kurulu sistemde uygulamadan önce yedek alınır (`kurulum/veri-yedekle.ps1`).
+- Sonuç: kanal stok yeteneği açıldığında kanallara depo Excel'ine göre hesaplanan stok gider. Açmadan önce kanal ve depo stokları karşılaştırılmalıdır.
+
+**Doğrulama:**
+- Birim: `DepotMigrationPlannerTests` 11.
+- Entegrasyon: `DepotMigrationServiceTests`. Deneme yazmaz; uygulama SKU, sayım, outbox, taşıma, bağlama ve sıfırlama yapar; yeniden çalıştırma bir şey değiştirmez.
+- Unit 467/467, entegrasyon 174/174.
+- Kurulu sistemde deneme (2026-11-26):
+  - 872 yeni SKU (stok 19.434);
+  - 409 ilan taşınacak, 59 eşleşmeyen bağlanacak;
+  - 235 eski SKU sıfırlanacak (15.470 adet);
+  - uyarılar: 1 negatif depo satırı, 1 rezervli SKU; hata yok.
+  - Yedek: `dagitim/PazaryeriHub-veri-depo-gecis-oncesi.bak`.

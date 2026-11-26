@@ -12,6 +12,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/PazaryeriHub.Tools.HbSit/PazaryeriHub.Tools.HbSit.csproj" />
+    <Project Path="tools/PazaryeriHub.Tools.DepoGecis/PazaryeriHub.Tools.DepoGecis.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/PazaryeriHub.Tests.Integration/PazaryeriHub.Tests.Integration.csproj" />
