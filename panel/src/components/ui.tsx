@@ -86,11 +86,12 @@ export function Notice({ text, onClose }: { text: string | null; onClose: () => 
   return text ? <div className="alert alert-ok" role="status">{text}</div> : null;
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children, help }: { label: string; children: ReactNode; help?: ReactNode }) {
   return (
     <label className="field">
       <span>{label}</span>
       {children}
+      {help && <small className="muted field-help">{help}</small>}
     </label>
   );
 }

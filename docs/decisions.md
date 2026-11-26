@@ -1162,3 +1162,29 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 - **Entegrasyon:** `ListingReviewFilterTests` 2 test: süzgeç farklı ve eksik ebatlı ilanları getirir; onaylanan çıkar; varyant veya barkod değişince geri döner. `ListingMatchApprovalTests` test verisine kanal bedeni eklendi, aksi hâlde "sorunsuz" ilan yeni kuralla "Ebat bilgisi eksik" alıyordu. Entegrasyon 171/171.
 - **Playwright:** ADR-044 senaryosu süzgeç ve "İncele / onayla" akışıyla güncellendi; ADR-035 ve ADR-036 ile birlikte geçti.
 - **Deneme veritabanı (gerçek katalog, salt okunur sayım):** Trendyol 584 ilan, Beymen 194 ilan. Yeni ebat kuralları ek uyarı üretmedi; uyarılı ilanlar Trendyol'da 2, Beymen'de 1 (önceki kurallar).
+
+## ADR-054: Hepsiburada API bilgisi alanları netleştirildi (kullanıcı adı = Mağaza ID, User-Agent = entegratör adı)
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul
+
+**Bağlam:**
+- Canlı Hepsiburada bilgileri girildikten sonra sipariş çekme her dakika 401 aldı.
+- Entegratör satıcı panelinde "Aktif" görünüyordu. Kullanıcı, kullanıcı adı alanına entegratör kullanıcı adını (`…_dev`) yazmıştı.
+- Resmi doküman (developers.hepsiburada.com: Sipariş Entegrasyonu Önemli Bilgiler, Entegratöre Servis Anahtarı Ekleme) yalnızca "Basic Auth, kullanıcı adı ve şifre" ve servis anahtarının nereden alındığını söylüyor; kullanıcı adının karşılığını yazmıyor.
+- SIT'te çalışmış giriş biçimi, değerler yazdırılmadan karşılaştırıldı:
+  - kullanıcı adı = Merchant ID (GUID);
+  - şifre = servis anahtarı;
+  - User-Agent dolu ve kullanıcı adından farklı (entegratör adı).
+
+**Karar:**
+- Panel formu (Ayarlar → Kanallar → Hepsiburada):
+  - Alanlar "Mağaza ID (Merchant ID)", "Kullanıcı adı" (Mağaza ID ile aynı), "Servis anahtarı (şifre)" ve "User-Agent (entegratör kullanıcı adı)".
+  - Her alanın altında satıcı panelinde nereden alınacağını söyleyen kısa açıklama var.
+  - User-Agent artık formda zorunlu. Sunucu tarafı değişmedi: boşsa varsayılan "PazaryeriHub" gider.
+- Kullanıcı adı Mağaza ID'den farklı girilirse formda uyarı çıkar. Uyarı kaydı engellemez, çünkü doküman kuralı yazmıyor.
+- 401 mesajı hangi alana ne yazılacağını ve ortam seçimini kontrol etmeyi söyler. "API bilgileri hatalı" öneki korundu, kanal durumu sınıflaması (`ChannelStatus`) değişmedi.
+- `HepsiburadaCredentials` TODO'su güncellendi: biçim SIT'te çalışan girişe dayanıyor, canlıda ilk başarılı çağrıyla doğrulanmalı.
+
+**Doğrulama:**
+- Birim testi: `Yetkisiz_hatasi_hangi_alana_ne_yazilacagini_soyler` (önce kırmızı). Unit 439/439.
+- Playwright (ADR-054 senaryosu): etiketler ve açıklama görünür; kullanıcı adı `firmaadi_dev` iken uyarı çıkar, Mağaza ID girilince kalkar. Form kaydedilmez. ADR-033 senaryosuyla birlikte geçti.

@@ -594,7 +594,9 @@ public sealed class HepsiburadaAdapter(HttpClient http, IChannelCredentialStore 
         var detail = ExtractMessage(body);
         var message = status switch
         {
-            HttpStatusCode.Unauthorized => "Hepsiburada API bilgileri hatalı (kullanıcı adı / şifre / servis anahtarı).",
+            // SIT'te çalışan giriş biçimi (ADR-054): kullanıcı adı = Mağaza ID, şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı
+            HttpStatusCode.Unauthorized => "Hepsiburada API bilgileri hatalı. Kullanıcı adı: Mağaza ID, Şifre: servis anahtarı, "
+                + "User-Agent: entegratör kullanıcı adı (Bilgilerim → Entegrasyon → Entegratörlerim) olmalı; ortamın (Canlı/Test) doğru seçildiğini de kontrol edin.",
             HttpStatusCode.Forbidden => "Hepsiburada isteği reddetti (yetki veya kayıt bu satıcıya ait değil).",
             HttpStatusCode.NotFound => "Hepsiburada kaydı bulunamadı.",
             HttpStatusCode.TooManyRequests => "Hepsiburada istek sınırı aşıldı; daha sonra yeniden denenecek.",

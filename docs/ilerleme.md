@@ -7,6 +7,13 @@
 
 ---
 
+## Hepsiburada API bilgisi alanları netleşti (2026-11-26, ADR-054)
+
+- Canlı HB 401 aldı: kullanıcı adına entegratör adı yazılmıştı. SIT'te çalışan biçim: kullanıcı adı = Mağaza ID, şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı.
+- Ayarlar formu bu biçimi alan etiketleri ve açıklamalarıyla söylüyor; kullanıcı adı Mağaza ID'den farklıysa uyarı çıkar; User-Agent zorunlu.
+- 401 mesajı hangi alana ne yazılacağını söyler. Unit 439/439, Playwright ADR-054 + ADR-033 geçti.
+- Kurulu sisteme ulaşması için yeni paket gerekir. Canlı biçim, düzeltilmiş bilgiyle ilk başarılı çekimde doğrulanacak.
+
 ## Şüpheli eşleşmeler (2026-11-25, ADR-053)
 
 - Eşleştirme ekranında "İncelenecek eşleşmeler" süzgeci; satırda "Ebat farklı", "Ebat bilgisi eksik" vb. etiketler.

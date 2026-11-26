@@ -816,3 +816,27 @@ test('Kullanıcı yönetimi: Yönetici kullanıcı ekler, siler; silinenin açı
   await expect(deleted).toContainText('e2e-yonetici');
   await expect(deleted).toContainText('Başarılı (204)');
 });
+
+test('Hepsiburada API bilgisi formu hangi alana ne yazılacağını söyler; kullanıcı adı Mağaza ID değilse uyarır (ADR-054)', async ({ page }) => {
+  await login(page);
+  await page.getByRole('navigation').getByRole('link', { name: 'Ayarlar' }).click();
+  await page.getByTestId('channel-status-HEPSIBURADA').getByRole('button', { name: 'Ayarlar' }).click();
+  const detail = page.getByTestId('channel-detail');
+  // API bilgisi girilmemişse form kendiliğinden açık gelir; değilse butonla açılır
+  const openForm = detail.getByRole('button', { name: /API bilgi/ });
+  if (await openForm.isVisible()) await openForm.click();
+
+  await expect(detail.getByText('Mağaza ID (Merchant ID)')).toBeVisible();
+  await expect(detail.getByText('Servis anahtarı (şifre)')).toBeVisible();
+  await expect(detail.getByText('User-Agent (entegratör kullanıcı adı)')).toBeVisible();
+  await expect(detail).toContainText('Mağaza ID\'nin aynısı yazılır');
+
+  const merchantId = '11111111-2222-3333-4444-555555555555';
+  await detail.getByTestId('cred-merchantId').fill(merchantId);
+  await detail.getByTestId('cred-userName').fill('firmaadi_dev');
+  await expect(detail.getByTestId('hb-username-warning')).toBeVisible();
+
+  await detail.getByTestId('cred-userName').fill(merchantId.toUpperCase());
+  await expect(detail.getByTestId('hb-username-warning')).toHaveCount(0);
+  // Kaydedilmez: test yalnızca formu doğrular
+});

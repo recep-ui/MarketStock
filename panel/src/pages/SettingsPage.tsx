@@ -211,7 +211,7 @@ function ChannelDetail({ status, channel, channels, editable, onChanged, onClose
   );
 }
 
-type CredentialField = { name: string; label: string; secret?: boolean; numeric?: boolean };
+type CredentialField = { name: string; label: string; secret?: boolean; numeric?: boolean; help?: string; placeholder?: string; optional?: boolean };
 type CredentialSpec = { title: string; hint: string; fields: CredentialField[]; environments: [string, string][] };
 
 /** Kanal başına API bilgisi alanları (sunucudaki *Credentials.Parse ile aynı). */
@@ -228,12 +228,13 @@ const credentialSpecs: Record<string, CredentialSpec> = {
   },
   HEPSIBURADA: {
     title: 'Hepsiburada API bilgileri',
-    hint: 'Merchant ID ve Hepsiburada\'nın verdiği kullanıcı adı / şifre (servis anahtarı: Bilgilerim → Entegrasyon → Entegratör Bilgileri).',
+    // ADR-054: SIT'te çalışan giriş biçimi: kullanıcı adı = Mağaza ID, şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı
+    hint: 'Hepsiburada satıcı paneli → Bilgilerim → Entegrasyon → Entegratör Bilgileri.',
     fields: [
-      { name: 'merchantId', label: 'Merchant ID (GUID)' },
-      { name: 'userName', label: 'Kullanıcı adı' },
-      { name: 'password', label: 'Şifre / servis anahtarı', secret: true },
-      { name: 'userAgent', label: 'User-Agent (opsiyonel)' }
+      { name: 'merchantId', label: 'Mağaza ID (Merchant ID)', placeholder: 'ör. a1b2c3d4-…', help: '"Mağaza ID" kutusundaki kod.' },
+      { name: 'userName', label: 'Kullanıcı adı', placeholder: 'Mağaza ID ile aynı', help: 'Mağaza ID\'nin aynısı yazılır. Entegratör adı buraya değil, User-Agent alanına yazılır.' },
+      { name: 'password', label: 'Servis anahtarı (şifre)', secret: true, help: 'Entegratörlerim → ilgili entegratör → "Servis Anahtarı" ile kopyalanan anahtar.' },
+      { name: 'userAgent', label: 'User-Agent (entegratör kullanıcı adı)', placeholder: 'ör. firmaadi_dev', help: 'Entegratörlerim listesindeki entegratör kullanıcı adı.' }
     ],
     environments: [['Prod', 'Canlı'], ['Test', 'Test (SIT)']]
   },
@@ -294,14 +295,16 @@ function CredentialsForm({ channel, onDone }: { channel: Channel; onDone: (m: st
       <ErrorBox error={error} />
       <form className="filters" onSubmit={submit} autoComplete="off">
         {spec.fields.map(f => (
-          <Field key={f.name} label={f.label}>
+          <Field key={f.name} label={f.label} help={f.help}>
             <input
               type={f.secret ? 'password' : 'text'}
               inputMode={f.numeric ? 'numeric' : undefined}
               autoComplete={f.secret ? 'new-password' : 'off'}
               value={form[f.name]}
+              placeholder={f.placeholder}
+              data-testid={`cred-${f.name}`}
               onChange={e => setForm({ ...form, [f.name]: e.target.value })}
-              required={!f.label.includes('opsiyonel')}
+              required={!f.optional && !f.label.includes('opsiyonel')}
             />
           </Field>
         ))}
@@ -313,6 +316,13 @@ function CredentialsForm({ channel, onDone }: { channel: Channel; onDone: (m: st
         <button className="primary" type="submit">Kaydet</button>
         {channel.hasCredentials && <button type="button" className="danger" onClick={remove}>Sil</button>}
       </form>
+      {channel.code === 'HEPSIBURADA' && form.userName.trim() !== '' && form.merchantId.trim() !== ''
+        && form.userName.trim().toLowerCase() !== form.merchantId.trim().toLowerCase() && (
+        <div className="alert alert-warn" data-testid="hb-username-warning">
+          Kullanıcı adı Mağaza ID'den farklı. Hepsiburada'da kullanıcı adı olarak Mağaza ID yazılır; entegratör adı
+          (ör. firmaadi_dev) User-Agent alanına girilir. Aksi hâlde Hepsiburada "API bilgileri hatalı" (401) döner.
+        </div>
+      )}
     </div>
   );
 }

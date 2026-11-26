@@ -325,6 +325,18 @@ public sealed class HepsiburadaAdapterContractTests
     }
 
     [Fact]
+    public void Yetkisiz_hatasi_hangi_alana_ne_yazilacagini_soyler()
+    {
+        // SIT'te çalışan giriş: kullanıcı adı = Mağaza ID, şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı (ADR-054)
+        var message = HepsiburadaAdapter.Translate(HttpStatusCode.Unauthorized, "").Message;
+
+        message.Should().Contain("API bilgileri hatalı")
+            .And.Contain("Kullanıcı adı: Mağaza ID")
+            .And.Contain("Şifre: servis anahtarı")
+            .And.Contain("User-Agent: entegratör kullanıcı adı");
+    }
+
+    [Fact]
     public async Task Dogrulanmamis_ve_kapsam_disi_islemler_desteklenmiyor()
     {
         var (adapter, http) = Create();

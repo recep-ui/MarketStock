@@ -7,8 +7,8 @@ namespace PazaryeriHub.Adapters.Hepsiburada;
 /// Hepsiburada API bilgileri. Kaynak: developers.hepsiburada.com (Listeleme / Sipariş Entegrasyonu Önemli Bilgiler) —
 /// "API, HTTP Basic Auth. ile korunmaktadır ... kullanıcı adı ve şifreyi HTTP Authorization Header bilgisinde göndermelidir";
 /// User-Agent başlığı zorunlu; servis anahtarı satıcı panelinden (Bilgilerim → Entegrasyon → Entegratör Bilgileri) alınır.
-/// // TODO: doğrulanmalı — kullanıcı adı/şifrenin tam olarak hangi değerler olduğu (merchantId / servis anahtarı / entegratör kullanıcısı)
-/// dokümanda açık değil; bu yüzden Hepsiburada'nın verdiği değerler olduğu gibi girilir.
+/// Doküman kullanıcı adı/şifrenin karşılığını yazmıyor; SIT'te çalışan giriş (ADR-054): kullanıcı adı = Mağaza ID (Merchant ID),
+/// şifre = servis anahtarı, User-Agent = entegratör kullanıcı adı. // TODO: canlıda ilk başarılı çağrıyla doğrulanmalı.
 /// </summary>
 public sealed record HepsiburadaCredentials(string MerchantId, string UserName, string Password, string Environment, string? UserAgent = null)
 {
