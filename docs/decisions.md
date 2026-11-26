@@ -1281,3 +1281,27 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Doğrulama:**
 - Birim testleri: üretilmiş barkod tanıma (5 örnek), barkod yerine stok kodu (listing'de stok kodu yoksa ürün bilgisinden). Unit 455/455.
 - Entegrasyon testi: barkod değişince eşleşmeyen kayıt ürün koduyla taşınır, ilan barkodu güncellenir. Entegrasyon 173/173.
+
+## ADR-058: Trendyol ürün rengi canlı yanıt biçiminden okunur
+
+**Tarih:** 2026-11-26 · **Durum:** Kabul
+
+**Bağlam:**
+- Depo Excel'i ile kanalları eşleştirme denemesinde Trendyol ilanlarının hiçbirinde renk yoktu (584 varyant).
+- Canlı onaylı ürün yanıtı okundu (yalnızca GET, 2026-11-26). İçerik özellikleri düz biçimde geliyor: `{attributeId, attributeName, attributeValueId?, attributeValue}`.
+- Dokümandaki örnekteki `attributeValues[]` listesi canlı yanıtta yok. Adaptör listeyi beklediği için renk hep boş kaldı.
+- Her içerikte iki "Renk" var:
+  - 47: satıcının yazdığı renk, ör. "Açık Pembe";
+  - 348: platform rengi, ör. "Pembe".
+- Ürün düzeyinde "Boyut/Ebat" (92) da var, ama değerleri "2'li" ya da "Standart" gibi; gerçek ebat değil.
+
+**Karar:**
+- `ContentAttribute` hem düz `attributeValue`'yu hem de `attributeValues[]` listesini okur (`FirstValue`).
+- Renk önceliği: 47 (satıcı), sonra kimliksiz "Renk" (dokümandaki biçim), sonra diğerleri (348).
+- Ürün düzeyindeki "Boyut/Ebat" beden olarak alınmaz. Alınsaydı şüpheli eşleşme kontrolünde (ADR-053) yersiz "beden farklı" uyarıları çıkardı.
+- Sonuç: kanal kataloğunda Trendyol rengi dolar. Bu, eşleştirmede renk adımını ve ilan detayındaki renk karşılaştırmasını etkiler. Renk farkı olan mevcut eşleşmeler artık "şüpheli" listesinde görünebilir; bu beklenen bir sonuçtur.
+
+**Doğrulama:**
+- Contract test: canlı yanıttan kısaltılmış örnek; 47 önceliği, yalnız 348 olduğunda o, ürün düzeyi ebatın beden sayılmaması.
+- Eski doküman biçimi testi korundu. Unit 456/456.
+- Canlıda düzeltilmiş adaptörle tüm katalog okundu (yalnızca okuma): 584/584 varyantta renk var.

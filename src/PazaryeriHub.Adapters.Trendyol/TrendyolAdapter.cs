@@ -187,6 +187,9 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
         return new ChannelCatalogPage(items, next);
     }
 
+    /// <summary>Satıcının yazdığı renk özelliği (canlı yanıt: 47 satıcı rengi, 348 platform rengi; ADR-058).</summary>
+    private const int SellerColorAttributeId = 47;
+
     /// <summary>Beden yerine kullanılan varyant özellik adları (havlu/nevresimde "Ebat" gibi). // TODO: doğrulanmalı — kategoriye göre değişebilir.</summary>
     private static readonly string[] SizeAttributeNames = ["Beden", "Ebat", "Boyut", "Ölçü", "Numara"];
 
@@ -198,7 +201,10 @@ public sealed class TrendyolAdapter(HttpClient http, IChannelCredentialStore cre
     /// </summary>
     private static IEnumerable<ChannelCatalogEntry> ToCatalogEntries(ApprovedContent content)
     {
-        var contentColor = content.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValues.FirstOrDefault()?.AttributeValue;
+        // ADR-058: satıcının rengi (47) platform renginden (348) önce; kimliksiz "Renk" de kabul edilir (dokümandaki biçim)
+        var contentColor = content.Attributes.Where(a => IsAttribute(a.AttributeName, "Renk") && a.FirstValue is not null)
+            .OrderBy(a => a.AttributeId switch { SellerColorAttributeId => 0, null => 1, _ => 2 })
+            .Select(a => a.FirstValue).FirstOrDefault();
         foreach (var v in content.Variants.Where(v => !string.IsNullOrWhiteSpace(v.Barcode)))
         {
             var color = v.Attributes.FirstOrDefault(a => IsAttribute(a.AttributeName, "Renk"))?.AttributeValue ?? contentColor;

@@ -227,8 +227,20 @@ internal sealed class NamedRef
 
 internal sealed class ContentAttribute
 {
+    /// <summary>Özellik kimliği. Renk: 47 = satıcının yazdığı renk, 348 = platform rengi (canlı yanıt, 2026-11-26; ADR-058).</summary>
+    public int? AttributeId { get; init; }
     public string? AttributeName { get; init; }
+
+    /// <summary>Dokümandaki biçim (liste). Canlı yanıtta gelmiyor.</summary>
     public List<AttributeValueRef> AttributeValues { get; init => field = value ?? []; } = [];
+
+    /// <summary>Canlı yanıttaki düz biçim: {attributeId, attributeName, attributeValueId?, attributeValue} (ADR-058).</summary>
+    public string? AttributeValue { get; init; }
+
+    /// <summary>İki biçimden ilk dolu değer.</summary>
+    public string? FirstValue =>
+        !string.IsNullOrWhiteSpace(AttributeValue) ? AttributeValue
+        : AttributeValues.Select(v => v.AttributeValue).FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 }
 
 internal sealed class AttributeValueRef

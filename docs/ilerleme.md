@@ -7,6 +7,12 @@
 
 ---
 
+## Trendyol rengi okunuyor; depo Excel'i eşleştirme denemesi (2026-11-26, ADR-058)
+
+- Trendyol renk özelliği canlıda düz biçimde geliyormuş; adaptör artık okuyor (584/584 varyantta renk). Unit 456/456.
+- Depo Excel'i (872 satır, kodsuz) ↔ kanallar deneme eşleştirmesi (veritabanına yazılmadı): model + renk + bedenle tek depo satırına oturan kanal öğesi %18 → %43.
+- Kalan farklar veri farkı (renk adları: Pudra/Gülkurusu, Hardal/Bal; depoda olmayan bedenler; Beymen "Çok Renkli"); kullanıcı onayı gerekiyor. Ortak SKU geçişi henüz yapılmadı.
+
 ## Hepsiburada'nın ürettiği barkod yerine stok kodu (2026-11-26, ADR-057)
 
 - Canlı: ürün bilgisi servisi çalıştı (mpop adresi doğrulandı); 314 üründen 81'i eşleşti, 38 SKU açıldı, 195'i eşleşmedi.

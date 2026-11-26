@@ -372,6 +372,39 @@ public sealed class TrendyolAdapterContractTests
         page.Items[1].Should().Match<ChannelCatalogEntry>(e => e.Size == "L" && e.Passive && e.ChannelStatus == "Arşivlendi" && e.VariantKey == "c1|Beden=L");
     }
 
+    /// <summary>
+    /// ADR-058: canlı yanıtta (2026-11-26) içerik özellikleri düz gelir: {attributeId, attributeName, attributeValueId?, attributeValue}
+    /// (dokümandaki attributeValues[] listesi yok). İki "Renk" var: 47 = satıcının yazdığı renk, 348 = platform rengi; 47 önceliklidir.
+    /// Ürün düzeyindeki "Boyut/Ebat" ("2'li", "Standart") ebat değildir → beden olarak alınmaz.
+    /// </summary>
+    [Fact]
+    public async Task Katalog_canli_bicimde_duz_renk_ozelligini_okur_urun_duzeyi_ebati_beden_saymaz()
+    {
+        var (adapter, http) = Create();
+        http.Responses.Enqueue((HttpStatusCode.OK, """
+            {"totalElements":2,"totalPages":1,"page":0,"size":100,"content":[
+              {"contentId":1195780057,"productMainId":"DAMASK-HAVLU-1001255-SET","title":"Damask Havlu 2'li Set",
+               "attributes":[{"attributeId":348,"attributeName":"Renk","attributeValueId":7007,"attributeValue":"Pembe"},
+                             {"attributeId":47,"attributeName":"Renk","attributeValue":"Açık Pembe"},
+                             {"attributeId":92,"attributeName":"Boyut/Ebat","attributeValueId":10519336,"attributeValue":"2'li"}],
+               "variants":[{"barcode":"DMS-1","stockCode":"DMS","onSale":true,"attributes":[]}]},
+              {"contentId":1206509061,"productMainId":"SC-GLOR-BRN-1P","title":"Gloria Bornoz Sabahlık - L, Sarı",
+               "attributes":[{"attributeId":348,"attributeName":"Renk","attributeValueId":7008,"attributeValue":"Sarı"},
+                             {"attributeId":92,"attributeName":"Boyut/Ebat","attributeValueId":1,"attributeValue":"Standart"}],
+               "variants":[{"barcode":"SC-GLOR-BRN-1P-S-SARI","stockCode":"SC-GLOR","onSale":true,
+                            "attributes":[{"attributeId":338,"attributeName":"Beden","attributeValueId":3961,"attributeValue":"S"}]}]}]}
+            """));
+
+        var items = (await adapter.FetchCatalogAsync(null, Ct)).Items;
+
+        items[0].Color.Should().Be("Açık Pembe", "satıcının rengi (47) platform renginden (348) önce gelir");
+        items[0].Size.Should().BeNull("ürün düzeyindeki Boyut/Ebat gerçek ebat değil");
+        items[0].VariantKey.Should().Be("c1195780057", "varyant anahtarı yalnızca varyant özelliklerinden");
+        items[1].Color.Should().Be("Sarı", "yalnızca platform rengi varsa o");
+        items[1].Size.Should().Be("S");
+        items[1].VariantAttributes.Should().Be("Renk: Sarı; Beden: S");
+    }
+
     /// <summary>ADR-041: dokümandaki örnekte görsel adresi göreli ("/mediacenter-…"); tam adres kurallı değil → görsel alınmaz.</summary>
     [Fact]
     public async Task Katalog_goreli_gorsel_adresi_alinmaz()
