@@ -495,3 +495,6 @@ hb-sit-rapor/
 
 # Kurulum paketi çıktısı (kurulum/paket-olustur.ps1)
 dagitim/
+
+# Depo Excel'i eşleştirme ve geçiş çıktıları (ADR-059): iş verisi (SKU, stok) içerir, repoya girmez
+depo-eslestirme/
