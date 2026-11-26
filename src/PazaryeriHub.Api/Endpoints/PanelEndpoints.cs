@@ -12,6 +12,12 @@ public static class PanelEndpoints
     {
         var panel = app.MapGroup("/api").RequireAuthorization(Policies.Read).WithTags("Panel");
         panel.MapGet("/dashboard", (IPanelQueryService s, CancellationToken ct) => s.GetDashboardAsync(ct));
+        // ADR-060: panel listelerinin genel Excel dışa aktarımı. Panel, ekrandaki filtreyle rolünün yetkili olduğu liste uçlarından
+        // çektiği (Destek'te maskeli) satırları gönderir; burada yalnızca çalışma kitabına çevrilir, veritabanı okunmaz.
+        panel.MapPost("/export/xlsx", (PazaryeriHub.Application.Excel.TableExportRequest request) =>
+            Results.File(PazaryeriHub.Infrastructure.Excel.TableExportWriter.Write(request),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"{PazaryeriHub.Infrastructure.Excel.TableExportWriter.FileStem(request.FileName)}-{DateTime.UtcNow:yyyyMMdd-HHmm}.xlsx"));
         panel.MapGet("/stock-overview", (IPanelQueryService s, string? search, bool? onlyDeviations, bool? lowStock, int? page, int? pageSize, CancellationToken ct) =>
             s.GetStockOverviewAsync(search, onlyDeviations ?? false, lowStock ?? false, page, pageSize, ct));
         panel.MapGet("/stock-movements", (IPanelQueryService s, string? sku, string? type, int? warehouseId, DateTime? from, DateTime? to,
@@ -19,8 +25,8 @@ public static class PanelEndpoints
             s.GetMovementsAsync(new MovementQuery(sku, type, warehouseId, from, to, sourceType, page, pageSize), ct));
         // ADR-035: bir kanalın stok listesi (kanalın bildirdiği ↔ bağlandığı SKU, yanlış eşleştirme uyarıları)
         panel.MapGet("/stock-overview/channels/{channelId:int}", (IPanelQueryService s, int channelId, string? search, bool? onlyDeviations,
-                bool? onlyReview, string? saleState, int? page, int? pageSize, CancellationToken ct) =>
-            s.GetChannelStockListAsync(channelId, search, onlyDeviations ?? false, onlyReview ?? false, page, pageSize, ct, saleState));
+                bool? onlyReview, string? saleState, int? productId, int? page, int? pageSize, CancellationToken ct) =>
+            s.GetChannelStockListAsync(channelId, search, onlyDeviations ?? false, onlyReview ?? false, page, pageSize, ct, saleState, productId));
         // ADR-034: genel arama, SKU detay ve satış raporu (müşteri bilgisi içermez; tüm rollere açık)
         panel.MapGet("/search", (ISearchService s, string? q, int? limit, CancellationToken ct) => s.SearchAsync(q, limit ?? 8, ct));
         panel.MapGet("/skus/{skuId:int}/detail", (IPanelQueryService s, int skuId, CancellationToken ct) => s.GetSkuDetailAsync(skuId, ct));

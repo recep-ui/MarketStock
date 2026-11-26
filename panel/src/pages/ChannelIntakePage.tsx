@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { get, post, qs, type Channel, type ChannelStatus, type ChannelStockList, type IntakeApplyResult, type IntakePreview, type IntakePreviewRow } from '../api';
 import { ChannelDataSourceNote } from '../components/ChannelDataSource';
 import { useAuth } from '../auth';
+import { ExportButton } from '../components/ExportButton';
 import { Card, ChannelBadge, ErrorBox, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 
@@ -164,6 +165,7 @@ export function ChannelIntakePage() {
               Önizleme: {formatDateTime(preview.previewedAtUtc)} · {preview.rows.length} SKU · düşük stok eşiği {preview.lowStockThreshold}
               {!can('admin') && ' · Uygulama yalnızca Yönetici rolüne açıktır.'}
             </p>
+            <div className="actions"><ExportButton fileName="kanal-stogu-onizleme" sheetName="Önizleme" tableSelector="[data-testid=intake-table]" /></div>
             <div className="table-wrap" style={{ maxHeight: 560, overflow: 'auto' }}>
               <table className="table" data-testid="intake-table">
                 <thead>
@@ -189,6 +191,7 @@ export function ChannelIntakePage() {
             </div>
           </>
         )}
+        {result && <div className="actions"><ExportButton fileName="kanal-stogu-sonuc" sheetName="Sonuç" tableSelector="[data-testid=intake-result]" /></div>}
         {result && (
           <table className="table" data-testid="intake-result">
             <thead><tr><th>SKU</th><th>Sonuç</th><th>Fiziksel</th><th>Satılabilir</th><th>Açıklama</th></tr></thead>

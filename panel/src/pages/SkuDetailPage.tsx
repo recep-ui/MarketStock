@@ -1,6 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { get, type SkuDetail } from '../api';
 import { Card, ChannelBadge, ChannelLink, ErrorBox, Stat, StatusBadge, Thumb, useLoad } from '../components/ui';
+import { ExportButton } from '../components/ExportButton';
 import { channelNames, formatDateTime, formatMoney, formatRelative, movementLabels } from '../format';
 
 const ruleText = (type: string | null | undefined, value: number | null | undefined) =>
@@ -49,7 +50,7 @@ export function SkuDetailPage() {
             {d.sales.lastSoldUtc ? <>Son satış: <span title={formatDateTime(d.sales.lastSoldUtc)}>{formatRelative(d.sales.lastSoldUtc)}</span>.</> : 'Henüz satış yok.'}
           </p>
 
-          <Card title="Kanallardaki ilanlar">
+          <Card title="Kanallardaki ilanlar" actions={<ExportButton fileName={`${d.skuCode}-ilanlar`} sheetName="İlanlar" />}>
             {d.channels.length === 0 ? (
               <p className="muted">Bu SKU hiçbir kanal ilanıyla eşleşmemiş. <Link to="/eslestirme">Eşleştirme →</Link></p>
             ) : (
@@ -101,7 +102,7 @@ export function SkuDetailPage() {
           </Card>
 
           <div className="grid-2">
-            <Card title="Son siparişler" actions={<Link to={`/siparisler`}>Tüm siparişler →</Link>}>
+            <Card title="Son siparişler" actions={<><ExportButton fileName={`${d.skuCode}-siparisler`} sheetName="Son siparişler" /><Link to={`/siparisler`}>Tüm siparişler →</Link></>}>
               <div className="table-wrap">
                 <table className="table">
                   <thead><tr><th>Tarih</th><th>Kanal</th><th>Sipariş no</th><th>Durum</th><th className="num">Adet</th><th className="num">Birim</th></tr></thead>
@@ -125,7 +126,7 @@ export function SkuDetailPage() {
               </div>
             </Card>
 
-            <Card title="Son stok hareketleri" actions={<Link to={`/hareketler?sku=${encodeURIComponent(d.skuCode)}`}>Tüm hareketler →</Link>}>
+            <Card title="Son stok hareketleri" actions={<><ExportButton fileName={`${d.skuCode}-hareketler`} sheetName="Son hareketler" /><Link to={`/hareketler?sku=${encodeURIComponent(d.skuCode)}`}>Tüm hareketler →</Link></>}>
               <div className="table-wrap">
                 <table className="table">
                   <thead><tr><th>Tarih</th><th>Tür</th><th className="num">Adet</th><th>Depo</th><th>Kaynak</th></tr></thead>
@@ -147,7 +148,7 @@ export function SkuDetailPage() {
           </div>
 
           {d.warehouses.length > 1 && (
-            <Card title="Depolar">
+            <Card title="Depolar" actions={<ExportButton fileName={`${d.skuCode}-depolar`} sheetName="Depolar" />}>
               <table className="table">
                 <thead><tr><th>Depo</th><th className="num">Fiziksel</th><th className="num">Rezerve</th><th className="num">Güvenlik</th><th className="num">Satılabilir</th></tr></thead>
                 <tbody>

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { download, get, qs, type Channel, type SalesReport } from '../api';
 import { Card, ChannelBadge, ErrorBox, Stat, useLoad } from '../components/ui';
+import { ExportButton } from '../components/ExportButton';
 import { channelNames, dayEndUtc, dayStartUtc, formatDateTime, formatMoney, formatRelative } from '../format';
 
 /** Türkiye günü (YYYY-MM-DD). */
@@ -118,11 +119,11 @@ export function ReportsPage() {
             />
           </div>
 
-          <Card title={`Günlük net ciro · ${fmtDay(r.period.from)} – ${fmtDay(r.period.to)}`}>
+          <Card title={`Günlük net ciro · ${fmtDay(r.period.from)} – ${fmtDay(r.period.to)}`} actions={<ExportButton fileName="gunluk-ciro" sheetName="Günlük ciro" tableSelector="details table" />}>
             <DailyChart days={r.daily} />
           </Card>
 
-          <Card title="Kanal karşılaştırması">
+          <Card title="Kanal karşılaştırması" actions={<ExportButton fileName="kanal-karsilastirmasi" sheetName="Kanal karşılaştırması" />}>
             <div className="table-wrap">
               <table className="table" data-testid="report-channels">
                 <thead>
@@ -155,7 +156,7 @@ export function ReportsPage() {
           </Card>
 
           <div className="grid-2">
-            <Card title="En çok satanlar">
+            <Card title="En çok satanlar" actions={<ExportButton fileName="en-cok-satanlar" sheetName="En çok satanlar" />}>
               <div className="table-wrap">
               <table className="table" data-testid="report-top-skus">
                 <thead><tr><th>SKU</th><th>Ürün</th><th className="num">Adet</th><th className="num">Tutar</th><th className="num">Satılabilir</th></tr></thead>
@@ -175,7 +176,7 @@ export function ReportsPage() {
               </div>
             </Card>
 
-            <Card title="Stoğu var, bu dönemde satmadı">
+            <Card title="Stoğu var, bu dönemde satmadı" actions={<ExportButton fileName="satmayanlar" sheetName="Satmayanlar" />}>
               <div className="table-wrap">
               <table className="table" data-testid="report-slow-movers">
                 <thead><tr><th>SKU</th><th>Ürün</th><th className="num">Fiziksel</th><th>Son satış</th></tr></thead>

@@ -32,7 +32,11 @@ a { color: var(--primary); }
 
 /* yerleşim */
 .layout { display: flex; min-height: 100vh; }
-.sidebar { width: 210px; background: var(--sidebar); color: var(--sidebar-text); flex-shrink: 0; }
+/* Sol menü sabit (ADR-062): sayfa kaydırılınca yerinde kalır; menü ekrandan uzunsa kendi içinde kayar. */
+.sidebar {
+  width: 210px; background: var(--sidebar); color: var(--sidebar-text); flex-shrink: 0;
+  position: sticky; top: 0; align-self: flex-start; height: 100vh; overflow-y: auto; overscroll-behavior: contain;
+}
 .brand { font-weight: 700; font-size: 16px; padding: 18px 16px; color: #fff; }
 .sidebar nav { display: flex; flex-direction: column; }
 .sidebar nav a { color: var(--sidebar-text); text-decoration: none; padding: 9px 16px; border-left: 3px solid transparent; }
@@ -44,7 +48,10 @@ a { color: var(--primary); }
 
 /* kartlar */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; flex-wrap: wrap; }
+.card-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Excel'e aktar (ADR-060) */
+.export-button { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
@@ -145,7 +152,8 @@ button.small { padding: 3px 8px; font-size: 12px; margin-top: 8px; }
 
 @media (max-width: 900px) {
   .layout { flex-direction: column; }
-  .sidebar { width: auto; }
+  /* Dar ekranda menü üstte yatay; sabitlenmez (içeriğin üstünü kapatmasın) */
+  .sidebar { width: auto; position: static; height: auto; overflow: visible; align-self: stretch; }
   .sidebar nav { flex-direction: row; flex-wrap: wrap; }
   .split { grid-template-columns: 1fr; }
   .detail { border-left: none; padding-left: 0; }

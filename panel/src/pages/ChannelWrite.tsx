@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { ApiError, get, post, put, qs, type Channel, type ChannelCapability, type ChannelCommand, type OrderNotificationRow, type OrderNotifyResult, type Paged, type PricePreview } from '../api';
 import { useAuth } from '../auth';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { Card, ChannelBadge, ErrorBox, ErrorExplain, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, statusLabels } from '../format';
 
@@ -83,7 +85,7 @@ Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); ret
   }
 
   return (
-    <Card title="Kanala yazma yetenekleri">
+    <Card title="Kanala yazma yetenekleri" actions={<ExportButton fileName="kanal-yazma-yetenekleri" sheetName="Yetenekler" tableSelector="[data-testid=capability-table]" />}>
       <p className="muted small">
         Varsayılan KAPALI. "Deneme" durumunda her kayıt Senkron Merkezi → Kanal işlemleri'nden Yönetici onayıyla tek tek gider.
         Deneme modunda (scripts/deneme-modu.ps1) global yazma kilidi açıktır: gerçek kanala hiçbir yazma gitmez.
@@ -124,6 +126,32 @@ Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); ret
 }
 
 // ------------------------------------------------------------------ Siparişler: kanala bildirim
+
+const notificationExportColumns: ExportColumn<OrderNotificationRow>[] = [
+  { header: 'Kanal', value: r => channelNames[r.channelCode] ?? r.channelCode },
+  { header: 'Sipariş no', value: r => r.channelOrderNo },
+  { header: 'Durum', value: r => statusLabels[r.status] ?? r.status },
+  { header: 'Kaynak', value: r => r.statusSource },
+  { header: 'Bildirim', value: r => (r.notificationState ? commandStateLabels[r.notificationState] ?? r.notificationState : 'Bildirilmedi') },
+  { header: 'Hata', value: r => r.error },
+  { header: 'Kanal kimliği var', kind: 'bool', value: r => r.hasChannelIds },
+  { header: 'Tarih', kind: 'datetime', value: r => r.orderDateUtc }
+];
+
+const commandExportColumns: ExportColumn<ChannelCommand>[] = [
+  { header: '#', kind: 'number', value: c => c.id },
+  { header: 'Kanal', value: c => channelNames[c.channelCode] ?? c.channelCode },
+  { header: 'Tip', value: c => c.type },
+  { header: 'Hedef', value: c => c.targetKey },
+  { header: 'Durum', value: c => commandStateLabels[c.state] ?? c.state },
+  { header: 'Deneme', kind: 'number', value: c => c.attempts },
+  { header: 'Hata', value: c => (c.errorInfo ? `${c.errorInfo.title}: ${c.errorInfo.advice}` : c.error) },
+  { header: 'Kanal işlem no', value: c => c.channelOperationNo },
+  { header: 'Oluşturan', value: c => c.createdBy },
+  { header: 'Oluşma', kind: 'datetime', value: c => c.createdAtUtc },
+  { header: 'Onaylayan', value: c => c.approvedBy },
+  { header: 'Gönderim', kind: 'datetime', value: c => c.sentAtUtc }
+];
 
 export function OrderNotifications({ channels, onChanged, refreshKey }: { channels: Channel[]; onChanged: () => void; refreshKey?: unknown }) {
   const { can } = useAuth();
@@ -171,7 +199,9 @@ export function OrderNotifications({ channels, onChanged, refreshKey }: { channe
   }
 
   return (
-    <Card title="Kanala bildirim (sipariş durumu / kargo)">
+    <Card title="Kanala bildirim (sipariş durumu / kargo)" actions={<ExportButton<OrderNotificationRow> fileName="kanal-bildirimleri" sheetName="Kanal bildirimleri"
+      load={() => fetchAllPages((p, size) => get<Paged<OrderNotificationRow>>(`/api/orders/notifications${qs({ channelId: channelId || undefined, filter, search: search || undefined, page: p, pageSize: size })}`))}
+      columns={notificationExportColumns} />}>
       <p className="muted small">
         Panelde Hazırlanıyor veya Kargoda yapılan siparişler kanala ayrıca bildirilir. Kanaldan gelen durumlar zaten kanaldadır.
         Kanalın anlaşmalı kargosuyla gönderimde "Kargoda" bildirimi gerekmez.
@@ -286,7 +316,9 @@ export function ChannelCommands({ channelId, onNotice }: { channelId: string; on
   }
 
   return (
-    <Card title="Kanal işlemleri (sipariş bildirimi, iade kararı, soru cevabı)">
+    <Card title="Kanal işlemleri (sipariş bildirimi, iade kararı, soru cevabı)" actions={<ExportButton<ChannelCommand> fileName="kanal-islemleri" sheetName="Kanal işlemleri"
+      load={() => fetchAllPages((p, size) => get<Paged<ChannelCommand>>(`/api/channel-commands${qs({ channelId: channelId || undefined, state: state || undefined, page: p, pageSize: size })}`))}
+      columns={commandExportColumns} />}>
       <div className="filters">
         <select aria-label="İşlem durumu" value={state} onChange={e => setState(e.target.value)}>
           <option value="">Tüm durumlar</option>

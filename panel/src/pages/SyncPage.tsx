@@ -4,10 +4,38 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { get, post, qs, type Channel, type Paged, type PushListingsResult, type Reconciliation, type SyncItem, type SyncSummary } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { Card, ChannelBadge, ErrorBox, ErrorExplain, Notice, SyncBadge, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney, syncStatusLabels } from '../format';
 import { ChannelCommands } from './ChannelWrite';
 import { StockApprovals } from './StockApprovals';
+
+const queueExportColumns: ExportColumn<SyncItem>[] = [
+  { header: 'Kanal', value: q => channelNames[q.channelCode] ?? q.channelCode },
+  { header: 'SKU', value: q => q.skuCode },
+  { header: 'Tip', value: q => q.type },
+  { header: 'Durum', value: q => (q.batchId && q.status === 'BEKLIYOR' ? 'Gönderimde' : syncStatusLabels[q.status] ?? q.status) },
+  { header: 'Deneme', kind: 'number', value: q => q.attempts },
+  { header: 'Gönderilen stok', kind: 'number', value: q => q.sentValue },
+  { header: 'Gönderilen fiyat', kind: 'money', value: q => q.sentPrice },
+  { header: 'Hata', value: q => (q.errorInfo ? `${q.errorInfo.title}: ${q.errorInfo.advice}` : q.error) },
+  { header: 'Oluşma', kind: 'datetime', value: q => q.createdUtc },
+  { header: 'Son deneme', kind: 'datetime', value: q => q.lastAttemptUtc },
+  { header: 'Sonraki deneme', kind: 'datetime', value: q => q.nextAttemptUtc }
+];
+
+const deviationExportColumns: ExportColumn<Reconciliation>[] = [
+  { header: 'Kanal', value: r => channelNames[r.channelCode] ?? r.channelCode },
+  { header: 'SKU', value: r => r.skuCode },
+  { header: 'Kanal ürün kodu', value: r => r.channelProductCode },
+  { header: 'Kanal barkodu', value: r => r.channelBarcode },
+  { header: 'Beklenen', kind: 'number', value: r => r.expected },
+  { header: 'Son gönderilen', kind: 'number', value: r => r.lastSent },
+  { header: 'Kanalda', kind: 'number', value: r => r.channelStock ?? (r.missingInChannel ? 'kanalda yok' : 'çekilmedi') },
+  { header: 'Fark', kind: 'number', value: r => r.deviation },
+  { header: 'Çekilme', kind: 'datetime', value: r => r.fetchedAtUtc }
+];
 
 /** Ekran 7: Senkron Merkezi (son gönderimler, sadeleştirilmiş hata, "yeniden dene") + mutabakat sapmaları. */
 export function SyncPage() {
@@ -127,7 +155,8 @@ export function SyncPage() {
 
       <StockApprovals onChanged={m => { setNotice(m); summary.reload(); queue.reload(); }} />
       <ChannelCommands channelId={channelId} onNotice={setNotice} />
-      <Card title="Gönderim kuyruğu">
+      <Card title="Gönderim kuyruğu" actions={<ExportButton fileName="gonderim-kuyrugu" sheetName="Gönderim kuyruğu" columns={queueExportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<SyncItem>>(`/api/sync/queue${qs({ status, channelId, page: p, pageSize: size })}`))} />}>
         <div className="filters">
           <select aria-label="Durum" value={status} onChange={e => { setPage(1); setStatus(e.target.value); }}>
             <option value="">Tüm durumlar</option>
@@ -144,7 +173,8 @@ export function SyncPage() {
         {queue.data && <Pager page={page} pageSize={queue.data.pageSize} total={queue.data.total} onPage={setPage} />}
       </Card>
 
-      <Card title="Mutabakat sapmaları">
+      <Card title="Mutabakat sapmaları" actions={<ExportButton fileName="mutabakat-sapmalari" sheetName="Mutabakat sapmaları" columns={deviationExportColumns}
+        load={() => Promise.resolve(visibleDeviations)} />}>
         <p className="muted small">
           Son mutabakatta kanaldaki stok beklenenden farklı olan veya kanalda bulunamayan eşleştirmeler. "Kanala gönder" defterdeki değeri
           (Beklenen) yeniden gönderir. Kanaldaki değerin doğru olduğunu düşünüyorsanız Stok Listesi → "Kanal stoğunu deftere al" ekranını kullanın.

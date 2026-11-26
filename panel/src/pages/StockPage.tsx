@@ -3,6 +3,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, qs, type Channel, type Paged, type StockRow } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { Card, ChannelLink, ErrorBox, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { ChannelStockTab } from './ChannelStockTab';
@@ -117,9 +119,35 @@ function LedgerStockView() {
     }))
   ], [channels.data]);
 
+  // Excel (ADR-060): ekrandaki filtreyle bütün sayfalar; her kanal için kanalda görünen ve beklenen stok ayrı sütun
+  const exportColumns = useMemo<ExportColumn<StockRow>[]>(() => [
+    { header: 'SKU', value: r => r.skuCode },
+    { header: 'Ürün', value: r => r.productName },
+    { header: 'Fiziksel', kind: 'number', value: r => r.physical },
+    { header: 'Rezerve', kind: 'number', value: r => r.reserved },
+    { header: 'Güvenlik stoğu', kind: 'number', value: r => r.safetyStock },
+    { header: 'Satılabilir', kind: 'number', value: r => r.available },
+    ...(channels.data ?? []).flatMap<ExportColumn<StockRow>>(ch => {
+      const name = channelNames[ch.code] ?? ch.code;
+      const cells = (r: StockRow) => r.channels.filter(c => c.channelCode === ch.code);
+      const one = (r: StockRow, f: (c: StockRow['channels'][number]) => string | number | null) => {
+        const list = cells(r);
+        if (list.length === 0) return null;
+        return list.length === 1 ? f(list[0]) : list.map(c => f(c) ?? '—').join(' · ');
+      };
+      return [
+        { header: `${name} stoğu`, kind: 'number', value: r => one(r, c => (c.missingInChannel ? 'kanalda yok' : c.channelStock ?? c.lastSent)) },
+        { header: `${name} beklenen`, kind: 'number', value: r => one(r, c => c.expected) }
+      ];
+    }),
+    { header: 'Sapma', kind: 'bool', value: r => r.hasDeviation }
+  ], [channels.data]);
+
   return (
     <>
-      <Card>
+      <Card actions={<ExportButton fileName="stok-listesi" sheetName="Stok listesi" columns={exportColumns}
+        load={() => fetchAllPages(
+          (p, size) => get<Paged<StockRow>>(`/api/stock-overview${qs({ search: applied, onlyDeviations, lowStock, page: p, pageSize: size })}`))} />}>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied(search); }}>
           <input placeholder="SKU, barkod veya ürün adı" value={search} onChange={e => setSearch(e.target.value)} aria-label="Ara" />
           <label className="check"><input type="checkbox" checked={onlyDeviations} onChange={e => { setPage(1); setOnlyDeviations(e.target.checked); }} /> Yalnızca sapmalar</label>

@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, del, get, post, put, type Channel, type ChannelStatus, type User, type Warehouse } from '../api';
 import { roleLabels, useAuth, type Role } from '../auth';
 import { ChannelStatusGrid } from '../components/ChannelStatus';
+import { ExportButton } from '../components/ExportButton';
 import { Card, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { resolveSku } from './MovementsPage';
@@ -97,7 +98,7 @@ function ChannelsTab({ onNotice }: { onNotice: (m: string) => void }) {
       )}
 
       {list.length > 0 && (
-        <Card title="Kanala yazma yetenekleri (özet)">
+        <Card title="Kanala yazma yetenekleri (özet)" actions={<ExportButton fileName="kanal-yetenekleri" sheetName="Kanal yetenekleri" />}>
           <table className="table" data-testid="capability-matrix">
             <thead>
               <tr><th>Yetenek</th>{list.map(s => <th key={s.id}>{channelNames[s.code] ?? s.name}</th>)}</tr>
@@ -427,7 +428,7 @@ function UserSettings({ onSaved }: { onSaved: (m: string) => void }) {
   }
 
   return (
-    <Card title="Kullanıcılar ve roller">
+    <Card title="Kullanıcılar ve roller" actions={<ExportButton fileName="kullanicilar" sheetName="Kullanıcılar" />}>
       <p className="muted small">Yönetici: tüm işlemler · Depo: stok, sipariş durumu, iade girişi · Muhasebe: yalnızca okuma · Destek: okuma, müşteri bilgisi maskeli.</p>
       <p className="muted small">Pasife alınan veya silinen kullanıcının açık oturumu hemen kapanır; rol değişikliği anında geçerli olur. Kendi hesabınızı silemez, pasife alamaz, yönetici yetkinizi kaldıramazsınız; son aktif yönetici de kaldırılamaz. Kim ne yaptı: <Link to="/islem-gecmisi">İşlem Geçmişi</Link>.</p>
       <ErrorBox error={error ?? users.error} />

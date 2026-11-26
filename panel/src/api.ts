@@ -394,6 +394,8 @@ export type ChannelStockListRow = {
   priceOverride?: number | null; skuSalePrice?: number | null; lastSentSalePrice?: number | null;
   /** ADR-043: kanalın bildirdiği ürün durumu (ham metin) ve sınıfı. Yalnızca gösterim/filtre; ilanı pasif yapmaz. */
   channelStatus?: string | null; saleState?: SaleState;
+  /** ADR-061: bağlı SKU'nun ürünü (aynı ürünün varyantlarına toplu fiyat). */
+  productId?: number;
 };
 export type SaleState = 'SATISTA' | 'STOK_YOK' | 'SATIS_DISI' | 'BILINMIYOR';
 export type ChannelStockList = {

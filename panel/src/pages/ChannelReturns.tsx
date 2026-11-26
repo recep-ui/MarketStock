@@ -4,9 +4,27 @@ import { useAuth } from '../auth';
 import { ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { ChannelFetch } from '../components/ChannelFetch';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages } from '../export';
+import type { ExportColumn } from '../export';
 import { commandStateLabels } from './ChannelWrite';
 
 const decisionLabels: Record<string, string> = { ONAY: 'Onay', RED: 'Red', TESLIM_ALINDI: 'Teslim alındı' };
+
+const exportColumns: ExportColumn<ReturnListItem>[] = [
+  { header: 'Tarih', kind: 'datetime', value: r => r.requestedAtUtc },
+  { header: 'Kanal', value: r => channelNames[r.channelCode] ?? r.channelCode },
+  { header: 'İade no', value: r => r.returnNo },
+  { header: 'Sipariş no', value: r => r.channelOrderNo },
+  { header: 'Sipariş eşleşti', kind: 'bool', value: r => r.orderId != null },
+  { header: 'Kanal durumu', value: r => r.channelStatus },
+  { header: 'Neden', value: r => r.reason },
+  { header: 'Satır', kind: 'number', value: r => r.lineCount },
+  { header: 'Depoya giren satır', kind: 'number', value: r => r.receivedLineCount },
+  { header: 'Son karar', value: r => (r.lastDecision ? decisionLabels[r.lastDecision] ?? r.lastDecision : null) },
+  { header: 'Karar durumu', value: r => (r.lastDecisionState ? commandStateLabels[r.lastDecisionState] ?? r.lastDecisionState : null) },
+  { header: 'Son güncelleme', kind: 'datetime', value: r => r.lastUpdatedUtc }
+];
 
 /**
  * Kanal iade talepleri (ADR-027). Depo "Depoya ulaştı" ile stoğa girer (satır başına bir kez; kanala bildirim tetiklemez).
@@ -34,6 +52,8 @@ export function ChannelReturns({ channels }: { channels: Channel[] }) {
         </select>
         <input placeholder="İade / sipariş no" aria-label="İade no" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
         <button onClick={list.reload}>Yenile</button>
+        <ExportButton fileName="iade-talepleri" sheetName="İade talepleri" columns={exportColumns}
+          load={() => fetchAllPages((p, size) => get<Paged<ReturnListItem>>(`/api/returns${qs({ channelId: channelId || undefined, search: search || undefined, page: p, pageSize: size })}`))} />
       </div>
       <ChannelFetch channels={channels} channelId={channelId} endpoint="/api/returns/fetch" jobType="IADE_CEK" label="Kanaldan iade çek" onDone={list.reload} />
       <ErrorBox error={list.error} />

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { get, post, qs, type Channel, type ChannelReferenceView } from '../api';
 import { Card, ErrorBox, useLoad } from '../components/ui';
+import { ExportButton } from '../components/ExportButton';
 import { channelNames, formatDateTime } from '../format';
 
 const typeLabels: Record<string, string> = {
@@ -44,7 +45,7 @@ export function ChannelReferences({ channels, canRefresh, onNotice, channelId: c
 
   const status = view.data?.status;
   return (
-    <Card title="Kanal referans verisi (Satıcı Bilgileri)">
+    <Card title="Kanal referans verisi (Satıcı Bilgileri)" actions={<ExportButton fileName="kanal-referans-verisi" sheetName="Referans verisi" tableSelector="[data-testid=reference-table]" />}>
       <p className="muted small">
         Sipariş/teslimat ve iade kararı ekranlarında kullanılan listeler. Kanalda artık bulunmayan kayıt silinmez, pasif olur.
       </p>

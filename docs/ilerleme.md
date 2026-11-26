@@ -7,6 +7,14 @@
 
 ---
 
+## Excel'e aktar her ekranda, varyantlara toplu fiyat, sabit sol menü (2026-11-27, ADR-060/061/062)
+
+- **Excel'e aktar:** bütün liste ekranlarında aynı düğme (`ExportButton`) ve tek uç (`POST /api/export/xlsx`, ClosedXML). Sayfalanmış listelerde filtreye uyan bütün kayıtlar liste ucundan çekilir (rol yetkisi ve Destek maskelemesi aynen geçerli); sayfalanmamış tablolar ekrandan okunur. Siparişler'deki satır bazlı Excel olduğu gibi kaldı.
+- **Varyantlara toplu fiyat:** Stok Listesi → kanal sekmesinde satırdaki "Varyantlara toplu fiyat" (Yönetici). Aynı ürünün o kanaldaki bütün beden/renk ilanları listelenir; seçilenlere tek ilan fiyatı yazılır. Mevcut ilan fiyatı yolu (PriceHistory + FiyatDegisti → FIYAT kuyruğu) kullanılır: KAPALI'da kanala hiçbir şey gitmez, DENEME'de her kayıt onaya düşer. Kanal yetenek ayarlarına dokunulmadı.
+- **Sol menü sabit:** sayfa kaydırılınca menü yerinde kalır; 900 px altında üstte yatay, sabitlenmez.
+- Testler: birim 484/484 (yeni: `TableExportWriterTests` 17), entegrasyon 184/184 (yeni: `TableExportApiTests` 6, varyant fiyatı 4), Playwright yeni 4 senaryo geçti; tam Playwright paketi 28/28 (iki ekran ilk turda yük kaynaklı zaman aşımına düştü, tekrarda geçti; "Kanal stoğu deftere alınır" senaryosu OtoTest veritabanında Hepsiburada pasif kaldığı için düştü, kanal aktif edilince geçti). `npm run build` temiz. Uygulama içi tarayıcıda varyant paneli ve sabit menü görsel olarak doğrulandı.
+- Bilinen eksik: sipariş ve iade detay panellerindeki satır tabloları (liste değil, detay) için ayrı düğme yok; Siparişler'in kendi Excel'i bu satırları zaten içeriyor.
+
 ## Depo Excel'i → ortak SKU geçiş aracı (2026-11-26, ADR-059)
 
 - `tools/PazaryeriHub.Tools.DepoGecis`: onay dosyasından plan (deneme) ve uygulama. Her depo satırı bir ortak SKU; stok depo Excel'inden (SAYIM); kesin eşleşen 468 kanal ürünü taşınır/bağlanır; bütün ilanları giden eski SKU'lar 0'a sayılır.

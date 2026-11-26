@@ -31,6 +31,11 @@ public static class PriceEndpoints
         prices.MapPut("/listings/overrides", (IPriceService s, ClaimsPrincipal user, ListingOverridesRequest request, CancellationToken ct) =>
             s.SetListingOverridesAsync(request.Changes ?? [], user.UserName(), ct)).RequireAuthorization(Policies.Admin);
 
+        // ADR-061: aynı ürünün bir kanaldaki varyantlarına (beden/renk) tek fiyat; mevcut ilan fiyatı yolu, yetenek ve onay kuralları geçerli.
+        prices.MapPut("/products/{productId:int}/channels/{channelId:int}/variant-price", (IPriceService s, ClaimsPrincipal user, int productId,
+                int channelId, VariantPriceRequest request, CancellationToken ct) =>
+            s.SetProductVariantPriceAsync(productId, channelId, request, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
+
         prices.MapPut("/listings/{listingId:int}/override", (IPriceService s, ClaimsPrincipal user, int listingId, ListingPriceOverrideInput input, CancellationToken ct) =>
             s.SetListingOverrideAsync(listingId, input, user.UserName(), ct)).RequireAuthorization(Policies.Admin);
 

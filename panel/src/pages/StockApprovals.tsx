@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { get, post, type StockApprovalItem, type StockApprovalResult } from '../api';
 import { useAuth } from '../auth';
+import { ExportButton } from '../components/ExportButton';
 import { Card, ChannelBadge, ErrorBox, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 
@@ -120,7 +121,19 @@ export function StockApprovals({ onChanged }: { onChanged: (message: string) => 
   }
 
   return (
-    <Card title={`Onay bekleyen stok gönderimleri (${all.length})`}>
+    <Card title={`Onay bekleyen stok gönderimleri (${all.length})`} actions={all.length > 0 && (
+      <ExportButton<StockApprovalItem> fileName="onay-bekleyen-stok" sheetName="Onay bekleyen stok" load={() => Promise.resolve(visible)} columns={[
+        { header: 'Ürün', value: r => r.productName },
+        { header: 'SKU', value: r => r.skuCode },
+        { header: 'Kanal', value: r => channelNames[r.channelCode] ?? r.channelCode },
+        { header: 'Kanal barkodu', value: r => r.channelBarcode },
+        { header: 'Kanal ürün kodu', value: r => r.channelProductCode },
+        { header: 'Kanalda şu an', kind: 'number', value: r => r.channelStock },
+        { header: 'Son gönderilen', kind: 'number', value: r => r.lastSent },
+        { header: 'Gönderilecek', kind: 'number', value: r => r.newValue },
+        { header: 'Oluşma', kind: 'datetime', value: r => r.createdUtc }
+      ]} />
+    )}>
       <p className="muted small">
         Stok gönderimi "Onaylı" olan kanallarda stok değişiklikleri pazaryerine siz onaylamadan gitmez. Göndermek istediğiniz kanalları
         işaretleyin, satırları kontrol edin. "Kanalda şu an": son mutabakatta pazaryerinde görülen stok. Kanal ayarı: Ayarlar → Kanallar → Stok gönderimi.

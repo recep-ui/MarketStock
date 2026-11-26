@@ -3,6 +3,9 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { download, get, put, qs, upload, type Channel, type ImportReport, type Listing, type Paged } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages } from '../export';
+import { listingExportColumns } from '../exportColumns';
 import { Link } from 'react-router-dom';
 import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
@@ -115,7 +118,8 @@ export function MappingPage() {
       )}
       <UnmatchedChannelItems channels={channels.data ?? []} canWrite={can('catalogWrite')} refreshKey={refreshKey} onLinked={listings.reload} />
       {can('catalogWrite') && <ListingForm channels={channels.data ?? []} onDone={listings.reload} />}
-      <Card title="Eşleştirmeler">
+      <Card title="Eşleştirmeler" actions={<ExportButton fileName="eslestirmeler" sheetName="Eşleştirmeler" columns={listingExportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<Listing>>(`/api/listings${qs({ ...applied, page: p, pageSize: size })}`))} />}>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied({ channelId, search, onlyReview }); }}>
           <select aria-label="Kanal" value={channelId} onChange={e => setChannelId(e.target.value)}>
             <option value="">Tüm kanallar</option>
@@ -217,7 +221,7 @@ export function ExcelBox({ kind, label, canImport, onImported }: { kind: string;
   }
 
   return (
-    <div className="excel-box">
+    <div className="excel-box" data-export-scope>
       <h3>{label}</h3>
       <div className="actions">
         <button onClick={() => download(`/api/excel/${kind}/template`, `sablon-${kind}.xlsx`).catch(setError)}>Şablon indir</button>
@@ -240,6 +244,7 @@ export function ExcelBox({ kind, label, canImport, onImported }: { kind: string;
               {report.unchanged} değişmeyen · <strong>{report.errors.length > 0 ? `${new Set(report.errors.map(e => e.row)).size} hatalı satır` : 'hata yok'}</strong>
             </p>
           )}
+          {report.errors.length > 0 && <ExportButton fileName={`ice-aktarma-hatalari-${kind}`} sheetName="Hatalar" tableSelector=".report table" />}
           {report.errors.length > 0 && (
             <table className="table">
               <thead><tr><th>Satır</th><th>Sütun</th><th>Hata</th></tr></thead>

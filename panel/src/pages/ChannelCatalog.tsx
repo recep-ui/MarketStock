@@ -3,6 +3,9 @@ import { get, post, qs, upload, type CatalogFetchStatus, type CatalogImportRepor
 import { CatalogNoMatchHelp, ChannelDataSourceNote } from '../components/ChannelDataSource';
 import { Card, ChannelBadge, ErrorBox, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages } from '../export';
+import { unmatchedExportColumns } from '../exportColumns';
 import { resolveSku } from './MovementsPage';
 
 /** Satıcı panelinden indirilen ürün dosyası biçimi olan kanallar (ADR-020). */
@@ -203,7 +206,7 @@ function CatalogReport({ report, filter, onFilter }: { report: CatalogImportRepo
       <CatalogNoMatchHelp report={report} />
       {report.warnings.map(w => <div key={w} className="alert alert-warn">{w}</div>)}
       {report.errors.length > 0 && (
-        <table className="table">
+        <table className="table" data-testid="catalog-errors">
           <thead><tr><th>Satır</th><th>Sütun</th><th>Hata</th></tr></thead>
           <tbody>
             {report.errors.slice(0, 200).map((e, i) => <tr key={i}><td>{e.row}</td><td>{e.column ?? '—'}</td><td>{e.message}</td></tr>)}
@@ -216,6 +219,24 @@ function CatalogReport({ report, filter, onFilter }: { report: CatalogImportRepo
             {o ? outcomeLabels[o] : 'Tümü'} ({o ? report.rows.filter(r => r.outcome === o).length : report.rows.length})
           </button>
         ))}
+      </div>
+      <div className="actions">
+        <ExportButton<CatalogImportRow> fileName="katalog-raporu" sheetName="Katalog raporu" load={() => Promise.resolve(rows)} columns={[
+          { header: 'Satır', kind: 'number', value: r => r.row },
+          { header: 'Sonuç', value: r => outcomeLabels[r.outcome] ?? r.outcome },
+          { header: 'Pasif', kind: 'bool', value: r => r.passive },
+          { header: 'Barkod', value: r => r.barcode },
+          { header: 'Kanal ürün kodu', value: r => r.channelProductCode },
+          { header: 'Stok kodu', value: r => r.stockCode },
+          { header: 'Ürün', value: r => r.name },
+          { header: 'Renk', value: r => r.color },
+          { header: 'Beden', value: r => r.size },
+          { header: 'SKU', value: r => r.skuCode },
+          { header: 'Adım', value: r => (r.step ? stepLabels[r.step] ?? r.step : null) },
+          { header: 'Açıklama', value: r => r.detail },
+          { header: 'Önerilen SKU', value: r => r.suggestedSkuCode }
+        ]} />
+        {report.errors.length > 0 && <ExportButton fileName="katalog-hatalari" sheetName="Hatalar" tableSelector="[data-testid=catalog-errors]" />}
       </div>
       <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
         <table className="table" data-testid="catalog-rows">
@@ -286,7 +307,8 @@ export function UnmatchedChannelItems({ channels, canWrite, refreshKey, onLinked
 
   const data = items.data;
   return (
-    <Card title={`Eşleşmeyen kanal ürünleri${data ? ` (${data.total})` : ''}`}>
+    <Card title={`Eşleşmeyen kanal ürünleri${data ? ` (${data.total})` : ''}`} actions={<ExportButton fileName="eslesmeyen-kanal-urunleri" sheetName="Eşleşmeyen ürünler"
+      columns={unmatchedExportColumns} load={() => fetchAllPages((p, size) => get<Paged<UnmatchedItem>>(`/api/channel-catalog/unmatched${qs({ ...applied, page: p, pageSize: size })}`))} />}>
       <Notice text={notice} onClose={() => setNotice(null)} />
       <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied(form); }}>
         <select aria-label="Kanal (eşleşmeyen)" value={form.channelId} onChange={e => setForm({ ...form, channelId: e.target.value })}>

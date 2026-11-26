@@ -3,6 +3,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { get, qs, type AuditEntry, type Paged, type User } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { Card, ErrorBox, useLoad } from '../components/ui';
 import { dayEndUtc, dayStartUtc, formatDateTime } from '../format';
 
@@ -44,6 +46,18 @@ export function describeAudit(e: AuditEntry): string {
   return area ? `${area} · ${action}` : action;
 }
 
+const exportColumns: ExportColumn<AuditEntry>[] = [
+  { header: 'Tarih', kind: 'datetime', value: e => e.atUtc },
+  { header: 'Kullanıcı', value: e => e.userName },
+  { header: 'Rol', value: e => e.role },
+  { header: 'İşlem', value: e => describeAudit(e) },
+  { header: 'Yöntem', value: e => e.method },
+  { header: 'Adres', value: e => e.path },
+  { header: 'Sonuç kodu', kind: 'number', value: e => e.status },
+  { header: 'Süre (ms)', kind: 'number', value: e => e.durationMs },
+  { header: 'Cihaz (IP)', value: e => e.ipAddress }
+];
+
 const columns: ColumnDef<AuditEntry>[] = [
   { header: 'Tarih', cell: ({ row }) => formatDateTime(row.original.atUtc) },
   { header: 'Kullanıcı', cell: ({ row }) => row.original.userName ?? '—' },
@@ -68,13 +82,11 @@ export function AuditPage() {
   const [filters, setFilters] = useState({ user: '', type: '', from: '', to: '', path: '', errors: false });
   const [applied, setApplied] = useState(filters);
   const [page, setPage] = useState(1);
-  const entries = useLoad(
-    () => get<Paged<AuditEntry>>(`/api/audit${qs({
-      user: applied.user, type: applied.type, from: dayStartUtc(applied.from), to: dayEndUtc(applied.to),
-      path: applied.path, errors: applied.errors || undefined, page, pageSize: 50
-    })}`),
-    [applied, page]
-  );
+  const url = (p: number, size: number) => `/api/audit${qs({
+    user: applied.user, type: applied.type, from: dayStartUtc(applied.from), to: dayEndUtc(applied.to),
+    path: applied.path, errors: applied.errors || undefined, page: p, pageSize: size
+  })}`;
+  const entries = useLoad(() => get<Paged<AuditEntry>>(url(page, 50)), [applied, page]);
 
   if (!can('admin')) {
     return <><h1>İşlem Geçmişi</h1><Card><p>Bu ekranı yalnızca Yönetici görebilir.</p></Card></>;
@@ -83,7 +95,8 @@ export function AuditPage() {
   return (
     <>
       <h1>İşlem Geçmişi</h1>
-      <Card>
+      <Card actions={<ExportButton fileName="islem-gecmisi" sheetName="İşlem geçmişi" columns={exportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<AuditEntry>>(url(p, size)), 200)} />}>
         <p className="muted small">
           Panelden yapılan tüm değişiklikler (ekleme, güncelleme, silme, onay, gönderim), girişler, çıkışlar ve hatalı giriş denemeleri.
           İçerik (parola, API anahtarı, müşteri bilgisi) kaydedilmez; yalnızca kim, ne zaman, hangi işlem ve sonucu.

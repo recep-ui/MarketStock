@@ -526,4 +526,165 @@ public sealed class PricePipelineTests(TestDatabase db)
             await RestoreAsync();
         }
     }
+
+    // ------------------------------------------------------------------ ADR-061: aynı ürünün varyantlarına toplu fiyat
+
+    /// <summary>Aynı ürüne (Product) bağlı <paramref name="count"/> beden SKU'su, her biri kanalda bir ilanla.</summary>
+    private async Task<(int ProductId, List<(int SkuId, int ListingId, string Code)> Variants)> ProductWithVariantsAsync(int channelId, int count = 3)
+    {
+        await using var c = db.Open();
+        var productId = await c.ExecuteScalarAsync<int>(
+            "INSERT dbo.Product (Ad, Marka) VALUES (N'Varyant test ürünü', N'Test'); SELECT CAST(SCOPE_IDENTITY() AS INT);");
+        var variants = new List<(int, int, string)>();
+        foreach (var size in new[] { "S", "M", "L", "XL" }.Take(count))
+        {
+            var skuId = await c.ExecuteScalarAsync<int>(
+                "INSERT dbo.Sku (ProductId, SkuKodu, Renk, Beden) VALUES (@productId, @code, N'Siyah', @size); SELECT CAST(SCOPE_IDENTITY() AS INT);",
+                new { productId, code = "VR-" + Guid.NewGuid().ToString("N")[..12], size });
+            await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 5), Ct);
+            await SetSkuPriceAsync(skuId, 100m, 120m);
+            var code = NewCode();
+            var response = await db.Api.PutAsJsonAsync("/api/listings", new ListingInput(skuId, channelId, code, null, null), Json, Ct);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            variants.Add((skuId, (await response.Content.ReadFromJsonAsync<ListingDto>(Json, Ct))!.Id, code));
+        }
+        return (productId, variants);
+    }
+
+    private Task<HttpResponseMessage> SaveVariantPriceAsync(int productId, int channelId, IEnumerable<int> listingIds, decimal? price, HttpClient? client = null) =>
+        (client ?? db.Api).PutAsJsonAsync($"/api/prices/products/{productId}/channels/{channelId}/variant-price",
+            new VariantPriceRequest(listingIds.ToList(), price), Json, Ct);
+
+    [Fact]
+    public async Task Ayni_urunun_varyantlari_kanal_listesinde_urunle_suzulur_ve_tek_fiyatla_mock_kanala_gider()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (productId, variants) = await ProductWithVariantsAsync(channelId);
+            await SetCapabilityAsync(channelId, "ACIK");
+            await SyncOnceAsync(); // ilk (SKU fiyatlı) gönderim; varyant fiyatı bunun üzerine değişiklik olarak gider
+
+            // Kanal stok listesi ürünle süzülür: aynı ürünün bütün varyantları (sayfadan bağımsız)
+            var list = await db.Api.GetFromJsonAsync<PazaryeriHub.Application.Panel.ChannelStockList>(
+                $"/api/stock-overview/channels/{channelId}?productId={productId}&pageSize=500", Json, Ct);
+            list!.Rows.Items.Select(r => r.ListingId).Should().BeEquivalentTo(variants.Select(v => v.ListingId));
+            list.Rows.Items.Should().OnlyContain(r => r.ProductId == productId);
+
+            var saved = await SaveVariantPriceAsync(productId, channelId, variants.Select(v => v.ListingId), 109.90m);
+            saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+            var result = (await saved.Content.ReadFromJsonAsync<VariantPriceResult>(Json, Ct))!;
+            result.Changed.Should().Be(3);
+            result.CapabilityState.Should().Be("ACIK");
+
+            await SyncOnceAsync();
+            foreach (var v in variants)
+            {
+                Mock.PricesOf(Channel)[v.Code].SalePrice.Should().Be(109.90m);
+                (await LastSentAsync(v.ListingId)).Sale.Should().Be(109.90m);
+            }
+
+            await using var c = db.Open();
+            (await c.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM dbo.PriceHistory WHERE Tip = 'ILAN_FIYATI' AND YeniSatis = 109.90 AND ListingId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))",
+                new { ids = JsonSerializer.Serialize(variants.Select(v => v.ListingId)) })).Should().Be(3);
+
+            // Aynı fiyat yeniden: değişiklik yok
+            var again = await (await SaveVariantPriceAsync(productId, channelId, variants.Select(v => v.ListingId), 109.90m))
+                .Content.ReadFromJsonAsync<VariantPriceResult>(Json, Ct);
+            again!.Changed.Should().Be(0);
+            again.Unchanged.Should().Be(3);
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Varyant_fiyati_yetenek_KAPALIyken_kaydedilir_ama_hicbir_sey_kuyruga_ve_kanala_gitmez()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (productId, variants) = await ProductWithVariantsAsync(channelId);
+            var saved = await SaveVariantPriceAsync(productId, channelId, variants.Select(v => v.ListingId), 89.90m);
+            saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+            (await saved.Content.ReadFromJsonAsync<VariantPriceResult>(Json, Ct))!.CapabilityState.Should().Be("KAPALI");
+
+            await SyncOnceAsync();
+            foreach (var v in variants)
+            {
+                (await PriceQueueAsync(v.ListingId)).Should().BeEmpty();
+                (await PendingApprovalAsync(channelId, v.ListingId)).Should().BeNull();
+                Mock.PricePushesOf(Channel).Should().NotContain(u => u.ChannelProductCode == v.Code);
+            }
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Varyant_fiyati_DENEME_yeteneginde_her_ilan_icin_onaya_duser_ve_kanala_gitmez()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (productId, variants) = await ProductWithVariantsAsync(channelId);
+            await SetCapabilityAsync(channelId, "DENEME");
+            var saved = await SaveVariantPriceAsync(productId, channelId, variants.Select(v => v.ListingId), 99.90m);
+            saved.StatusCode.Should().Be(HttpStatusCode.OK, await saved.Content.ReadAsStringAsync(Ct));
+            (await saved.Content.ReadFromJsonAsync<VariantPriceResult>(Json, Ct))!.CapabilityState.Should().Be("DENEME");
+
+            await SyncOnceAsync();
+            foreach (var v in variants)
+            {
+                var approval = await PendingApprovalAsync(channelId, v.ListingId);
+                approval.Should().NotBeNull("DENEME'de her kayıt onaya düşer");
+                approval!.NewSale.Should().Be(99.90m);
+                Mock.PricesOf(Channel).ContainsKey(v.Code).Should().BeFalse();
+            }
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Varyant_fiyatinda_baska_urunun_veya_kanalin_ilani_reddedilir_ve_yalnizca_yonetici_kaydeder()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareAsync();
+        try
+        {
+            var (productId, variants) = await ProductWithVariantsAsync(channelId, 2);
+            var (_, otherListing, _) = await PricedListingAsync(channelId, 50m); // başka ürün
+
+            var bad = await SaveVariantPriceAsync(productId, channelId, [variants[0].ListingId, otherListing], 75m);
+            bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await bad.Content.ReadAsStringAsync(Ct)).Should().Contain("bu ürünün");
+
+            await using var c = db.Open();
+            var otherChannel = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = 'TRENDYOL'");
+            (await SaveVariantPriceAsync(productId, otherChannel, [variants[0].ListingId], 75m)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await SaveVariantPriceAsync(productId, channelId, [], 75m)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await SaveVariantPriceAsync(productId, channelId, [variants[0].ListingId], -1m)).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+            (await c.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.ChannelListing WHERE FiyatOverride IS NOT NULL AND Id IN (@a, @b, @o)",
+                new { a = variants[0].ListingId, b = variants[1].ListingId, o = otherListing })).Should().Be(0, "geçersiz istekte hiçbiri yazılmaz");
+
+            using var depo = await db.ApiHost.CreateClientAsAsync(Roles.Warehouse);
+            (await SaveVariantPriceAsync(productId, channelId, variants.Select(v => v.ListingId), 75m, depo)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
+        finally
+        {
+            await RestoreAsync();
+        }
+    }
 }

@@ -379,6 +379,43 @@ public sealed class PriceService(
         return new ListingOverridesResult(changed, list.Count - changed);
     }
 
+    public async Task<VariantPriceResult> SetProductVariantPriceAsync(int productId, int channelId, VariantPriceRequest request, string? user, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var ids = (request.ListingIds ?? []).Distinct().ToList();
+        new Validator()
+            .Must(ids.Count > 0, "listingIds", "En az bir varyant seçin.")
+            .Must(ids.Count <= MaxOverrideChanges, "listingIds", $"Tek seferde en fazla {MaxOverrideChanges:N0} varyant seçilebilir.")
+            .ThrowIfInvalid();
+
+        string capability;
+        await using (var connection = await OpenAsync(ct))
+        {
+            capability = await connection.ExecuteScalarAsync<string?>(new CommandDefinition("""
+                    SELECT ISNULL(cap.Durum, 'KAPALI') FROM dbo.Channel AS c
+                      LEFT JOIN dbo.ChannelCapability AS cap ON cap.ChannelId = c.Id AND cap.Yetenek = 'FIYAT'
+                     WHERE c.Id = @channelId
+                    """, new { channelId }, cancellationToken: ct))
+                ?? throw new NotFoundException($"Kanal bulunamadı (Id={channelId}).");
+            var foreign = (await connection.QueryAsync<int>(new CommandDefinition("""
+                SELECT j.Id FROM OPENJSON(@ids) WITH (Id INT '$') AS j
+                 WHERE NOT EXISTS (SELECT 1 FROM dbo.ChannelListing AS l JOIN dbo.Sku AS s ON s.Id = l.SkuId
+                                    WHERE l.Id = j.Id AND l.ChannelId = @channelId AND s.ProductId = @productId)
+                """, new { ids = JsonSerializer.Serialize(ids), channelId, productId }, cancellationToken: ct))).ToList();
+            new Validator()
+                .Must(foreign.Count == 0, "listingIds",
+                    $"Seçilen ilanlardan bazıları bu ürünün bu kanaldaki varyantı değil (ilan: {string.Join(", ", foreign)}).")
+                .ThrowIfInvalid();
+        }
+
+        // Mevcut toplu ilan fiyatı yolu: doğrulama, ilan + PriceHistory + FiyatDegisti tek transaction'da; kanala gönderim
+        // outbox → FIYAT kuyruğu → FiyatGonder üzerinden ve FIYAT yeteneğine bağlı (KAPALI: gitmez, DENEME: onaya düşer).
+        var result = await SetListingOverridesAsync(ids.Select(id => new ListingOverrideChange(id, request.Price)).ToList(), user, ct);
+        logger.LogInformation("Varyant fiyatı: ürün {UrunId}, kanal {KanalId}, {Adet} ilan, yetenek {Yetenek}, kullanıcı {Kullanici}",
+            productId, channelId, ids.Count, capability, user);
+        return new VariantPriceResult(result.Changed, result.Unchanged, capability);
+    }
+
     private sealed class SkuRow
     {
         public int SkuId { get; init; }

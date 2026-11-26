@@ -166,6 +166,7 @@ public sealed record MatchApproval(string? ApprovedBy, DateTime ApprovedAtUtc, b
 /// <param name="SkuSalePrice">SKU'nun temel satış fiyatı.</param>
 /// <param name="LastSentSalePrice">Kanalın onayladığı son satış fiyatı.</param>
 /// <param name="ChannelStatus">Son katalog çekiminde kanalın bildirdiği ürün durumu (ham metin; ADR-043).</param>
+/// <param name="ProductId">Bağlı SKU'nun ürünü (ADR-061: aynı ürünün varyantlarını gruplamak için).</param>
 public sealed record ChannelStockListRow(
     int ListingId, string Status, ChannelSide Channel, string? ProductUrl, int? ChannelStock, DateTime? FetchedAtUtc,
     int SkuId, string SkuCode, string? SkuBarcode, string ProductName, string? Color, string? Size,
@@ -173,7 +174,7 @@ public sealed record ChannelStockListRow(
     string? ImageUrl = null, decimal? ChannelSalePrice = null, decimal? ChannelListPrice = null,
     string? StockRuleType = null, int? StockRuleValue = null,
     decimal? PriceOverride = null, decimal? SkuSalePrice = null, decimal? LastSentSalePrice = null,
-    string? ChannelStatus = null)
+    string? ChannelStatus = null, int ProductId = 0)
 {
     /// <summary>Kanal durumunun sınıfı (ADR-043): SATISTA | STOK_YOK | SATIS_DISI | BILINMIYOR. Yalnızca gösterim/filtre.</summary>
     public string SaleState => PazaryeriHub.Application.Channels.ChannelSaleState.Classify(ChannelStatus);

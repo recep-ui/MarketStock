@@ -1353,3 +1353,52 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
   - 235 eski SKU sıfırlanacak (15.470 adet);
   - uyarılar: 1 negatif depo satırı, 1 rezervli SKU; hata yok.
   - Yedek: `dagitim/PazaryeriHub-veri-depo-gecis-oncesi.bak`.
+
+## ADR-060: Bütün liste ekranlarında "Excel'e aktar" (ortak bileşen + ortak uç)
+
+**Bağlam:**
+- Kullanıcı her sekmedeki listeyi Excel'e almak istiyor. Var olan dışa aktarmalar ekrana özeldi: Eşleştirme'deki şablon/dışa aktarma (içe aktarma biçiminde, filtresiz) ve Siparişler/Raporlar'daki satır bazlı sipariş Excel'i (`/api/orders/export`).
+- Aktarma o an ekrandaki filtreye uymalı; sayfalanmış listelerde yalnızca görünen sayfa değil, filtreye uyan bütün kayıtlar gelmeli.
+- Destek rolünde müşteri bilgisi maskelenir; dışa aktarma rol yetkilerine ve maskelemeye uymalı.
+
+**Karar:**
+- Tek sunucu ucu: `POST /api/export/xlsx` (`Policies.Read`). Gövde: dosya adı, sayfa adı, sütunlar (başlık + tür: text/number/money/date/datetime/bool) ve satırlar. `TableExportWriter` (ClosedXML) çalışma kitabını üretir. Uç veritabanından hiçbir şey okumaz.
+- Veri her zaman ekranın kendi liste ucundan gelir (panel `fetchAllPages` ile filtreyi koruyarak bütün sayfaları çeker). Böylece rol yetkisi ve Destek maskelemesi liste ucunda ne ise Excel'de de odur; dışa aktarma için ayrı bir yetki/maskeleme yolu yoktur, atlanamaz.
+- Tek panel bileşeni `ExportButton`, iki modlu:
+  - Veri modu (sayfalanmış veya sınırlı listeler): `load` + `columns`. Stok Listesi (defter ve kanal sekmeleri), Stok Hareketleri, İade/İptal, iade talepleri, Eşleştirme, eşleşmeyen ürünler, gönderim kuyruğu, mutabakat sapmaları, stok onayları, kanal bildirimleri ve işlemleri, fiyat onayları ve geçmişi, Fiyat & Stok Düzenle, Soru-Cevap, İşlem Geçmişi.
+  - Ekran modu (bütün satırları zaten ekranda olan tablolar): düğmenin kartındaki tablo okunur. Düğmeler, onay kutuları, görseller ve `aria-hidden` süsler atlanır; input/select değeri alınır. Tamamen sayısal (tr-TR biçimli) ya da ₺ sütunlar sayı olarak gider; barkod gibi uzun tam sayılar ve baştaki sıfırlı değerler metin kalır. Genel Bakış tabloları, Raporlar, Ayarlar (yetenek özeti, kullanıcılar, referans verisi), kanal yazma yetenekleri, fiyat önizleme, Kanal Stoğu → Defter önizleme/sonuç, katalog/içe aktarma raporları, SKU detay tabloları.
+- Siparişler ekranındaki mevcut satır bazlı Excel (sunucu tarafı, filtreli, bütün kayıtlar, müşteri bilgisi yok) olduğu gibi kaldı.
+- Güvenlik ve sınırlar: metin hücreleri her zaman metin yazılır (`=`, `+` ile başlayan değer formül olmaz); en fazla 100.000 satır ve 100 sütun, hücre 32.000 karakter; dosya ve sayfa adı güvenli hale getirilir (yol parçaları atılır). Tarihler UTC gelir, Türkiye saatine çevrilir.
+
+**Gerekçe:** Her ekran için ayrı sunucu ucu yazmak liste sorgularını ikinci kez kopyalamak ve maskeleme kuralını her uçta tekrarlamak demekti. Ortak uç + liste uçları, yetki ve maskelemeyi tek yerde tutar.
+
+**Doğrulama:**
+- Birim: `TableExportWriterTests` (türler, formül enjeksiyonu, sınırlar, sayfa/dosya adı).
+- Entegrasyon: `TableExportApiTests` (oturumsuz 401, dört rol de alır, geçersiz istek 400).
+- Playwright (`e2e/export-variant.spec.ts`): Stok Hareketleri'nde gönderilen satır sayısı = filtrenin toplamı (görünen 50 değil) ve filtre uygulanınca yalnızca uyanlar; Genel Bakış tablosu ekran modunda; Destek rolü kanal sekmesini aktarır.
+
+## ADR-061: Aynı ürünün varyantlarına toplu fiyat (Stok Listesi → kanal sekmesi)
+
+**Bağlam:**
+- Depo geçişinden (ADR-059) sonra yeni SKU'larda fiyat yok. Aynı ürünün (Product) beden/renk varyantları genelde aynı fiyatla satılıyor; tek tek girmek zahmetli.
+- "Kanallardan çekilen stoklar" ekranı: Stok Listesi → kanal sekmesi (`ChannelStockTab`, ADR-035).
+- Yeni bir kanala yazma yolu açılmamalı; fiyat onayı, FIYAT yeteneği (KAPALI/DENEME/ACIK) ve FIYAT kuyruğu aynen geçerli olmalı.
+
+**Karar:**
+- Kanal stok listesine ürün süzgeci (`productId`) ve satırlara `ProductId` eklendi: panel, aramada tek satır görünse de ürünün o kanaldaki bütün varyantlarını sunucudan alır.
+- Yeni uç `PUT /api/prices/products/{productId}/channels/{channelId}/variant-price` (Yönetici): seçilen ilanların hepsi o ürüne ve o kanala ait olmalı, değilse hiçbiri yazılmaz (400). Yazım mevcut `SetListingOverridesAsync` ile yapılır: ilan fiyatı + PriceHistory (`ILAN_FIYATI`) + `FiyatDegisti` outbox aynı transaction'da. Kanala gönderimi her zamanki gibi OutboxIsle → FIYAT kuyruğu → FiyatGonder yapar:
+  - KAPALI: fiyat kaydedilir, kuyruğa/kanala hiçbir şey gitmez.
+  - DENEME: her ilan için onay açılır; onaylanmadan gitmez.
+  - ACIK: gider; eşik aşan değişiklik yine onaya düşer.
+- Fiyat ilan fiyatıdır (yalnızca o kanal); SKU'nun temel fiyatı ve diğer kanallar değişmez. "Elle fiyatı kaldır" ilan fiyatını kaldırır (SKU fiyatı + kanal kuralı).
+- Panel: satırdaki "Varyantlara toplu fiyat" (yalnızca Yönetici) paneli açar; pasif olmayan varyantlar seçili gelir, seçim değiştirilebilir. Kaydetmeden önce ve sonra yetenek durumuna göre ne olacağı yazılır.
+
+**Doğrulama:**
+- Entegrasyon (`PricePipelineTests`): ürünle süzme; ACIK'ta üç varyant tek fiyatla mock kanala gider ve geçmişe yazılır; aynı fiyat tekrar değişiklik saymaz; KAPALI'da kuyruk/onay/kanal boş; DENEME'de her varyant onaya düşer, kanala gitmez; başka ürünün/kanalın ilanı, boş seçim, geçersiz fiyat 400 ve hiçbiri yazılmaz; Depo 403.
+- Playwright: dört beden listelenir, biri çıkarılır, geçersiz fiyat engellenir, üç varyanta yazılır; diğer beden ve diğer kanal değişmez; temizlik.
+
+## ADR-062: Sol menü sabit
+
+**Karar:** `.sidebar` `position: sticky; top: 0; height: 100vh; overflow-y: auto`. Sayfa (içerik) kaydırılınca menü yerinde kalır; menü ekrandan uzunsa kendi içinde kayar. Sayfanın kaydırıcısı belgede kalır (ayrı bir kaydırma kabı yok): tarayıcı geri/ileri konumu, `scrollIntoView` ve sayfa içi arama bozulmaz. 900 px altında menü eskisi gibi üstte yatay ve sabitlenmez (dar ekranda içeriğin üstünü kapatmasın).
+
+**Doğrulama:** Playwright: geniş ekranda sayfa sonuna kaydırılınca menü üstte ve "Ayarlar" bağlantısı görünür; 375 px'te menü `static`, yatay kaydırma yok.

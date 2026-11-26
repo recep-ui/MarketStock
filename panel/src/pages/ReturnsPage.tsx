@@ -2,6 +2,9 @@ import { useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { get, qs, type Channel, type OrderListItem, type Paged } from '../api';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages } from '../export';
+import { orderExportColumns } from '../exportColumns';
 import { Card, ChannelBadge, ErrorBox, StatusBadge, useLoad } from '../components/ui';
 import { formatDateTime, formatMoney } from '../format';
 import { OrderDetailPanel } from './OrdersPage';
@@ -35,7 +38,8 @@ export function ReturnsPage() {
         <button className={tab === 'Iptal' ? 'active' : undefined} onClick={() => { setTab('Iptal'); setPage(1); setSelected(null); }}>İptaller</button>
       </div>
       {tab === 'Talep' && <Card>{channels.data && <ChannelReturns channels={channels.data} />}</Card>}
-      {tab !== 'Talep' && <Card>
+      {tab !== 'Talep' && <Card actions={<ExportButton fileName={tab === 'Iade' ? 'iadeler' : 'iptaller'} sheetName={tab === 'Iade' ? 'İadeler' : 'İptaller'}
+        columns={orderExportColumns} load={() => fetchAllPages((p, size) => get<Paged<OrderListItem>>(`/api/orders${qs({ status: tab, page: p, pageSize: size })}`))} />}>
         <p className="muted small">
           {tab === 'Iade'
             ? 'İade edilen ürün depoya fiziksel olarak ulaştığında satırdaki "Depoya girdi" ile onaylayın; stok ancak o zaman artar.'

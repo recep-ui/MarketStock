@@ -5,6 +5,8 @@ import {
   type PricePreview, type SkuPrice
 } from '../api';
 import { useAuth } from '../auth';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages } from '../export';
 import { Card, ChannelBadge, ChannelLink, ErrorBox, Field, Notice, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatMoney } from '../format';
 import { resolveSku } from './MovementsPage';
@@ -70,7 +72,20 @@ function PriceApprovals({ refreshKey, onChanged }: { refreshKey: number; onChang
   }
 
   return (
-    <Card title="Onay bekleyen fiyatlar">
+    <Card title="Onay bekleyen fiyatlar" actions={<ExportButton<PriceApproval> fileName="fiyat-onaylari" sheetName="Fiyat onayları" columns={[
+      { header: 'Kanal', value: a => channelNames[a.channelCode] ?? a.channelCode },
+      { header: 'SKU', value: a => a.skuCode },
+      { header: 'Ürün', value: a => a.productName },
+      { header: 'Eski fiyat', kind: 'money', value: a => a.oldSale },
+      { header: 'Yeni fiyat', kind: 'money', value: a => a.newSale },
+      { header: 'Yeni liste fiyatı', kind: 'money', value: a => a.newList },
+      { header: 'Değişim %', kind: 'number', value: a => a.changePercent },
+      { header: 'Neden', value: a => a.reason },
+      { header: 'Durum', value: a => a.state },
+      { header: 'Oluşma', kind: 'datetime', value: a => a.createdUtc },
+      { header: 'Karar veren', value: a => a.decidedBy },
+      { header: 'Karar tarihi', kind: 'datetime', value: a => a.decidedUtc }
+    ]} load={() => fetchAllPages((p, size) => get<Paged<PriceApproval>>(`/api/prices/approvals${qs({ state: state || undefined, page: p, pageSize: size })}`))} />}>
       <p className="muted small">
         Son gönderilen fiyata göre değişim eşiği aşan (veya kanal "Deneme" modundaysa her) fiyat otomatik gitmez. Onaylanan fiyat bir sonraki senkronda gider; reddedilen gitmez.
       </p>
@@ -167,7 +182,7 @@ function ChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[
   }
 
   return (
-    <Card title="Kanal fiyatları ve önizleme">
+    <Card title="Kanal fiyatları ve önizleme" actions={<ExportButton fileName="fiyat-onizleme" sheetName="Fiyat önizleme" tableSelector="[data-testid=price-preview]" />}>
       <div className="filters">
         <select aria-label="Fiyat kanalı" value={selected} onChange={e => setChannelId(e.target.value)}>
           {channels.map(c => <option key={c.id} value={c.id}>{channelNames[c.code] ?? c.name}{c.active ? '' : ' (pasif)'}</option>)}
@@ -376,7 +391,19 @@ function PriceSettings({ onChanged }: { onChanged: (m: string) => void }) {
 function PriceHistoryCard({ refreshKey }: { refreshKey: number }) {
   const history = useLoad(() => get<Paged<PriceHistory>>(`/api/prices/history${qs({ pageSize: 50 })}`), [refreshKey]);
   return (
-    <Card title="Fiyat geçmişi (son 50)">
+    <Card title="Fiyat geçmişi (son 50)" actions={<ExportButton<PriceHistory> label="Tüm geçmişi Excel'e aktar" fileName="fiyat-gecmisi" sheetName="Fiyat geçmişi" columns={[
+      { header: 'Tarih', kind: 'datetime', value: h => h.atUtc },
+      { header: 'Tür', value: h => h.type },
+      { header: 'SKU', value: h => h.skuCode },
+      { header: 'Kanal', value: h => (h.channelCode ? channelNames[h.channelCode] ?? h.channelCode : null) },
+      { header: 'Eski satış', kind: 'money', value: h => h.oldSale },
+      { header: 'Yeni satış', kind: 'money', value: h => h.newSale },
+      { header: 'Eski liste', kind: 'money', value: h => h.oldList },
+      { header: 'Yeni liste', kind: 'money', value: h => h.newList },
+      { header: 'Ayrıntı', value: h => h.detail },
+      { header: 'Kaynak', value: h => h.source },
+      { header: 'Kullanıcı', value: h => h.user }
+    ]} load={() => fetchAllPages((p, size) => get<Paged<PriceHistory>>(`/api/prices/history${qs({ page: p, pageSize: size })}`))} />}>
       <ErrorBox error={history.error} />
       <table className="table" data-testid="price-history">
         <thead><tr><th>Tarih</th><th>Tür</th><th>SKU / kanal</th><th>Eski</th><th>Yeni</th><th>Kaynak</th><th>Kullanıcı</th></tr></thead>

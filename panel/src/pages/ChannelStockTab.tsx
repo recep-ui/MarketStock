@@ -4,7 +4,11 @@ import { api, get, qs, type Channel, type ChannelPriceInfo, type ChannelStockLis
 import { useAuth } from '../auth';
 import { Pager } from '../components/DataTable';
 import { ListingSummary } from '../components/ListingEditor';
-import { Card, ChannelLink, ErrorBox, Stat, Thumb, useLoad } from '../components/ui';
+import { ExportButton } from '../components/ExportButton';
+import { VariantPricePanel } from '../components/VariantPrice';
+import { fetchAllPages } from '../export';
+import { channelStockExportColumns, unmatchedExportColumns } from '../exportColumns';
+import { Card, ChannelLink, ErrorBox, Notice, Stat, Thumb, useLoad } from '../components/ui';
 import { channelNames, formatDateTime, formatRelative } from '../format';
 
 export const basisLabels: Record<ChannelStockListRow['matchBasis'], { text: string; title: string; tone?: 'ok' }> = {
@@ -49,18 +53,19 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [actionError, setActionError] = useState<unknown>(null);
   const [showUnmatched, setShowUnmatched] = useState(false);
+  // ADR-061: aynı ürünün varyantlarına toplu fiyat paneli (ürün Id'si)
+  const [variantFor, setVariantFor] = useState<number | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const { can } = useAuth();
   const name = channelNames[channel.code] ?? channel.name;
   const priceInfo = useLoad(() => get<ChannelPriceInfo[]>('/api/prices/channels'), []);
   const priceState = priceInfo.data?.find(c => c.channelId === channel.id)?.capabilityState;
 
-  const data = useLoad(
-    () => get<ChannelStockList>(`/api/stock-overview/channels/${channel.id}${qs({
-      search: applied.search, onlyDeviations: applied.onlyDeviations, onlyReview: applied.onlyReview,
-      saleState: applied.saleState || undefined, page, pageSize: 50
-    })}`),
-    [channel.id, applied, page]
-  );
+  const listUrl = (p: number, size: number) => `/api/stock-overview/channels/${channel.id}${qs({
+    search: applied.search, onlyDeviations: applied.onlyDeviations, onlyReview: applied.onlyReview,
+    saleState: applied.saleState || undefined, page: p, pageSize: size
+  })}`;
+  const data = useLoad(() => get<ChannelStockList>(listUrl(page, 50)), [channel.id, applied, page]);
   const d = data.data;
   // "Doğru eşleşme" onayı (ADR-036): yalnızca uyarıyı kapatır; eşleşme bilgisi değişirse uyarı geri gelir
   const setApproval = async (row: ChannelStockListRow, approve: boolean) => {
@@ -115,7 +120,13 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
         </div>
       )}
 
-      <Card>
+      <Notice text={notice} onClose={() => setNotice(null)} />
+      {variantFor != null && (
+        <VariantPricePanel key={variantFor} channel={channel} productId={variantFor} capabilityState={priceState}
+          onClose={() => setVariantFor(null)} onSaved={m => { setNotice(m); data.reload(); }} />
+      )}
+      <Card actions={<ExportButton fileName={`${channel.code.toLowerCase()}-kanal-stogu`} sheetName={`${name} stok listesi`} columns={channelStockExportColumns}
+        load={() => fetchAllPages(async (p, size) => (await get<ChannelStockList>(listUrl(p, size))).rows)} />}>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied(form); }}>
           <input
             placeholder="Kanal barkodu, kanal kodu, kanaldaki ad veya SKU"
@@ -259,6 +270,12 @@ export function ChannelStockTab({ channel }: { channel: Channel }) {
                     </td>
                     <td>
                       <ListingSummary row={r} />
+                      {can('admin') && r.productId != null && r.productId > 0 && (
+                        <button className="small" data-testid="variant-price-open" onClick={() => setVariantFor(r.productId!)}
+                          title="Bu ürünün bu kanaldaki bütün beden/renk varyantlarını seçip tek fiyat girin">
+                          Varyantlara toplu fiyat
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -290,7 +307,11 @@ function UnmatchedList({ channel }: { channel: Channel }) {
   );
   const name = channelNames[channel.code] ?? channel.name;
   return (
-    <Card title={`${name}: eşleşmemiş ürünler`} actions={<Link to="/eslestirme">Eşleştirmede bağla →</Link>}>
+    <Card title={`${name}: eşleşmemiş ürünler`} actions={<>
+      <ExportButton fileName={`${channel.code.toLowerCase()}-eslesmemis-urunler`} sheetName={`${name} eşleşmemiş`} columns={unmatchedExportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<UnmatchedItem>>(`/api/channel-catalog/unmatched${qs({ channelId: channel.id, status: 'BEKLIYOR', page: p, pageSize: size })}`))} />
+      <Link to="/eslestirme">Eşleştirmede bağla →</Link>
+    </>}>
       <ErrorBox error={items.error} onRetry={items.reload} />
       {items.data && (
         <div className="table-wrap">

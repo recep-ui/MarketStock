@@ -4,6 +4,8 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { get, post, qs, type Movement, type Paged, type SkuItem, type Warehouse } from '../api';
 import { useAuth } from '../auth';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { Card, ErrorBox, Field, Notice, useLoad } from '../components/ui';
 import { dayEndUtc, dayStartUtc, formatDateTime, movementLabels } from '../format';
 
@@ -15,6 +17,17 @@ const columns: ColumnDef<Movement>[] = [
   { header: 'Adet', cell: ({ row }) => <span className={row.original.quantity < 0 ? 'neg' : undefined}>{row.original.quantity}</span> },
   { header: 'Kaynak', cell: ({ row }) => [row.original.sourceType, row.original.sourceId].filter(Boolean).join(' · ') || '—' },
   { header: 'Kullanıcı', cell: ({ row }) => row.original.user ?? '—' }
+];
+
+const exportColumns: ExportColumn<Movement>[] = [
+  { header: 'Tarih', kind: 'datetime', value: m => m.atUtc },
+  { header: 'SKU', value: m => m.skuCode },
+  { header: 'Depo', value: m => m.warehouseName },
+  { header: 'Tip', value: m => movementLabels[m.type] ?? m.type },
+  { header: 'Adet', kind: 'number', value: m => m.quantity },
+  { header: 'Kaynak tipi', value: m => m.sourceType },
+  { header: 'Kaynak', value: m => m.sourceId },
+  { header: 'Kullanıcı', value: m => m.user }
 ];
 
 /** SKU kodunu Id'ye çevirir (tam eşleşme). */
@@ -31,16 +44,16 @@ export function MovementsPage() {
   const [filters, setFilters] = useState({ sku: params.get('sku') ?? '', type: '', from: '', to: '' });
   const [applied, setApplied] = useState(filters);
   const [page, setPage] = useState(1);
-  const movements = useLoad(
-    () => get<Paged<Movement>>(`/api/stock-movements${qs({ sku: applied.sku, type: applied.type, from: dayStartUtc(applied.from), to: dayEndUtc(applied.to), page, pageSize: 50 })}`),
-    [applied, page]
-  );
+  const url = (p: number, size: number) =>
+    `/api/stock-movements${qs({ sku: applied.sku, type: applied.type, from: dayStartUtc(applied.from), to: dayEndUtc(applied.to), page: p, pageSize: size })}`;
+  const movements = useLoad(() => get<Paged<Movement>>(url(page, 50)), [applied, page]);
 
   return (
     <>
       <h1>Stok Hareketleri</h1>
       {can('stockWrite') && <StockEntryForm onDone={movements.reload} />}
-      <Card>
+      <Card actions={<ExportButton fileName="stok-hareketleri" sheetName="Stok hareketleri" columns={exportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<Movement>>(url(p, size)))} />}>
         <form className="filters" onSubmit={e => { e.preventDefault(); setPage(1); setApplied(filters); }}>
           <input placeholder="SKU (ön ek)" value={filters.sku} onChange={e => setFilters({ ...filters, sku: e.target.value })} aria-label="SKU" />
           <select value={filters.type} onChange={e => setFilters({ ...filters, type: e.target.value })} aria-label="Tip">

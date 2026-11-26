@@ -4,6 +4,8 @@ import { ApiError, get, post, put, qs, type Channel, type ChannelPriceInfo, type
 import { useAuth } from '../auth';
 import { Card, ChannelBadge, ChannelLink, ErrorBox, Thumb, useLoad } from '../components/ui';
 import { DataTable, Pager } from '../components/DataTable';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import type { ColumnDef } from '@tanstack/react-table';
 import { channelNames, formatDateTime, formatMoney } from '../format';
 
@@ -174,6 +176,28 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
   const [busy, setBusy] = useState(false);
   const data = useLoad(() => get<Paged<SkuPriceOverview>>(`/api/prices/skus${qs({ search, page, pageSize: 25 })}`), [search, page, refreshKey]);
   const infos = useLoad(() => get<ChannelPriceInfo[]>('/api/prices/channels'), [refreshKey]);
+  // Excel (ADR-060): aramaya uyan bütün SKU'lar; her kanal için gidecek fiyat, elle fiyat ve son gönderilen ayrı sütun
+  const exportColumns = useMemo<ExportColumn<SkuPriceOverview>[]>(() => [
+    { header: 'SKU', value: s => s.skuCode },
+    { header: 'Ürün', value: s => s.productName },
+    { header: 'Barkod', value: s => s.barcode },
+    { header: 'Renk', value: s => s.color },
+    { header: 'Beden', value: s => s.size },
+    { header: 'Liste fiyatı', kind: 'money', value: s => s.listPrice },
+    { header: 'Satış fiyatı', kind: 'money', value: s => s.salePrice },
+    { header: 'Fiziksel', kind: 'number', value: s => s.physical },
+    { header: 'Satılabilir', kind: 'number', value: s => s.available },
+    ...channels.flatMap<ExportColumn<SkuPriceOverview>>(ch => {
+      const name = channelNames[ch.code] ?? ch.code;
+      const cell = (s: SkuPriceOverview) => s.channels.find(c => c.channelId === ch.id);
+      return [
+        { header: `${name} fiyatı`, kind: 'money', value: s => cell(s)?.preview.newSale },
+        { header: `${name} elle fiyat`, kind: 'money', value: s => cell(s)?.override },
+        { header: `${name} son gönderilen`, kind: 'money', value: s => cell(s)?.preview.lastSentSale },
+        { header: `${name} stok`, kind: 'number', value: s => cell(s)?.stockTarget }
+      ];
+    })
+  ], [channels]);
 
   // Sütunlar: eşleşmesi olan kanallar (sıra kanal listesindeki gibi)
   const columnsChannels = useMemo(() => channels.filter(ch => (data.data?.items ?? []).some(i => i.channels.some(c => c.channelId === ch.id))), [channels, data.data]);
@@ -354,7 +378,8 @@ export function SkuChannelPrices({ channels, refreshKey, onChanged }: { channels
   ], [columnsChannels, drafts, stockDrafts, ruleDrafts, editable]);
 
   return (
-    <Card title="Ürün bazında fiyat ve stok">
+    <Card title="Ürün bazında fiyat ve stok" actions={<ExportButton fileName="fiyat-ve-stok" sheetName="Fiyat ve stok" columns={exportColumns}
+      load={() => fetchAllPages((p, size) => get<Paged<SkuPriceOverview>>(`/api/prices/skus${qs({ search, page: p, pageSize: size })}`), 200)} />}>
       <div className="notes small" data-testid="price-notes">
         <p><strong>Nasıl çalışır?</strong></p>
         <ul>

@@ -149,7 +149,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
 
     public async Task<ChannelStockList> GetChannelStockListAsync(
         int channelId, string? search, bool onlyDeviations, bool onlyReview, int? page, int? pageSize, CancellationToken ct,
-        string? saleState = null)
+        string? saleState = null, int? productId = null)
     {
         var state = Text.Clean(saleState);
         new PazaryeriHub.Application.Common.Validator()
@@ -185,6 +185,11 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         if (state is not null)
         {
             filtered = filtered.Where(r => r.SaleState == state);
+        }
+        if (productId is { } pid)
+        {
+            // ADR-061: aynı ürünün (beden/renk) bütün varyantları
+            filtered = filtered.Where(r => r.ProductId == pid);
         }
         var matching = filtered.ToList();
 
@@ -226,7 +231,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
                    l.KanalVerisi AS ChannelData, l.SonGonderilenStok AS LastSent,
                    l.StokKuralTip AS StockRuleType, l.StokKuralDeger AS StockRuleValue, l.FiyatOverride AS PriceOverride,
                    l.SonGonderilenSatisFiyati AS LastSentSalePrice, s.SatisFiyati AS SkuSalePrice,
-                   s.Id AS SkuId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
+                   s.Id AS SkuId, s.ProductId AS ProductId, s.SkuKodu AS SkuCode, s.Barkod AS SkuBarcode, p.Ad AS ProductName, p.Marka AS Brand,
                    s.Renk AS Color, s.Beden AS Size,
                    snap.KanalStok AS ChannelStock, snap.CekilmeZamani AS FetchedAtUtc,
                    u.UrunAdi AS FallbackName, u.Marka AS FallbackBrand, u.KanalStokKodu AS FallbackStockCode,
@@ -273,7 +278,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
                 targets.GetValueOrDefault(l.ListingId), l.LastSent, check.Basis, check.Warnings, approval,
                 data.ImageUrl ?? PazaryeriHub.Application.Channels.ListingChannelData.HttpsOrNull(l.FallbackImageUrl),
                 data.SalePrice, data.ListPrice, l.StockRuleType, l.StockRuleValue, l.PriceOverride, l.SkuSalePrice, l.LastSentSalePrice,
-                data.ChannelStatus);
+                data.ChannelStatus, l.ProductId);
         }).ToList();
     }
 
@@ -455,6 +460,7 @@ public sealed class PanelQueryService(SqlConnectionFactory connectionFactory, Sy
         public string? ChannelData { get; init; }
         public int? LastSent { get; init; }
         public int SkuId { get; init; }
+        public int ProductId { get; init; }
         public string SkuCode { get; init; } = "";
         public string? SkuBarcode { get; init; }
         public string ProductName { get; init; } = "";

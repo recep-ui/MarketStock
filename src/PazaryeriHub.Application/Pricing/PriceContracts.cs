@@ -149,6 +149,14 @@ public sealed record ListingOverridesRequest(IReadOnlyList<ListingOverrideChange
 
 public sealed record ListingOverridesResult(int Changed, int Unchanged);
 
+/// <summary>ADR-061: aynı ürünün (Product) bir kanaldaki varyant ilanlarına tek fiyat.</summary>
+/// <param name="ListingIds">Seçilen varyant ilanları; hepsi aynı ürüne ve aynı kanala ait olmalı.</param>
+/// <param name="Price">İlanların elle satış fiyatı; null → elle fiyat kaldırılır (SKU fiyatı + kanal kuralı).</param>
+public sealed record VariantPriceRequest(IReadOnlyList<int>? ListingIds, decimal? Price);
+
+/// <param name="CapabilityState">Kanalın FIYAT yeteneği: KAPALI (kaydedilir, gitmez) | DENEME (her kayıt onaya) | ACIK.</param>
+public sealed record VariantPriceResult(int Changed, int Unchanged, string CapabilityState);
+
 /// <summary>"N ilanın fiyatı değişecek" önizlemesi (ADR-028). Yeteneği açmadan önce Yönetici görür.</summary>
 public sealed record PricePreview(
     int ChannelId, string ChannelCode, string CapabilityState, bool CanEnable, string? BlockReason, decimal ThresholdPercent,
@@ -190,6 +198,12 @@ public interface IPriceService
 
     /// <summary>Birden çok ilanın elle fiyatını tek seferde değiştirir; satırlardan biri geçersizse hiçbiri yazılmaz (Yönetici).</summary>
     Task<ListingOverridesResult> SetListingOverridesAsync(IReadOnlyList<ListingOverrideChange> changes, string? user, CancellationToken ct);
+
+    /// <summary>
+    /// ADR-061: aynı ürünün bir kanaldaki varyant ilanlarına tek fiyat (<see cref="SetListingOverridesAsync"/> ile aynı yol: ilan fiyatı +
+    /// PriceHistory + FiyatDegisti). Kanala gönderim FIYAT yeteneğine bağlıdır. İlanlardan biri ürüne/kanala ait değilse hiçbiri yazılmaz (Yönetici).
+    /// </summary>
+    Task<VariantPriceResult> SetProductVariantPriceAsync(int productId, int channelId, VariantPriceRequest request, string? user, CancellationToken ct);
 
     /// <summary>Kanalın aktif ilanları için hesaplanan fiyatlar ve gönderilecek değişiklikler (kanala çağrı yok).</summary>
     Task<PricePreview> GetPreviewAsync(int channelId, bool onlyChanges, CancellationToken ct);

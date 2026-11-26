@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { get, type ChannelStatus, type Dashboard } from '../api';
 import { ChannelStatusGrid } from '../components/ChannelStatus';
+import { ExportButton } from '../components/ExportButton';
 import { Card, ChannelBadge, ErrorBox, ErrorExplain, Stat, useLoad } from '../components/ui';
 import { formatDateTime, formatMoney, formatRelative, jobLabels } from '../format';
 
@@ -46,7 +47,7 @@ export function OverviewPage() {
           </div>
 
           <div className="grid-2">
-            <Card title="Kanal bazlı ciro (bugün)">
+            <Card title="Kanal bazlı ciro (bugün)" actions={<ExportButton fileName="kanal-bazli-ciro" sheetName="Kanal bazlı ciro" />}>
               <table className="table">
                 <thead><tr><th>Kanal</th><th className="num">Sipariş</th><th className="num">Ciro</th></tr></thead>
                 <tbody>
@@ -61,7 +62,7 @@ export function OverviewPage() {
               </table>
             </Card>
 
-            <Card title={`Kritik stok (satılabilir ≤ ${data.criticalStockThreshold})`}>
+            <Card title={`Kritik stok (satılabilir ≤ ${data.criticalStockThreshold})`} actions={<ExportButton fileName="kritik-stok" sheetName="Kritik stok" />}>
               <table className="table">
                 <thead><tr><th>SKU</th><th>Ürün</th><th className="num">Fiziksel</th><th className="num">Satılabilir</th></tr></thead>
                 <tbody>
@@ -79,11 +80,14 @@ export function OverviewPage() {
 
           <Card
             title="Kanal işleri"
-            actions={jobs.length > failing.length && (
-              <label className="check small">
-                <input type="checkbox" checked={showHealthy} onChange={e => setShowHealthy(e.target.checked)} /> Sorunsuz işleri de göster ({jobs.length - failing.length})
-              </label>
-            )}>
+            actions={<>
+              {jobs.length > failing.length && (
+                <label className="check small">
+                  <input type="checkbox" checked={showHealthy} onChange={e => setShowHealthy(e.target.checked)} /> Sorunsuz işleri de göster ({jobs.length - failing.length})
+                </label>
+              )}
+              {visibleJobs.length > 0 && <ExportButton fileName="kanal-isleri" sheetName="Kanal işleri" />}
+            </>}>
             {failing.length === 0 && jobs.length > 0 && !showHealthy && (
               <p className="ok-text" data-testid="jobs-all-ok"><span aria-hidden="true">✓</span> Tüm kanal işleri son çalışmada başarılı.</p>
             )}

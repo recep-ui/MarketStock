@@ -4,6 +4,8 @@ import { useAuth } from '../auth';
 import { Card, ChannelBadge, ErrorBox, Notice, useLoad } from '../components/ui';
 import { channelNames, formatDateTime } from '../format';
 import { ChannelFetch } from '../components/ChannelFetch';
+import { ExportButton } from '../components/ExportButton';
+import { fetchAllPages, type ExportColumn } from '../export';
 import { commandStateLabels } from './ChannelWrite';
 
 export type QuestionListItem = {
@@ -19,6 +21,21 @@ type QuestionDetail = {
 };
 
 const stateLabels: Record<string, string> = { CEVAP_BEKLIYOR: 'Cevap bekliyor', CEVAPLANDI: 'Cevaplandı', KAPANDI: 'Kapandı' };
+
+const questionExportColumns: ExportColumn<QuestionListItem>[] = [
+  { header: 'Kanal', value: q => channelNames[q.channelCode] ?? q.channelCode },
+  { header: 'Soru no', value: q => q.questionNo },
+  { header: 'Soru', value: q => q.text },
+  { header: 'Ürün', value: q => q.productName },
+  { header: 'Kanal ürün kodu', value: q => q.productCode },
+  { header: 'SKU', value: q => q.skuCode },
+  { header: 'Durum', value: q => stateLabels[q.state] ?? q.state },
+  { header: 'Kanal durumu', value: q => q.channelStatus },
+  { header: 'Soruldu', kind: 'datetime', value: q => q.askedAtUtc },
+  { header: 'Son tarih', kind: 'datetime', value: q => q.deadlineUtc },
+  { header: 'Kanaldaki cevap', value: q => q.channelAnswer },
+  { header: 'Son cevap durumu', value: q => (q.lastAnswerState ? commandStateLabels[q.lastAnswerState] ?? q.lastAnswerState : null) }
+];
 
 /**
  * Soru-Cevap (ADR-029). Sorular kanallardan çekilir (müşteri adı/iletişim bilgisi saklanmaz). Cevabı Yönetici veya Destek yazar;
@@ -38,7 +55,8 @@ export function QuestionsPage() {
     <>
       <h1>Soru-Cevap</h1>
       <Notice text={notice} onClose={() => setNotice(null)} />
-      <Card>
+      <Card actions={<ExportButton<QuestionListItem> fileName="sorular" sheetName="Sorular" columns={questionExportColumns}
+        load={() => fetchAllPages((p, size) => get<Paged<QuestionListItem>>(`/api/questions${qs({ channelId: channelId || undefined, state: state || undefined, search: search || undefined, page: p, pageSize: size })}`))} />}>
         <p className="muted small">
           Kanallardan gelen müşteri soruları. Müşteri adı ve iletişim bilgisi saklanmaz. Cevap, kanalın süresi dolmadan gönderilmelidir.
         </p>
