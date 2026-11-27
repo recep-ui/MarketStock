@@ -1412,3 +1412,17 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Mevcut kayıtlar:** Daha önce bağlanmış fiyatsız ilanlar bir sonraki katalog çekiminde dolar (çekim mevcut ilanların `KanalVerisi`'ni yeniden yazar); veri düzeltme betiği gerekmez.
 
 **Doğrulama:** Entegrasyon testi: fiyat/link/varyantlı eşleşmeyen ürün panelden bağlanınca ilan bu değerlerle açılır (önce başarısızdı).
+
+## ADR-064: Öneri ve İstekler (kullanıcı notları)
+
+**Bağlam:** Uygulamayı kullananlar öneri/isteklerini panel içinden yazabilmeli; notun kimin yazdığı belli olmalı.
+
+**Karar:**
+- Sol menüde "Öneri ve İstekler" (`/oneriler`), tüm roller görür. Her rol not yazar ve tüm notları okur (notlar iş verisi/müşteri bilgisi içermez; KVKK kapsamında ek alan yok).
+- Tablo `dbo.Oneri` (migration 0021): `Metin` (en fazla 2000), `KullaniciAdi`, `AdSoyad`, `Durum` (YENI / TAMAMLANDI / REDDEDILDI), `Olusma`, `DurumDegistiren`, `DurumTarihi`.
+- Yazan **istemciden alınmaz**: oturumdaki kullanıcı Id'siyle `AppUser`'dan o anki kullanıcı adı ve ad soyad okunup yazılır (çerezdeki eski ad veya gövdede gönderilen ad kullanılmaz). Kullanıcıya FK yok: kullanıcı silinse de not yazanın adıyla kalır (AuditLog ile aynı yaklaşım).
+- Durumu yalnızca Yönetici değiştirir (Tamamlandı / Reddet / Yeniye al); değiştiren ve zaman kaydedilir. Not silme ve düzenleme yok (kapsam dışı; gerekirse sonra).
+
+**Doğrulama:**
+- Entegrasyon (`FeedbackTests`): Destek'in notu gövdedeki sahte ada rağmen kendi adıyla kaydedilir, Muhasebe listede görür; boş ve 2000+ karakter 400; Destek durum değiştiremez (403); geçersiz durum 400, olmayan not 404; Yönetici TAMAMLANDI yapar, değiştiren yazılır, YENI süzgecinde görünmez.
+- Playwright (`feedback.spec.ts`): Destek menüden not yazar, ad soyad ve kullanıcı adıyla listelenir, durum düğmesi görmez; Yönetici "Tamamlandı" yapar.

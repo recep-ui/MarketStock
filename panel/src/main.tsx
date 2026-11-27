@@ -18,6 +18,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { SkuDetailPage } from './pages/SkuDetailPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { AuditPage } from './pages/AuditPage';
+import { FeedbackPage } from './pages/FeedbackPage';
 import { GlobalSearch } from './components/GlobalSearch';
 import './styles.css';
 
@@ -34,6 +35,7 @@ const nav = [
   { to: '/fiyat', label: 'Fiyat Kuralları' },
   { to: '/sorular', label: 'Soru-Cevap' },
   { to: '/senkron', label: 'Senkron Merkezi' },
+  { to: '/oneriler', label: 'Öneri ve İstekler' },
   { to: '/ayarlar', label: 'Ayarlar' },
   { to: '/islem-gecmisi', label: 'İşlem Geçmişi', admin: true }
 ];
@@ -90,6 +92,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="fiyat" element={<PricesPage />} />
             <Route path="sorular" element={<QuestionsPage />} />
             <Route path="senkron" element={<SyncPage />} />
+            <Route path="oneriler" element={<FeedbackPage />} />
             <Route path="ayarlar" element={<SettingsPage />} />
             <Route path="islem-gecmisi" element={<AuditPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

@@ -7,6 +7,13 @@
 
 ---
 
+## Özellik: Öneri ve İstekler (2026-11-27, ADR-064)
+
+- Sol menüde "Öneri ve İstekler": her kullanıcı not yazar; not yazanın ad soyadı ve kullanıcı adıyla kaydedilir (oturumdan, istemciden değil).
+- Yönetici notu Tamamlandı / Reddedildi / Yeni yapar; durum süzgeci var.
+- Migration 0021 (`dbo.Oneri`).
+- Test: `FeedbackTests` (3 entegrasyon) + `feedback.spec.ts` (Playwright, 4/4 tekrar); tüm .NET testleri (484 birim, 188 entegrasyon) geçiyor. Tam Playwright koşusunda her seferinde farklı, bu değişiklikle ilgisiz bir zamanlama testi ara sıra düşüyor (tek başına geçiyor).
+
 ## Düzeltme: bağlanan eşleşmeyen ilanlar fiyatsız açılıyordu (2026-11-27, ADR-063)
 
 - Belirti: Hepsiburada'da 50 ilanın kanal fiyatı boş (48'i HB'de "Satışta").

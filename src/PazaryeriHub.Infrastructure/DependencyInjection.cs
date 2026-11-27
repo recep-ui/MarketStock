@@ -95,6 +95,7 @@ public static class DependencyInjection
         services.AddScoped<IListingMatchApprovalService, ListingMatchApprovalService>();
         // Genel arama, satış raporu ve sipariş Excel'i (ADR-034)
         services.AddScoped<ISearchService, SearchService>();
+        services.AddScoped<PazaryeriHub.Application.Feedback.IFeedbackService, Feedback.FeedbackService>();
         services.AddScoped<PazaryeriHub.Application.Reports.ISalesReportService, PazaryeriHub.Infrastructure.Reports.SalesReportService>();
 
         AddHangfire(services);

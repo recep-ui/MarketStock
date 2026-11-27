@@ -138,6 +138,7 @@ try
     app.MapSyncEndpoints();
     app.MapPriceEndpoints();
     app.MapQuestionEndpoints();
+    app.MapFeedbackEndpoints();
 
     if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     {

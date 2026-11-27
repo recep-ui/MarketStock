@@ -35,7 +35,8 @@ public sealed class EmbeddedScriptsTests
             "PazaryeriHub.Infrastructure.Database.Migrations.0017_ilan_stok_kurali_ve_gorsel.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0018_islem_gecmisi.sql",
             "PazaryeriHub.Infrastructure.Database.Migrations.0019_stok_gonderim_onayi.sql",
-            "PazaryeriHub.Infrastructure.Database.Migrations.0020_eslesmeyen_kanal_fiyati.sql");
+            "PazaryeriHub.Infrastructure.Database.Migrations.0020_eslesmeyen_kanal_fiyati.sql",
+            "PazaryeriHub.Infrastructure.Database.Migrations.0021_oneri_istek.sql");
     }
 
     [Fact]
