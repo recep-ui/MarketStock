@@ -1426,3 +1426,18 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Doğrulama:**
 - Entegrasyon (`FeedbackTests`): Destek'in notu gövdedeki sahte ada rağmen kendi adıyla kaydedilir, Muhasebe listede görür; boş ve 2000+ karakter 400; Destek durum değiştiremez (403); geçersiz durum 400, olmayan not 404; Yönetici TAMAMLANDI yapar, değiştiren yazılır, YENI süzgecinde görünmez.
 - Playwright (`feedback.spec.ts`): Destek menüden not yazar, ad soyad ve kullanıcı adıyla listelenir, durum düğmesi görmez; Yönetici "Tamamlandı" yapar.
+
+## ADR-065: Hepsiburada satış fiyatı KDV dahil kabul edildi (kullanıcı onayı)
+**Tarih:** 2026-11-27
+**Bağlam:**
+- ADR-039: fiyat gönderimi `CanEnable = Supported && VatIncluded == true` koşuluna bağlı. Hepsiburada "Listing Fiyat Güncelleme" dokümanı yalnızca `price` alanını veriyor, KDV dahil/hariç ifadesi yok (2026-11-27 yeniden okundu). Bu yüzden Hepsiburada FIYAT yeteneği açılamıyordu.
+- Kanıt (2026-11-27, salt okuma): Hepsiburada listing API'sinden okunan `price` ile hepsiburada.com'da müşterinin gördüğü fiyat iki üründe birebir aynı (Lord Havlu Mor 3920 = 3.920 TL; Stripe Bornoz Haki L 8680 = 8.680 TL). Sitede tüketiciye gösterilen fiyat KDV dahildir; gönderim aynı alanı yazar.
+
+**Karar:**
+- Kullanıcı onayıyla (seçenek: "Evet, KDV dahil kabul et") `HepsiburadaAdapter.DescribePriceUpdate()` → `VatIncluded: true`. Not ve kaynak alanı kararın kullanıcı onayı olduğunu ve resmi dokümanda ifade bulunmadığını söyler. Fiyat ekranı bu kanallarda "dahil (kullanıcı onayı)" yazar (önceden her dahil kanala "dokümanda doğrulandı" diyordu).
+- Yetenek açmak ayrı adımdır (Ayarlar; önce DENEME önerilir). Yalnızca satış fiyatı gider (liste fiyatı alanı yok). Kategori eşiği dışındaki fiyat listingi kilitler (MinLock/MaxLock); ilk gönderim az sayıda ürünle yapılmalı.
+- KDV doğrulanmamış kanal korumasının testi Hepsiburada yerine mock kanal kuralıyla sürer (`OrderNotificationContractTests`).
+
+**Risk:** Hepsiburada ileride KDV hariç fiyat beklediğini belgelerse fiyatlar yanlış gider. İlk gönderimden sonra birkaç ürünün sitedeki fiyatı kontrol edilmeli.
+
+**Doğrulama:** `PriceContractTests`, `HepsiburadaAdapterContractTests` (Hepsiburada `CanEnable` true; önce başarısızdı); tüm .NET testleri.

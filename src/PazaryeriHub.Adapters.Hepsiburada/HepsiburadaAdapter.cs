@@ -535,13 +535,15 @@ public sealed partial class HepsiburadaAdapter(HttpClient http, IChannelCredenti
     /// <summary>
     /// Uç doğrulandı: <c>POST {listing}/listings/merchantid/{merchantId}/price-uploads</c> gövde <c>[{hepsiburadaSku, price}]</c>,
     /// sonuç <c>GET …/price-uploads/id/{id}</c>. Tek fiyat alanı (liste fiyatı yok). Kategori eşiği dışındaki fiyat listingi kilitler.
-    /// TODO: doğrulanmalı — fiyatın KDV dahil olup olmadığı dokümanda YAZMIYOR → VatIncluded = null, yetenek açılamaz.
     /// Doğrulandı (SIT, 2026-11-19; ADR-037): POST yanıtı {"id":"<guid>"}; price-uploads/id/{id} "Ready" → "Done".
+    /// KDV: resmi dokümanda ifade yok (2026-11-27 yeniden okundu). Kullanıcı onayıyla KDV dahil kabul edildi (ADR-065): listing API'sinin
+    /// <c>price</c> değeri hepsiburada.com'da müşterinin gördüğü fiyatla aynı (2026-11-27, iki ürün: 3.920 TL ve 8.680 TL).
     /// </summary>
     public PriceUpdateRule DescribePriceUpdate() => new(
-        Supported: true, VatIncluded: null, SendsListPrice: false, SamePriceForProductVariants: false,
-        "Hepsiburada dokümanı fiyatın KDV dahil mi hariç mi olduğunu belirtmiyor; yalnızca satış fiyatı gönderilir. Eşik dışı fiyat listingi kilitler.",
-        PriceSource);
+        Supported: true, VatIncluded: true, SendsListPrice: false, SamePriceForProductVariants: false,
+        "Kullanıcı onayı (ADR-065): Hepsiburada fiyatı müşterinin gördüğü KDV dahil fiyattır; resmi dokümanda ifade yok. " +
+        "Yalnızca satış fiyatı gönderilir. Eşik dışı fiyat listingi kilitler.",
+        PriceSource + "; KDV: kullanıcı onayı 2026-11-27 (sitedeki fiyat = API fiyatı)");
 
     public async Task<BatchResult> PushPriceAsync(IReadOnlyList<PriceUpdate> updates, CancellationToken ct)
     {

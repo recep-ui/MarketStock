@@ -63,7 +63,7 @@ public sealed class PriceContractTests
     // ------------------------------------------------------------------ KDV kuralları (yetenek açılabilir mi)
 
     [Fact]
-    public void Yalnizca_Beymen_KDV_dahil_dogrulandi_Trendyol_ve_Hepsiburada_acilamaz()
+    public void Uc_kanal_KDV_dahil_Trendyol_ve_Hepsiburada_kullanici_onayiyla()
     {
         var (ty, _) = Trendyol();
         var (by, _) = Beymen();
@@ -72,7 +72,9 @@ public sealed class PriceContractTests
         // ADR-041: Trendyol KDV dahil — kullanıcı onayı (satıcı panelinde TSF = müşterinin gördüğü fiyat); resmi dokümanda ifade yok
         ty.DescribePriceUpdate().Should().Match<PriceUpdateRule>(r => r.Supported && r.VatIncluded == true && r.CanEnable && r.SendsListPrice);
         ty.DescribePriceUpdate().Note.Should().Contain("Kullanıcı onayı");
-        hb.DescribePriceUpdate().Should().Match<PriceUpdateRule>(r => r.Supported && r.VatIncluded == null && !r.CanEnable && !r.SendsListPrice);
+        // ADR-065: Hepsiburada KDV dahil — kullanıcı onayı (sitede müşterinin gördüğü fiyat = API'deki fiyat); resmi dokümanda ifade yok
+        hb.DescribePriceUpdate().Should().Match<PriceUpdateRule>(r => r.Supported && r.VatIncluded == true && r.CanEnable && !r.SendsListPrice);
+        hb.DescribePriceUpdate().Note.Should().Contain("Kullanıcı onayı");
         by.DescribePriceUpdate().Should().Match<PriceUpdateRule>(r => r.Supported && r.VatIncluded == true && r.CanEnable && r.SamePriceForProductVariants);
         new[] { ty.DescribePriceUpdate(), hb.DescribePriceUpdate(), by.DescribePriceUpdate() }.Should().OnlyContain(r => r.Source != null);
     }

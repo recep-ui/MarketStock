@@ -233,20 +233,20 @@ public sealed class OrderNotificationContractTests
     [Fact]
     public async Task Yetenek_acik_olsa_da_adaptor_kurali_izin_vermiyorsa_fiyat_kanala_cikmaz()
     {
-        var handler = new CountingHandler();
-        var hepsiburada = new PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter(new HttpClient(handler),
-            new FixedCredentials("""{"merchantId":"b2910839-83b9-4d45-adb6-86bad457edcb","userName":"u","password":"p","environment":"Prod"}"""),
-            TimeProvider.System, Microsoft.Extensions.Logging.Abstractions.NullLogger<PazaryeriHub.Adapters.Hepsiburada.HepsiburadaAdapter>.Instance);
-        hepsiburada.DescribePriceUpdate().CanEnable.Should().BeFalse("ön koşul: Hepsiburada fiyatının KDV durumu dokümanda doğrulanmadı");
-        var guarded = new GuardedChannelAdapter(hepsiburada, new FakeGate(allow: true));
+        // KDV durumu doğrulanmamış kanal (ADR-065'ten beri Hepsiburada değil; kural mock ile kurulur)
+        var store = new MockChannelStore();
+        store.PriceRules["TEST"] = new PriceUpdateRule(true, null, false, false, "test: KDV dokümanda yok");
+        store.FailPricePush["TEST"] = new InvalidOperationException("fiyat kanala çıktı");
+        var adapter = new MockChannelAdapter("TEST", store);
+        adapter.DescribePriceUpdate().CanEnable.Should().BeFalse("ön koşul: KDV durumu doğrulanmamış");
+        var guarded = new GuardedChannelAdapter(adapter, new FakeGate(allow: true));
 
-        var price = () => guarded.PushPriceAsync([new PriceUpdate("HBV1", null, 100m, 90m)], Ct);
+        var price = () => guarded.PushPriceAsync([new PriceUpdate("V1", null, 100m, 90m)], Ct);
 
-        (await price.Should().ThrowAsync<ChannelWriteBlockedException>()).Which.Message.Should().Contain("KDV");
-        handler.Requests.Should().BeEmpty("fiyat isteği kanala çıkmamalı");
+        (await price.Should().ThrowAsync<ChannelWriteBlockedException>("fiyat isteği kanala çıkmamalı")).Which.Message.Should().Contain("KDV");
 
-        await guarded.PushStockAsync([new StockUpdate("HBV1", null, 3)], Ct);
-        handler.Requests.Should().ContainSingle().Which.Should().Contain("stock-uploads", "stok gönderimi etkilenmez");
+        var stock = await guarded.PushStockAsync([new StockUpdate("V1", null, 3)], Ct);
+        stock.Accepted.Should().BeTrue("stok gönderimi etkilenmez");
     }
 
     [Fact]

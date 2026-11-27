@@ -7,6 +7,13 @@
 
 ---
 
+## Karar: Hepsiburada fiyatı KDV dahil (2026-11-27, ADR-065)
+
+- Hepsiburada fiyat yeteneği "KDV dahil/hariç doğrulanamadı" kilidiyle açılamıyordu. Doküman hâlâ belirtmiyor; sitede müşterinin gördüğü fiyat API fiyatıyla aynı (iki ürün). Kullanıcı onayıyla KDV dahil kabul edildi.
+- Fiyat ekranı artık "dahil (kullanıcı onayı)" / "dahil (dokümanda doğrulandı)" ayrımını gösteriyor.
+- Yetenek kendiliğinden açılmaz; kullanıcı Ayarlar'dan açar (önce DENEME).
+- Test: birim 484/484, entegrasyon 188/188.
+
 ## Özellik: Öneri ve İstekler (2026-11-27, ADR-064)
 
 - Sol menüde "Öneri ve İstekler": her kullanıcı not yazar; not yazanın ad soyadı ve kullanıcı adıyla kaydedilir (oturumdan, istemciden değil).

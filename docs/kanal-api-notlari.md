@@ -116,6 +116,7 @@
     - Fiyat 0 → listing satışa kapanır.
     - Kategori eşiği dışındaki fiyat listingi kilitler; sonuçta `priceValidations[]{hepsiburadaSku, type: MinLock|MaxLock, minPrice, maxPrice, description}`.
   - ⚠️ **KDV dahil/hariç dokümanda yazmıyor**; liste fiyatı alanı yok; POST yanıt şeması yok.
+  - ✅ Kullanıcı onayıyla KDV dahil kabul edildi (ADR-065, 2026-11-27): listing API'sindeki `price` hepsiburada.com'da müşterinin gördüğü fiyatla aynı.
 - **Beymen:**
   - ✅ `POST /batch/products/price-stock` `items[]{productId*, quantity, salesPrice, platformPrice}`.
     - "salesPrice: Market sales price (**VAT included**)", "platformPrice: Beymen sales price (**VAT included**)".

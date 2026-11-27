@@ -194,7 +194,7 @@ function ChannelPrices({ channels, refreshKey, onChanged }: { channels: Channel[
         <div data-testid="price-channel-info">
           <p>
             Fiyat gönderimi: <strong data-testid="price-capability">{info.capabilityState === 'KAPALI' ? 'Kapalı' : info.capabilityState === 'DENEME' ? 'Deneme' : 'Açık'}</strong>
-            {' · '}KDV: {info.vatIncluded === true ? 'dahil (dokümanda doğrulandı)' : info.vatIncluded === false ? 'hariç' : 'dokümanda doğrulanamadı'}
+            {' · '}KDV: {info.vatIncluded === true ? (info.note.startsWith('Kullanıcı onayı') ? 'dahil (kullanıcı onayı)' : 'dahil (dokümanda doğrulandı)') : info.vatIncluded === false ? 'hariç' : 'dokümanda doğrulanamadı'}
             {' · '}{info.sendsListPrice ? 'liste + satış fiyatı gider' : 'yalnızca satış fiyatı gider'}
           </p>
           <p className="muted small">{info.note}{info.source && <> Kaynak: {info.source}</>}</p>
