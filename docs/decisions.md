@@ -1402,3 +1402,13 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Karar:** `.sidebar` `position: sticky; top: 0; height: 100vh; overflow-y: auto`. Sayfa (içerik) kaydırılınca menü yerinde kalır; menü ekrandan uzunsa kendi içinde kayar. Sayfanın kaydırıcısı belgede kalır (ayrı bir kaydırma kabı yok): tarayıcı geri/ileri konumu, `scrollIntoView` ve sayfa içi arama bozulmaz. 900 px altında menü eskisi gibi üstte yatay ve sabitlenmez (dar ekranda içeriğin üstünü kapatmasın).
 
 **Doğrulama:** Playwright: geniş ekranda sayfa sonuna kaydırılınca menü üstte ve "Ayarlar" bağlantısı görünür; 375 px'te menü `static`, yatay kaydırma yok.
+
+## ADR-063: Eşleşmeyen kanal ürünü kanal fiyatı, linki ve varyantıyla saklanır
+
+**Bağlam:** Katalog çekiminde eşleşmeyen ürün `UnmatchedChannelItem`'a yazılıyordu; kanalın bildirdiği satış/liste fiyatı, ürün linki ve varyant bilgisi bu kayıtta yoktu. Panelden (veya depo geçişinde, ADR-059) bağlanan ilan `KanalVerisi`'nde bu alanlar boş açılıyor, bir sonraki katalog çekimine kadar "kanalda fiyat yok" görünüyordu (canlı, 2026-11-27: bağlanan 50 Hepsiburada ilanının hepsi; çekimle eşleşen 178 ilanın hepsinde fiyat vardı).
+
+**Karar:** `UnmatchedChannelItem`'a `KanalSatisFiyati`, `KanalListeFiyati` (DECIMAL(18,2), > 0), `UrunLinki`, `Varyant` kolonları eklenir (migration 0020). Her çekimde güncellenir; bağlanınca ilanın `KanalVerisi`'ne aynen yazılır (görsel de artık taşınır). Değerler salt okumadır: kanaldan okunur, kanala hiçbir şey göndermez; fiyat gönderim kuralları (ADR-028) değişmez.
+
+**Mevcut kayıtlar:** Daha önce bağlanmış fiyatsız ilanlar bir sonraki katalog çekiminde dolar (çekim mevcut ilanların `KanalVerisi`'ni yeniden yazar); veri düzeltme betiği gerekmez.
+
+**Doğrulama:** Entegrasyon testi: fiyat/link/varyantlı eşleşmeyen ürün panelden bağlanınca ilan bu değerlerle açılır (önce başarısızdı).

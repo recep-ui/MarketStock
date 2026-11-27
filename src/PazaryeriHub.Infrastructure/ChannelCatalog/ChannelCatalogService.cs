@@ -426,6 +426,11 @@ public sealed class ChannelCatalogService(
             row.Category = item.Category;
             row.ChannelStatus = item.ChannelStatus;
             row.ImageUrl = item.ImageUrl;
+            // ADR-063: bağlanınca ilan bunlarla açılır (salt okuma; kanalın kendi verisi). Sıfır/negatif fiyat saklanmaz.
+            row.SalePrice = item.SalePrice > 0 ? item.SalePrice : null;
+            row.ListPrice = item.ListPrice > 0 ? item.ListPrice : null;
+            row.ProductUrl = Truncate(item.ProductUrl, 1000);
+            row.VariantAttributes = Truncate(item.VariantAttributes, 300);
             row.Reason = m.Reason!;
             row.ReasonDetail = Truncate(m.Detail, 400);
             row.SuggestedSkuId = m.Suggestion?.SkuId;
@@ -511,7 +516,9 @@ public sealed class ChannelCatalogService(
         var state = new ListingIndex(listings);
         var passive = ChannelFileFormats.All.FirstOrDefault(f => f.ChannelCode == channel.Code)?.IsPassive(item.ChannelStatus) ?? false;
         var catalogItem = new ChannelCatalogItem(0, item.ChannelProductCode, item.ChannelBarcode, item.ChannelStockCode, item.ModelCode,
-            item.Color, item.Size, item.ProductName, item.Brand, item.Category, item.ChannelStatus, passive);
+            item.Color, item.Size, item.ProductName, item.Brand, item.Category, item.ChannelStatus, passive,
+            VariantAttributes: item.VariantAttributes, ProductUrl: item.ProductUrl, SalePrice: item.SalePrice, ListPrice: item.ListPrice,
+            ImageUrl: item.ImageUrl);
 
         var skuCodes = await db.Skus.AsNoTracking()
             .Where(s => listings.Select(l => l.SkuId).Contains(s.Id))

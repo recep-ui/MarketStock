@@ -7,6 +7,13 @@
 
 ---
 
+## Düzeltme: bağlanan eşleşmeyen ilanlar fiyatsız açılıyordu (2026-11-27, ADR-063)
+
+- Belirti: Hepsiburada'da 50 ilanın kanal fiyatı boş (48'i HB'de "Satışta").
+- Kök neden: eşleşmeyen kayıt kanal fiyatını, linkini ve varyantını saklamıyordu; panelden/depo geçişinde bağlanan ilan bunlarsız açılıyordu. Hepsi son çekimden sonra bağlananlar (Id 1205–1254).
+- Düzeltme: migration 0020 ile eşleşmeyen kayda fiyat/link/varyant; bağlanınca ilana aynen geçer (görsel de). Mevcut fiyatsız ilanlar bir sonraki HB ürün çekiminde dolar.
+- Test: yeni entegrasyon testi (önce başarısız, sonra geçiyor) + tüm .NET testleri.
+
 ## Düzeltme: fiyat kutusu her rakamda odağı kaybediyordu (2026-11-27)
 
 - Belirti: Fiyat & Stok Düzenle tablosunda elle fiyat / kanal stoğu kutusuna her rakamdan sonra yeniden tıklamak gerekiyordu.

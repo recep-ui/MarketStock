@@ -81,6 +81,12 @@ public sealed class UnmatchedChannelItemEntity
 
     /// <summary>Kanal ürününün küçük resmi (yalnızca https; ADR-042).</summary>
     public string? ImageUrl { get; set; }
+
+    /// <summary>Kanalın çekimde bildirdiği satış/liste fiyatı, ürün linki ve varyant; bağlanınca ilana aynen geçer (ADR-063).</summary>
+    public decimal? SalePrice { get; set; }
+    public decimal? ListPrice { get; set; }
+    public string? ProductUrl { get; set; }
+    public string? VariantAttributes { get; set; }
     public string Reason { get; set; } = "";
     public string? ReasonDetail { get; set; }
     public int? SuggestedSkuId { get; set; }
@@ -184,6 +190,10 @@ public sealed class PazaryeriHubDbContext(DbContextOptions<PazaryeriHubDbContext
             e.Property(x => x.Category).HasColumnName("Kategori").HasMaxLength(200);
             e.Property(x => x.ChannelStatus).HasColumnName("KanalDurumu").HasMaxLength(100);
             e.Property(x => x.ImageUrl).HasColumnName("GorselUrl").HasMaxLength(1000);
+            e.Property(x => x.SalePrice).HasColumnName("KanalSatisFiyati").HasPrecision(18, 2);
+            e.Property(x => x.ListPrice).HasColumnName("KanalListeFiyati").HasPrecision(18, 2);
+            e.Property(x => x.ProductUrl).HasColumnName("UrunLinki").HasMaxLength(1000);
+            e.Property(x => x.VariantAttributes).HasColumnName("Varyant").HasMaxLength(300);
             e.Property(x => x.Reason).HasColumnName("Neden").HasMaxLength(20).IsUnicode(false);
             e.Property(x => x.ReasonDetail).HasColumnName("NedenAciklama").HasMaxLength(400);
             e.Property(x => x.SuggestedSkuId).HasColumnName("OnerilenSkuId");

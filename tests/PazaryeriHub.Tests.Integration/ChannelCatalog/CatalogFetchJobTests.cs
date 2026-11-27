@@ -227,6 +227,43 @@ public sealed class CatalogFetchJobTests(TestDatabase db)
         }
     }
 
+    /// <summary>
+    /// ADR-063: eşleşmeyen kanal ürünü panelden (veya depo geçişinde) bağlandığında ilan, kanalın çekimde bildirdiği satış/liste fiyatı,
+    /// ürün linki ve varyant bilgisiyle açılır; bir sonraki katalog çekimine kadar fiyatsız kalmaz.
+    /// </summary>
+    [Fact]
+    public async Task Eslesmeyen_baglaninca_ilan_kanal_fiyati_link_ve_varyantla_acilir()
+    {
+        db.SkipIfUnavailable();
+        var p = "KB" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var channelId = await ChannelIdAsync();
+        var sku = await db.CreateSkuAsync(barcode: $"{p}-SKU");
+        Mock.SetCatalog(Channel, [
+            new ChannelCatalogEntry(null, $"{p}-B1", $"{p}-STK", null, "Bej", "50x100", Guid.NewGuid().ToString("N"), null, null, "Satışta", false,
+                "v1", "Ebat: 50x100", "https://www.example-kanal.com/urun-p-1", 349.9m, 499.9m)
+        ]);
+        try
+        {
+            await RunAsync(channelId, validateOnly: false);
+            await using var c = db.Open();
+            var unmatchedId = await c.ExecuteScalarAsync<int>(
+                "SELECT Id FROM dbo.UnmatchedChannelItem WHERE ChannelId = @channelId AND KanalAnahtar = @k", new { channelId, k = $"{p}-B1" });
+
+            var link = await db.Api.PostAsJsonAsync($"/api/channel-catalog/unmatched/{unmatchedId}/link", new { skuId = sku }, Ct);
+            link.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var data = ListingChannelData.Parse(await c.ExecuteScalarAsync<string>(
+                "SELECT KanalVerisi FROM dbo.ChannelListing WHERE ChannelId = @channelId AND KanalBarkod = @b", new { channelId, b = $"{p}-B1" }));
+            data.Should().NotBeNull();
+            (data!.SalePrice, data.ListPrice, data.ProductUrl, data.Variant)
+                .Should().Be((349.9m, 499.9m, "https://www.example-kanal.com/urun-p-1", "Ebat: 50x100"));
+        }
+        finally
+        {
+            Mock.SetCatalog(Channel, []);
+        }
+    }
+
     private static ChannelCatalogEntry CodeEntry(string code, string? barcode) =>
         new(code, barcode, null, null, null, null, Guid.NewGuid().ToString("N"), null, null, "Satışta", false);
 
