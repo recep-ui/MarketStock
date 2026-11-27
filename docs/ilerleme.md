@@ -7,6 +7,12 @@
 
 ---
 
+## Barkodla yeniden eşleştirme (2026-11-27, ADR-066)
+
+- Barkodlu depo listesi (MamulStok) ile 857 ortak SKU'ya barkod yazıldı. Barkodla kesin eşleşen 101 ilan (96 Beymen, 5 Trendyol) ve 3 Beymen eşleşmeyeni doğru depo satırına bağlandı; 64 eski SKU 0'a sayıldı.
+- Trendyol ve Hepsiburada ilanlarında gerçek barkod yok; oradaki model + renk + beden eşleşmeleri yerinde (beden denetimi temiz).
+- Açık: depo listesinde 2 tekrar eden barkod ve 3 karşılıksız satır; ilanları hâlâ eski SKU'da duran Trendyol (205) ve Hepsiburada (58) ilanları onay dosyasıyla taşınmayı bekliyor.
+
 ## Karar: Hepsiburada fiyatı KDV dahil (2026-11-27, ADR-065)
 
 - Hepsiburada fiyat yeteneği "KDV dahil/hariç doğrulanamadı" kilidiyle açılamıyordu. Doküman hâlâ belirtmiyor; sitede müşterinin gördüğü fiyat API fiyatıyla aynı (iki ürün). Kullanıcı onayıyla KDV dahil kabul edildi.

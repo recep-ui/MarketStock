@@ -1441,3 +1441,34 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Risk:** Hepsiburada ileride KDV hariç fiyat beklediğini belgelerse fiyatlar yanlış gider. İlk gönderimden sonra birkaç ürünün sitedeki fiyatı kontrol edilmeli.
 
 **Doğrulama:** `PriceContractTests`, `HepsiburadaAdapterContractTests` (Hepsiburada `CanEnable` true; önce başarısızdı); tüm .NET testleri.
+
+## ADR-066: Depo barkodu ortak SKU'ya yazılır; barkodla kesin eşleşen ilanlar taşınır
+**Tarih:** 2026-11-27 · **Durum:** Kabul, kurulu sistemde uygulandı
+
+**Bağlam:**
+- Kullanıcı depo listesinin barkodlu sürümünü verdi ("MamulStok": Model, Varyant, Beden, Barkod). Ortak SKU'larda (ADR-059) barkod yoktu; 167 barkod kanaldan türemiş eski Beymen SKU'larında duruyordu.
+- Beymen ilanları gerçek ürün barkodunu taşıyor; Trendyol ve Hepsiburada ilanlarında barkod alanı satıcının kendi kodu. Barkodla kesin eşleşme bu yüzden çoğunlukla Beymen'de çıkıyor.
+- Mevcut model + renk + beden eşleşmeleri beden açısından denetlendi; yalnızca yazım farkı ("40/42" ↔ "40-42") var, gerçek hata yok.
+
+**Karar:**
+- `DepotRow.Barcode` (isteğe bağlı). Onay dosyasının "Depo satırları" sayfasında isteğe bağlı "Barkod" sütunu.
+- `DepotMigrationPlanner` barkod planı kurar (`PlannedBarcode`):
+  - Barkod ortak SKU'ya yazılır. Barkod tekil olduğu için başka (eski) bir SKU'da duruyorsa önce oradan kaldırılır.
+  - Hiçbir şey değiştirilmeyen durumlar (uyarı verilir): aynı barkod birden fazla depo satırında; ortak SKU'nun zaten başka barkodu var; barkod başka bir depo satırının SKU'sunda.
+  - 50 karakterden uzun barkod hatadır (hiçbir şey uygulanmaz).
+- `DepotMigrationService`: kaldırma ve yazma aynı transaction'da. Yeniden çalıştırma bir şey değiştirmez.
+- Atamalar: yalnızca kanal barkodu (barkod, stok kodu ya da ürün kodu) depo barkoduyla birebir aynı olan ve bugün başka SKU'ya bağlı ilanlar ile bekleyen eşleşmeyenler. Önceden elle düzeltilmiş ilanlar (set/tekli kontrolü) atanmaz.
+- Barkodu ortak SKU'da olan yeni kanal ürünleri, katalog çekiminde `ChannelCatalogMatcher` sırasıyla (mevcut ilan, sonra barkod = `Sku.Barkod`) kendiliğinden doğru SKU'ya bağlanır.
+
+**Sonuç (kurulu sistem, 2026-11-27; yedek `dagitim/PazaryeriHub-veri-barkod-oncesi.bak`):**
+- 857 barkod yazıldı (167'si eski SKU'dan alındı).
+- 101 ilan taşındı (96 Beymen, 5 Trendyol), 3 Beymen eşleşmeyeni bağlandı.
+- Bütün ilanları taşınan 64 eski SKU 0'a sayıldı (736 adet; depo listesi esas). Kanal stok yetenekleri kapalı olduğu için kanallara stok gitmedi.
+- Yeniden deneme: yapılacak bir şey yok.
+- Depo listesinde düzeltilmesi gerekenler (kullanıcıya bildirildi):
+  - İki barkod iki satırda tekrar ediyor: 8698642021365 (Sharp Lacivert S/M) ve 8698642021372 (Love Şalyaka set S/L). Bu satırlara barkod yazılmadı.
+  - 3 satırın depo listesinde karşılığı yok.
+
+**Doğrulama:**
+- `DepotMigrationPlannerTests`: 4 yeni test, önce derlenmedi.
+- `DepotMigrationServiceTests`: barkod eski SKU'dan ortak SKU'ya taşınır, ilan taşınır, yeniden çalıştırma değiştirmez.

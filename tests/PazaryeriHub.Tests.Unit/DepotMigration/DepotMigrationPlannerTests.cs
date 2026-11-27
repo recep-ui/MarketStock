@@ -103,6 +103,57 @@ public sealed class DepotMigrationPlannerTests
         plan.Errors.Should().ContainSingle(e => e.Contains("alan sınırını"));
     }
 
+    // ADR-066: depo Excel'indeki barkod ortak SKU'ya yazılır; başka (eski) SKU'daysa oradan alınır
+
+    private static DepotRow Coded(int row, string code, string? barcode) => Row(row, code) with { Barcode = barcode };
+
+    [Fact]
+    public void Barkod_ortak_SKUya_yazilir_eski_SKUdaki_ayni_barkod_kaldirilir()
+    {
+        var plan = DepotMigrationPlanner.Plan(
+            [Coded(2, "A", " 869001 "), Coded(3, "B", "869002"), Coded(4, "C", null)],
+            [],
+            State(codes: new() { ["A"] = 500, ["B"] = 501 }) with { SkuBarcodes = new Dictionary<int, string> { [100] = "869001" } });
+
+        plan.Errors.Should().BeEmpty();
+        plan.Barcodes.Select(b => (b.Row.Row, b.Barcode, b.ClearFromSkuId)).Should().BeEquivalentTo(new[] { (2, "869001", (int?)100), (3, "869002", (int?)null) });
+    }
+
+    [Fact]
+    public void Barkodu_zaten_dogru_olan_SKU_atlanir_baska_barkodu_olan_SKUnun_barkodu_degistirilmez()
+    {
+        var plan = DepotMigrationPlanner.Plan(
+            [Coded(2, "A", "869001"), Coded(3, "B", "869002")],
+            [],
+            State(codes: new() { ["A"] = 500, ["B"] = 501 }) with { SkuBarcodes = new Dictionary<int, string> { [500] = "869001", [501] = "869999" } });
+
+        plan.Barcodes.Should().BeEmpty();
+        plan.Warnings.Should().ContainSingle(w => w.Contains("869999") && w.Contains("değiştirilmedi"));
+    }
+
+    [Fact]
+    public void Ayni_barkod_birden_fazla_depo_satirindaysa_hicbirine_yazilmaz_uyari_verilir()
+    {
+        var plan = DepotMigrationPlanner.Plan([Coded(2, "A", "869001"), Coded(3, "B", "869001"), Coded(4, "C", "869003")], [], State());
+
+        plan.Errors.Should().BeEmpty();
+        plan.Barcodes.Should().ContainSingle(b => b.Barcode == "869003");
+        plan.Warnings.Should().ContainSingle(w => w.Contains("869001") && w.Contains("2, 3"));
+    }
+
+    [Fact]
+    public void Barkod_baska_depo_satirinin_SKUsundaysa_alinmaz_uyari_verilir_uzun_barkod_hatadir()
+    {
+        var plan = DepotMigrationPlanner.Plan(
+            [Coded(2, "A", "869001"), Coded(3, "B", null), Coded(4, "C", new string('8', 51))],
+            [],
+            State(codes: new() { ["B"] = 501 }) with { SkuBarcodes = new Dictionary<int, string> { [501] = "869001" } });
+
+        plan.Barcodes.Should().BeEmpty();
+        plan.Warnings.Should().ContainSingle(w => w.Contains("869001") && w.Contains("depo satırı 3"));
+        plan.Errors.Should().ContainSingle(e => e.Contains("Depo satırı 4") && e.Contains("barkod"));
+    }
+
     [Fact]
     public void Bekleyen_olmayan_eslesmeyen_kayit_atlanir()
     {

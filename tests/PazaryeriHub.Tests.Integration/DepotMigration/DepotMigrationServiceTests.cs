@@ -92,6 +92,44 @@ public sealed class DepotMigrationServiceTests(TestDatabase db)
         (again.SkusCreated, again.StockCounted, again.ListingsMoved, again.UnmatchedLinked, again.OldSkusZeroed).Should().Be((0, 0, 0, 0, 0));
     }
 
+    [Fact]
+    public async Task Barkod_eski_SKUdan_ortak_SKUya_tasinir_ilan_da_barkodla_tasinir_yeniden_calistirma_degistirmez()
+    {
+        db.SkipIfUnavailable();
+        var p = "DB" + Guid.NewGuid().ToString("N")[..8].ToUpperInvariant();
+        var barcode = "86" + Random.Shared.NextInt64(10_000_000_000, 99_999_999_999).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var oldSku = await db.CreateSkuAsync($"{p}-ESKI");
+        int listing;
+        await using (var c = db.Open())
+        {
+            await c.ExecuteAsync("UPDATE dbo.Sku SET Barkod = @barcode WHERE Id = @oldSku", new { barcode, oldSku });
+            var channelId = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Channel WHERE Kod = @Channel", new { Channel });
+            listing = await c.ExecuteScalarAsync<int>("INSERT dbo.ChannelListing (SkuId, ChannelId, KanalBarkod) OUTPUT inserted.Id VALUES (@oldSku, @channelId, @barcode)",
+                new { oldSku, channelId, barcode });
+        }
+
+        DepotRow[] rows = [new(2, $"{p} DESTAN BORNOZ", "LILAC/LİLA", "BORNOZ", "M", 3, $"{p}-DESTAN-LILA-M", barcode)];
+        DepotAssignment[] assignments = [new(2, listing, null)];
+
+        var applied = await RunAsync(rows, assignments, apply: true);
+        applied.Failures.Should().BeEmpty();
+        applied.Plan.Barcodes.Should().ContainSingle(b => b.ClearFromSkuId == oldSku);
+        (applied.ListingsMoved, applied.BarcodesSet).Should().Be((1, 1));
+
+        await using (var c = db.Open())
+        {
+            var common = await c.ExecuteScalarAsync<int>("SELECT Id FROM dbo.Sku WHERE SkuKodu = @code", new { code = $"{p}-DESTAN-LILA-M" });
+            (await c.ExecuteScalarAsync<string?>("SELECT Barkod FROM dbo.Sku WHERE Id = @common", new { common })).Should().Be(barcode);
+            (await c.ExecuteScalarAsync<string?>("SELECT Barkod FROM dbo.Sku WHERE Id = @oldSku", new { oldSku })).Should().BeNull("barkod tekil; eski SKU'dan alınır");
+            (await c.ExecuteScalarAsync<int>("SELECT SkuId FROM dbo.ChannelListing WHERE Id = @listing", new { listing })).Should().Be(common);
+        }
+
+        var again = await RunAsync(rows, assignments, apply: true);
+        again.Failures.Should().BeEmpty();
+        again.Plan.Barcodes.Should().BeEmpty();
+        again.BarcodesSet.Should().Be(0);
+    }
+
     private async Task<DepotMigrationResult> RunAsync(DepotRow[] rows, DepotAssignment[] assignments, bool apply)
     {
         using var scope = db.Services.CreateScope();

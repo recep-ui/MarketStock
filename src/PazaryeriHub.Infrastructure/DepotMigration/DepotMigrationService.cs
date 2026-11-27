@@ -11,12 +11,17 @@ namespace PazaryeriHub.Infrastructure.DepotMigration;
 
 /// <summary>Geçişin sonucu: plan ve (uygulandıysa) yapılanlar.</summary>
 public sealed record DepotMigrationResult(DepotMigrationPlan Plan, bool Applied, int SkusCreated, int StockCounted, int ListingsMoved, int UnmatchedLinked,
-    int OldSkusZeroed, IReadOnlyList<string> Failures);
+    int OldSkusZeroed, IReadOnlyList<string> Failures)
+{
+    /// <summary>Ortak SKU'ya yazılan barkod sayısı (ADR-066).</summary>
+    public int BarcodesSet { get; init; }
+}
 
 /// <summary>
 /// Depo Excel'i → ortak SKU geçişi (ADR-059). Plan <see cref="DepotMigrationPlanner"/> ile kurulur; uygulama mevcut servislerle yapılır:
 /// ürün/SKU (<see cref="ICatalogService"/>), stok sayımı (<see cref="IStockLedger.AdjustToCountAsync"/>: hareket + outbox aynı transaction'da),
-/// ilan taşıma (<see cref="IChannelService.UpsertListingAsync"/>) ve eşleşmeyen bağlama (<see cref="IChannelCatalogService.LinkUnmatchedAsync"/>).
+/// ilan taşıma (<see cref="IChannelService.UpsertListingAsync"/>), eşleşmeyen bağlama (<see cref="IChannelCatalogService.LinkUnmatchedAsync"/>)
+/// ve depo barkodunun ortak SKU'ya yazılması (ADR-066; eski SKU'daki aynı barkod aynı transaction'da kaldırılır).
 /// Her adım kendi transaction'ında çalışır; yarıda kalırsa aynı girdiyle yeniden çalıştırmak güvenlidir (var olan SKU'nun stoğuna dokunulmaz,
 /// yerindeki ilan taşınmaz, bağlanmış kayıt atlanır). Fiyat kopyalanmaz: yeni SKU'da fiyat yok → kanala fiyat gitmez.
 /// Kanala stok gönderimi kanal yeteneğine bağlıdır (kapalıysa hiçbir şey gönderilmez).
@@ -40,12 +45,13 @@ public sealed class DepotMigrationService(
         var balances = (await c.QueryAsync<(int SkuId, int Physical, int Reserved)>(
                 new CommandDefinition("SELECT SkuId, SUM(Fiziksel), SUM(Rezerve) FROM dbo.StockBalance GROUP BY SkuId", cancellationToken: ct)))
             .ToDictionary(b => b.SkuId, b => (b.Physical, b.Reserved));
+        var barcodes = await db.Skus.AsNoTracking().Where(s => s.Barcode != null).Select(s => new { s.Id, s.Barcode }).ToDictionaryAsync(s => s.Id, s => s.Barcode!, ct);
         return new DepotState(
             codes,
             listings.ToDictionary(l => l.Id, l => l.SkuId),
             listings.GroupBy(l => l.SkuId).ToDictionary(g => g.Key, g => (IReadOnlyCollection<int>)g.Select(l => l.Id).ToList()),
             pending.ToHashSet(),
-            balances);
+            balances) { SkuBarcodes = barcodes };
     }
 
     /// <param name="warehouseId">Stok sayımının yapılacağı depo; verilmezse tek depo olmalı (ADR-015).</param>
@@ -125,7 +131,36 @@ public sealed class DepotMigrationService(
             }
         }
 
-        // 5) Bütün ilanları taşınan eski SKU'lar 0'a sayılır (yalnızca taşıma gerçekten olduysa)
+        // 5) Barkodlar (ADR-066): eski SKU'dan kaldırma ve ortak SKU'ya yazma aynı transaction'da (barkod tekil)
+        var barcodesSet = 0;
+        foreach (var b in plan.Barcodes)
+        {
+            try
+            {
+                await using var tx = await db.Database.BeginTransactionAsync(ct);
+                if (b.ClearFromSkuId is { } oldId)
+                {
+                    var old = await db.Skus.SingleAsync(s => s.Id == oldId, ct);
+                    if (old.Barcode == b.Barcode)
+                    {
+                        old.Barcode = null;
+                        await db.SaveChangesAsync(ct);
+                    }
+                }
+                var target = await db.Skus.SingleAsync(s => s.Id == skuIdByRow[b.Row.Row], ct);
+                target.Barcode = b.Barcode;
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                barcodesSet++;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                db.ChangeTracker.Clear();
+                failures.Add($"Barkod {b.Barcode} → depo satırı {b.Row.Row}: {ex.Message}");
+            }
+        }
+
+        // 6) Bütün ilanları taşınan eski SKU'lar 0'a sayılır (yalnızca taşıma gerçekten olduysa)
         var zeroed = 0;
         var stillListed = await db.Listings.AsNoTracking().Select(l => l.SkuId).Distinct().ToListAsync(ct);
         foreach (var z in plan.ZeroOldSkus.Where(z => !stillListed.Contains(z.SkuId)))
@@ -134,7 +169,7 @@ public sealed class DepotMigrationService(
             zeroed++;
         }
 
-        return new DepotMigrationResult(plan, true, created, counted, moved, linked, zeroed, failures);
+        return new DepotMigrationResult(plan, true, created, counted, moved, linked, zeroed, failures) { BarcodesSet = barcodesSet };
     }
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

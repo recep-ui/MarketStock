@@ -69,10 +69,11 @@ var plan = result.Plan;
 var report = new StringBuilder();
 report.AppendLine(CultureInfo.InvariantCulture, $"Depo → ortak SKU geçişi ({(result.Applied ? "UYGULANDI" : "DENEME")}, {DateTime.Now:yyyy-MM-dd HH:mm})");
 report.AppendLine(CultureInfo.InvariantCulture, $"Yeni SKU: {plan.NewSkuCount} (toplam stok {plan.NewStockTotal}), mevcut koda denk gelen: {plan.Skus.Count - plan.NewSkuCount}");
+report.AppendLine(CultureInfo.InvariantCulture, $"Yazılacak barkod: {plan.Barcodes.Count} (eski SKU'dan alınacak: {plan.Barcodes.Count(b => b.ClearFromSkuId is not null)})");
 report.AppendLine(CultureInfo.InvariantCulture, $"Taşınacak ilan: {plan.Moves.Count}, bağlanacak eşleşmeyen: {plan.Links.Count}, sıfırlanacak eski SKU: {plan.ZeroOldSkus.Count} (toplam {plan.ZeroOldSkus.Sum(z => z.Physical)} adet)");
 if (result.Applied)
 {
-    report.AppendLine(CultureInfo.InvariantCulture, $"Yapılan: SKU {result.SkusCreated}, stok sayımı {result.StockCounted}, ilan {result.ListingsMoved}, eşleşmeyen {result.UnmatchedLinked}, eski SKU sıfırlama {result.OldSkusZeroed}");
+    report.AppendLine(CultureInfo.InvariantCulture, $"Yapılan: SKU {result.SkusCreated}, stok sayımı {result.StockCounted}, ilan {result.ListingsMoved}, eşleşmeyen {result.UnmatchedLinked}, barkod {result.BarcodesSet}, eski SKU sıfırlama {result.OldSkusZeroed}");
 }
 void Section(string title, IEnumerable<string> lines)
 {
@@ -86,6 +87,7 @@ Section("Uygulama hataları", result.Failures);
 Section("Uyarılar", readWarnings.Concat(plan.Warnings));
 Section("Sıfırlanacak eski SKU'lar", plan.ZeroOldSkus.Select(z => $"SKU {z.SkuId}: {z.Physical} → 0"));
 Section("Taşınacak ilanlar", plan.Moves.Select(m => $"ilan {m.ListingId}: SKU {m.FromSkuId} → {m.Row.SkuCode} (depo satırı {m.Row.Row})"));
+Section("Yazılacak barkodlar", plan.Barcodes.Select(b => $"{b.Barcode} → {b.Row.SkuCode} (depo satırı {b.Row.Row})" + (b.ClearFromSkuId is { } o ? $", SKU {o}'dan alınır" : "")));
 Section("Bağlanacak eşleşmeyenler", plan.Links.Select(l => $"eşleşmeyen {l.UnmatchedId} → {l.Row.SkuCode} (depo satırı {l.Row.Row})"));
 
 var text = report.ToString();
@@ -115,7 +117,9 @@ static (List<DepotRow> Rows, List<DepotAssignment> Assignments, List<string> War
             r.Cell(dh["Ürün Cinsi"]).GetValue<string>(),
             r.Cell(dh["Beden"]).GetValue<string>(),
             string.IsNullOrWhiteSpace(qtyText) ? 0 : (int)decimal.Parse(qtyText, CultureInfo.InvariantCulture),
-            r.Cell(dh["Ortak SKU kodu"]).GetValue<string>().Trim()));
+            r.Cell(dh["Ortak SKU kodu"]).GetValue<string>().Trim(),
+            // ADR-066: isteğe bağlı "Barkod" sütunu (depo Excel'indeki ürün barkodu)
+            dh.TryGetValue("Barkod", out var bc) && r.Cell(bc).GetValue<string>().Trim() is { Length: > 0 } barcode ? barcode : null));
     }
 
     var channel = wb.Worksheet("Kanal ürünleri");

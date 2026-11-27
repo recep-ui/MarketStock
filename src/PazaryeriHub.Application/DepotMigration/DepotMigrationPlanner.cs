@@ -6,7 +6,8 @@ namespace PazaryeriHub.Application.DepotMigration;
 /// <param name="Variant">Varyant metni ("YELLOW/SARI"); SKU rengi "/" sonrası Türkçe kısımdır.</param>
 /// <param name="Quantity">Serbest miktar: yeni SKU'nun fiziksel stoğu (sayım düzeltmesiyle).</param>
 /// <param name="SkuCode">Ortak SKU kodu (onay dosyasında kullanıcı değiştirebilir).</param>
-public sealed record DepotRow(int Row, string Model, string Variant, string? Kind, string? Size, int Quantity, string SkuCode)
+/// <param name="Barcode">Depo Excel'indeki ürün barkodu (ADR-066); varsa ortak SKU'nun barkodu olur.</param>
+public sealed record DepotRow(int Row, string Model, string Variant, string? Kind, string? Size, int Quantity, string SkuCode, string? Barcode = null)
 {
     /// <summary>"YELLOW/SARI" → "SARI"; "WHITE/BEYAZ (ofre)" → "BEYAZ"; "/" yoksa metnin tamamı.</summary>
     public string Color
@@ -34,9 +35,15 @@ public sealed record DepotState(
     IReadOnlyDictionary<int, int> ListingSku,
     IReadOnlyDictionary<int, IReadOnlyCollection<int>> ListingsBySku,
     IReadOnlySet<int> PendingUnmatched,
-    IReadOnlyDictionary<int, (int Physical, int Reserved)> Balances);
+    IReadOnlyDictionary<int, (int Physical, int Reserved)> Balances)
+{
+    /// <summary>SKU Id → mevcut barkodu (yalnızca barkodu dolu SKU'lar).</summary>
+    public IReadOnlyDictionary<int, string> SkuBarcodes { get; init; } = new Dictionary<int, string>();
+}
 
 public sealed record PlannedSku(DepotRow Row, int? ExistingSkuId);
+/// <summary>Depo satırının barkodu ortak SKU'ya yazılır; <paramref name="ClearFromSkuId"/> doluysa barkod önce o (eski) SKU'dan kaldırılır.</summary>
+public sealed record PlannedBarcode(DepotRow Row, string Barcode, int? ClearFromSkuId);
 public sealed record PlannedMove(int ListingId, int FromSkuId, DepotRow Row);
 public sealed record PlannedLink(int UnmatchedId, DepotRow Row);
 public sealed record PlannedZero(int SkuId, int Physical);
@@ -50,6 +57,9 @@ public sealed record DepotMigrationPlan(
     IReadOnlyList<string> Errors,
     IReadOnlyList<string> Warnings)
 {
+    /// <summary>Ortak SKU'lara yazılacak barkodlar (ADR-066).</summary>
+    public IReadOnlyList<PlannedBarcode> Barcodes { get; init; } = [];
+
     public int NewSkuCount => Skus.Count(s => s.ExistingSkuId is null);
     public int NewStockTotal => Skus.Where(s => s.ExistingSkuId is null).Sum(s => s.Row.Quantity);
 }
@@ -167,6 +177,57 @@ public static class DepotMigrationPlanner
             }
         }
 
-        return new DepotMigrationPlan(skus, moves, links, zeros, errors, warnings);
+        var barcodes = PlanBarcodes(rows, skus, state, errors, warnings);
+        return new DepotMigrationPlan(skus, moves, links, zeros, errors, warnings) { Barcodes = barcodes };
+    }
+
+    /// <summary>
+    /// ADR-066: depo satırının barkodu ortak SKU'nun barkodu olur. Barkod tekildir: eski bir SKU'da duruyorsa oradan alınır.
+    /// Aynı barkod birden fazla depo satırındaysa, ortak SKU'nun zaten başka barkodu varsa ya da barkod başka bir depo satırının
+    /// SKU'sundaysa hiçbir şey değiştirilmez, uyarı verilir.
+    /// </summary>
+    private static List<PlannedBarcode> PlanBarcodes(IReadOnlyList<DepotRow> rows, List<PlannedSku> skus, DepotState state, List<string> errors, List<string> warnings)
+    {
+        var withBarcode = rows.Select(r => (Row: r, Barcode: r.Barcode?.Trim())).Where(x => !string.IsNullOrEmpty(x.Barcode)).ToList();
+        foreach (var (row, barcode) in withBarcode.Where(x => x.Barcode!.Length > Catalog.CatalogLimits.Barcode))
+        {
+            errors.Add($"Depo satırı {row.Row}: barkod {Catalog.CatalogLimits.Barcode} karakterden uzun.");
+        }
+        var duplicates = withBarcode.GroupBy(x => x.Barcode!, StringComparer.Ordinal).Where(g => g.Count() > 1).ToList();
+        foreach (var dup in duplicates)
+        {
+            warnings.Add($"Barkod {dup.Key} birden fazla depo satırında ({string.Join(", ", dup.Select(x => x.Row.Row))}); hiçbirine yazılmadı.");
+        }
+        var duplicateSet = duplicates.Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
+
+        var existingByRow = skus.Where(s => s.ExistingSkuId is not null).ToDictionary(s => s.Row.Row, s => s.ExistingSkuId!.Value);
+        var rowBySku = existingByRow.ToDictionary(x => x.Value, x => x.Key);
+        var holderByBarcode = state.SkuBarcodes.GroupBy(x => x.Value, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Key, StringComparer.Ordinal);
+
+        List<PlannedBarcode> planned = [];
+        foreach (var (row, barcode) in withBarcode.Where(x => x.Barcode!.Length <= Catalog.CatalogLimits.Barcode && !duplicateSet.Contains(x.Barcode!)))
+        {
+            int? target = existingByRow.TryGetValue(row.Row, out var t) ? t : null;
+            if (target is { } tid && state.SkuBarcodes.TryGetValue(tid, out var current))
+            {
+                if (current != barcode)
+                {
+                    warnings.Add($"Depo satırı {row.Row}: SKU'nun barkodu {current}; depo barkodu {barcode} ile değiştirilmedi.");
+                }
+                continue;
+            }
+            int? clearFrom = null;
+            if (holderByBarcode.TryGetValue(barcode!, out var holder) && holder != target)
+            {
+                if (rowBySku.TryGetValue(holder, out var otherRow))
+                {
+                    warnings.Add($"Depo satırı {row.Row}: barkod {barcode} depo satırı {otherRow}'ün SKU'sunda; alınmadı.");
+                    continue;
+                }
+                clearFrom = holder;
+            }
+            planned.Add(new PlannedBarcode(row, barcode!, clearFrom));
+        }
+        return planned;
     }
 }
