@@ -167,7 +167,8 @@ export type PriceHistory = {
 };
 export type SkuPrice = { skuId: number; skuCode: string; productName: string; listPrice: number | null; salePrice: number | null };
 
-export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME' | 'ACIK'; changedBy: string | null; changedAtUtc: string };
+/** allowedStates: seçilebilir durumlar (otomatik stok gönderimi kapalıyken STOK için ACIK yok, ADR-067). */
+export type ChannelCapability = { capability: string; state: 'KAPALI' | 'DENEME' | 'ACIK'; changedBy: string | null; changedAtUtc: string; allowedStates?: string[] };
 export type ChannelCommand = {
   id: number; channelId: number; channelCode: string; type: string; targetKey: string; payloadJson: string; state: string; attempts: number;
   nextAttemptUtc: string | null; error: string | null; channelOperationNo: string | null; createdBy: string | null; createdAtUtc: string;

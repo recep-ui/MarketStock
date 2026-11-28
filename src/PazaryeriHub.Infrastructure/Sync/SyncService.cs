@@ -8,8 +8,12 @@ using PazaryeriHub.Infrastructure.Persistence;
 namespace PazaryeriHub.Infrastructure.Sync;
 
 /// <summary>Senkron Merkezi sorguları, yeniden deneme ve mutabakat raporu.</summary>
-public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStore store, TimeProvider clock) : ISyncService
+public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStore store, TimeProvider clock,
+    Microsoft.Extensions.Options.IOptions<SyncOptions> options) : ISyncService
 {
+    /// <summary>ADR-067: otomatik stok gönderimi kapalıyken "Açık" kanalın kayıtları da onay bekler (SQL'de @autoStock = 0).</summary>
+    private int AutoStock => options.Value.AutoStockPush ? 1 : 0;
+
     public const int MaxPushListings = 5_000;
 
     public async Task<PushListingsResult> PushListingsAsync(IReadOnlyCollection<int> listingIds, CancellationToken ct)
@@ -117,14 +121,14 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
                    SUM(CASE WHEN q.Durum = 'HATA' THEN 1 ELSE 0 END) AS Error,
                    (SELECT MAX(l2.SonSenkron) FROM dbo.ChannelListing l2 WHERE l2.ChannelId = c.Id) AS LastSentUtc,
                    SUM(CASE WHEN q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL AND q.OnaylananDeger IS NULL
-                             AND ISNULL(cap.Durum, 'DENEME') = 'DENEME' THEN 1 ELSE 0 END) AS AwaitingApproval
+                             AND (ISNULL(cap.Durum, 'DENEME') = 'DENEME' OR (@autoStock = 0 AND cap.Durum = 'ACIK')) THEN 1 ELSE 0 END) AS AwaitingApproval
               FROM dbo.Channel c
               LEFT JOIN dbo.ChannelCapability cap ON cap.ChannelId = c.Id AND cap.Yetenek = 'STOK'
               LEFT JOIN dbo.ChannelListing l ON l.ChannelId = c.Id
               LEFT JOIN dbo.SyncQueue q ON q.ListingId = l.Id
              GROUP BY c.Id, c.Kod, cap.Durum
              ORDER BY c.Id
-            """, cancellationToken: ct));
+            """, new { autoStock = AutoStock }, cancellationToken: ct));
         return rows.ToList();
     }
 
@@ -196,10 +200,14 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
 
     public const int MaxApprovalItems = 5_000;
 
-    /// <summary>Onay bekleyen kayıt: STOK, BEKLIYOR, talep edilmemiş, onaylanmamış ve kanalın STOK yeteneği DENEME ("Onaylı").</summary>
+    /// <summary>
+    /// Onay bekleyen kayıt: STOK, BEKLIYOR, talep edilmemiş, onaylanmamış ve kanalın STOK yeteneği DENEME ("Onaylı");
+    /// otomatik stok gönderimi kapalıyken (ADR-067, @autoStock = 0) ACIK da.
+    /// </summary>
     private const string AwaitingApprovalWhere = """
         q.Tip = 'STOK' AND q.Durum = 'BEKLIYOR' AND q.BatchId IS NULL AND q.OnaylananDeger IS NULL
-        AND ISNULL((SELECT cap.Durum FROM dbo.ChannelCapability cap WHERE cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'), 'DENEME') = 'DENEME'
+        AND ISNULL((SELECT cap.Durum FROM dbo.ChannelCapability cap WHERE cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'), 'DENEME')
+            IN ('DENEME', CASE WHEN @autoStock = 0 THEN 'ACIK' END)
         """;
 
     public async Task<IReadOnlyList<StockApprovalItem>> GetStockApprovalsAsync(int? channelId, CancellationToken ct)
@@ -217,7 +225,7 @@ public sealed class SyncService(SqlConnectionFactory connectionFactory, SyncStor
                             WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
              WHERE {AwaitingApprovalWhere} AND (@channelId IS NULL OR l.ChannelId = @channelId)
              ORDER BY c.Id, s.SkuKodu, q.Id
-            """, new { channelId, max = MaxApprovalItems }, cancellationToken: ct))).ToList();
+            """, new { channelId, max = MaxApprovalItems, autoStock = AutoStock }, cancellationToken: ct))).ToList();
 
         var targets = (await store.ComputeTargetsAsync(connection, null, rows.Select(r => r.ListingId).Distinct().ToList(), ct)).ToDictionary(t => t.ListingId);
         return rows.Select(r => new StockApprovalItem(r.QueueId, r.ListingId, r.ChannelId, r.ChannelCode, r.SkuId, r.SkuKodu, r.ProductName,

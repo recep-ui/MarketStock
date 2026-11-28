@@ -58,7 +58,8 @@ public interface IChannelWriteGate
     Task<string> GetStateAsync(int channelId, string capability, CancellationToken ct);
 }
 
-public sealed record ChannelCapabilityDto(string Capability, string State, string? ChangedBy, DateTime ChangedAtUtc);
+/// <param name="AllowedStates">Panelde seçilebilecek durumlar (ör. otomatik stok gönderimi kapalıyken STOK için ACIK yok, ADR-067).</param>
+public sealed record ChannelCapabilityDto(string Capability, string State, string? ChangedBy, DateTime ChangedAtUtc, IReadOnlyList<string> AllowedStates);
 
 public sealed record ChannelCapabilityUpdate(string State);
 

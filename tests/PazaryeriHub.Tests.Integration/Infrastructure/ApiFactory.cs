@@ -67,6 +67,8 @@ public sealed class ApiFactory(string connectionString, IReadOnlyDictionary<stri
                 ["Senkron:CommandCron"] = "",
                 ["Senkron:PricePushCron"] = "",
                 ["Senkron:QuestionFetchCron"] = "",
+                // Hat testleri "Açık" kanalda otomatik gönderimi doğrular; üretim varsayılanı kapalıdır (ADR-067), o davranış ayrı testte.
+                ["Senkron:AutoStockPush"] = "true",
                 // Testlerde SiparisCek arka planda çalışmaz; testler job'ı doğrudan çağırır.
                 ["Siparis:FetchCron"] = "",
                 ["Siparis:ReturnFetchCron"] = "",

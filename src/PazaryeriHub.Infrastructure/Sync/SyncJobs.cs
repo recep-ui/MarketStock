@@ -219,7 +219,8 @@ public sealed class StockPushJob(
         {
             return new(channelCode, true, "STOK yeteneği kapalı.", 0, 0, 0, null);
         }
-        var needApproval = capability == CapabilityStates.Trial;
+        // ADR-067: otomatik stok gönderimi kapalıyken önceden "Açık" yapılmış kanal da onay ister.
+        var needApproval = capability == CapabilityStates.Trial || !options.Value.AutoStockPush;
 
         var now = clock.GetUtcNow().UtcDateTime;
         var claimToken = SyncStore.ClaimPrefix + Guid.NewGuid().ToString("N");

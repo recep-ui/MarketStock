@@ -31,6 +31,12 @@ public sealed class SyncOptions
     /// <summary>KanalKomutGonder (kanal başına; sipariş durumu, iade kararı, soru cevabı; ADR-026).</summary>
     public string? CommandCron { get; set; } = "*/30 * * * * *";
 
+    /// <summary>
+    /// Otomatik stok gönderimi (ADR-067). Varsayılan kapalı: STOK yeteneği "Açık" yapılamaz ve önceden "Açık" olan kanal da
+    /// "Onaylı" gibi davranır — hiçbir stok kaydı Yönetici onayı olmadan kanala gitmez. Açmak için ayar dosyasında bilinçli olarak true yapılır.
+    /// </summary>
+    public bool AutoStockPush { get; set; }
+
     /// <summary>Bu kadar başarısız denemeden sonra kayıt HATA olur (ilke 5).</summary>
     public int MaxAttempts { get; set; } = 5;
 

@@ -719,6 +719,84 @@ public sealed class SyncPipelineTests(TestDatabase db)
         (await response.Content.ReadAsStringAsync(Ct)).Should().Contain("pasif");
     }
 
+    // ------------------------------------------------------------------ otomatik stok gönderimi kapalı (ADR-067)
+
+    /// <summary>Üretim varsayılanıyla (Senkron:AutoStockPush=false) ayrı bir uygulama; test fabrikası hat testleri için true verir.</summary>
+    private ApiFactory ManualOnlyApp() => new(db.ConnectionString!, new Dictionary<string, string?> { ["Senkron:AutoStockPush"] = "false" });
+
+    [Fact]
+    public async Task Otomatik_stok_gonderimi_kapaliyken_Acik_kanalda_da_stok_yalnizca_onayla_gider()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "ACIK"); // önceden "Açık" yapılmış kanal
+        await using var app = ManualOnlyApp();
+        try
+        {
+            using var client = await app.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Admin);
+            var store = app.Services.GetRequiredService<MockChannelStore>();
+            var skuId = await db.CreateSkuAsync();
+            await db.Ledger.ReceiveAsync(new(skuId, db.DefaultWarehouseId, 10), Ct);
+            var code = NewCode();
+            (await client.PutAsJsonAsync("/api/listings", new ListingInput(skuId, channelId, code, null, null), Json, Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            using (var scope = app.Services.CreateScope())
+            {
+                await scope.ServiceProvider.GetRequiredService<OutboxProcessorJob>().RunAsync(Ct);
+            }
+            async Task<PushRunResult> Push()
+            {
+                using var scope = app.Services.CreateScope();
+                return await scope.ServiceProvider.GetRequiredService<StockPushJob>().RunAsync(Channel, Ct);
+            }
+
+            (await Push()).Sent.Should().Be(0, "otomatik stok gönderimi kapalı: 'Açık' kanal da onaysız göndermez");
+            store.GetChannelStock(Channel, code).Should().BeNull();
+
+            var approvals = (await client.GetFromJsonAsync<List<StockApprovalItem>>($"/api/sync/stock-approvals?channelId={channelId}", Json, Ct))!;
+            var item = approvals.Should().ContainSingle(a => a.SkuId == skuId, "kayıt onay listesinde görünür").Subject;
+            item.NewValue.Should().Be(10);
+            var summary = (await client.GetFromJsonAsync<List<SyncSummaryRow>>("/api/sync/summary", Json, Ct))!;
+            summary.Single(s => s.ChannelCode == Channel).AwaitingApproval.Should().BeGreaterThanOrEqualTo(1);
+
+            var approve = await client.PostAsJsonAsync("/api/sync/stock-approvals/approve", new StockApprovalRequest([new StockApprovalDecision(item.QueueId, 10)]), Json, Ct);
+            approve.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await Push()).Sent.Should().Be(1, "onaylanan kayıt gider");
+            store.GetChannelStock(Channel, code).Should().Be(10);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Otomatik_stok_gonderimi_kapaliyken_stok_yetenegi_Acik_yapilamaz_Onayli_yapilabilir()
+    {
+        db.SkipIfUnavailable();
+        var channelId = await PrepareChannelAsync(stockCapability: "KAPALI");
+        await using var app = ManualOnlyApp();
+        try
+        {
+            using var client = await app.CreateClientAsAsync(PazaryeriHub.Application.Auth.Roles.Admin);
+            var open = await client.PutAsJsonAsync($"/api/channels/{channelId}/capabilities/STOK", new ChannelCapabilityUpdate("ACIK"), Json, Ct);
+            open.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await open.Content.ReadAsStringAsync(Ct)).Should().Contain("Otomatik stok gönderimi kapalı");
+
+            var caps = (await client.GetFromJsonAsync<List<ChannelCapabilityDto>>($"/api/channels/{channelId}/capabilities", Json, Ct))!;
+            var stock = caps.Single(c => c.Capability == "STOK");
+            stock.State.Should().Be("KAPALI", "reddedilen istek durumu değiştirmez");
+            stock.AllowedStates.Should().Equal("KAPALI", "DENEME");
+            caps.Single(c => c.Capability == "FIYAT").AllowedStates.Should().Contain("ACIK", "kural yalnızca stok gönderimi için");
+
+            (await client.PutAsJsonAsync($"/api/channels/{channelId}/capabilities/STOK", new ChannelCapabilityUpdate("DENEME"), Json, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            await RestoreChannelAsync();
+        }
+    }
+
     // ------------------------------------------------------------------ Kabul: ≤30 sn (gerçek Hangfire zamanlaması)
 
     [Fact]

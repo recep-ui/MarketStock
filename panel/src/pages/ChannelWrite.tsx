@@ -113,8 +113,16 @@ Fiyat gönderimi "${stateLabels[state]}" yapılsın mı?`)) { caps.reload(); ret
               <td>{capabilityLabels[c.capability] ?? c.capability}</td>
               <td>
                 <select aria-label={`Yetenek ${c.capability}`} value={c.state} disabled={!editable} onChange={e => setCap(c.capability, e.target.value)}>
-                  {Object.entries(stateLabels).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  {Object.entries(stateLabels)
+                    .filter(([v]) => !c.allowedStates || c.allowedStates.includes(v) || v === c.state)
+                    .map(([v, l]) => {
+                      const blocked = !!c.allowedStates && !c.allowedStates.includes(v);
+                      return <option key={v} value={v} disabled={blocked}>{blocked ? `${l} (otomatik gönderim kapalı: onaylı çalışır)` : l}</option>;
+                    })}
                 </select>
+                {c.capability === 'STOK' && c.allowedStates && !c.allowedStates.includes('ACIK') && (
+                  <div className="muted small" data-testid="stock-auto-off">Otomatik stok gönderimi kapalı: stok yalnızca Senkron Merkezi'nde onayladığınız kayıtlarla gider.</div>
+                )}
               </td>
               <td className="muted">{c.changedBy ? `${c.changedBy} · ${formatDateTime(c.changedAtUtc)}` : '—'}</td>
             </tr>

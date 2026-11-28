@@ -61,8 +61,15 @@ public sealed class ChannelWriteGate(IOptionsMonitor<ChannelWriteOptions> option
 public sealed class ChannelCapabilityService(
     SqlConnectionFactory connectionFactory,
     IEnumerable<IChannelAdapter> adapters,
+    IOptions<PazaryeriHub.Application.Sync.SyncOptions> syncOptions,
     ILogger<ChannelCapabilityService> logger) : IChannelCapabilityService
 {
+    /// <summary>ADR-067: otomatik stok gönderimi kapalıyken STOK yeteneği en fazla "Onaylı" (DENEME) olabilir.</summary>
+    private IReadOnlyList<string> AllowedStates(string capability) =>
+        capability == ChannelCapabilities.Stock && !syncOptions.Value.AutoStockPush
+            ? CapabilityStates.All.Where(s => s != CapabilityStates.Open).ToList()
+            : CapabilityStates.All.ToList();
+
     public async Task<IReadOnlyList<ChannelCapabilityDto>> GetAsync(int channelId, CancellationToken ct)
     {
         await using var connection = connectionFactory.Create();
@@ -72,8 +79,8 @@ public sealed class ChannelCapabilityService(
             "SELECT Yetenek, Durum, Degistiren, DegisimTarihi FROM dbo.ChannelCapability WHERE ChannelId = @channelId",
             new { channelId }, cancellationToken: ct))).ToDictionary(r => r.Yetenek);
         return ChannelCapabilities.All.Select(c => rows.TryGetValue(c, out var r)
-                ? new ChannelCapabilityDto(c, r.Durum, r.Degistiren, DateTime.SpecifyKind(r.DegisimTarihi, DateTimeKind.Utc))
-                : new ChannelCapabilityDto(c, ChannelCapabilities.Default(c), null, DateTime.MinValue))
+                ? new ChannelCapabilityDto(c, r.Durum, r.Degistiren, DateTime.SpecifyKind(r.DegisimTarihi, DateTimeKind.Utc), AllowedStates(c))
+                : new ChannelCapabilityDto(c, ChannelCapabilities.Default(c), null, DateTime.MinValue, AllowedStates(c)))
             .ToList();
     }
 
@@ -89,6 +96,10 @@ public sealed class ChannelCapabilityService(
         if (!CapabilityStates.All.Contains(st))
         {
             errors["state"] = [$"Geçersiz durum; {string.Join(", ", CapabilityStates.All)} olmalı."];
+        }
+        if (errors.Count == 0 && !AllowedStates(cap).Contains(st))
+        {
+            errors["state"] = ["Otomatik stok gönderimi kapalı: stok gönderimi \"Açık\" yapılamaz. \"Onaylı\" seçin; her gönderim Senkron Merkezi'nde onayınızla gider."];
         }
         if (errors.Count > 0)
         {

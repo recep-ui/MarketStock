@@ -23,6 +23,7 @@ public sealed class PriceService(
     PriceStore priceStore,
     PazaryeriHub.Infrastructure.Sync.SyncStore syncStore,
     IEnumerable<IChannelAdapter> adapters,
+    Microsoft.Extensions.Options.IOptions<PazaryeriHub.Application.Sync.SyncOptions> syncOptions,
     ILogger<PriceService> logger) : IPriceService
 {
     public const string SourcePanel = "PANEL";
@@ -281,13 +282,15 @@ public sealed class PriceService(
             new CommandDefinition("SELECT CAST(SYSUTCDATETIME() AS DATETIME2(3))", cancellationToken: ct)), DateTimeKind.Utc);
         var listings = (await connection.QueryAsync<OverviewListingRow>(new CommandDefinition("""
             SELECT l.Id, l.SkuId, l.Durum, l.KanalVerisi, l.StokKuralTip, l.StokKuralDeger, snap.KanalStok, snap.CekilmeZamani,
-                   ISNULL(cap.Durum, @defaultStock) AS StockCapabilityState
+                   -- ADR-067: otomatik stok gönderimi kapalıyken "Açık" kanal fiilen "Onaylı" çalışır; ekranda da öyle görünür
+                   CASE WHEN @autoStock = 0 AND cap.Durum = 'ACIK' THEN 'DENEME' ELSE ISNULL(cap.Durum, @defaultStock) END AS StockCapabilityState
               FROM dbo.ChannelListing l
               LEFT JOIN dbo.ChannelCapability cap ON cap.ChannelId = l.ChannelId AND cap.Yetenek = 'STOK'
               OUTER APPLY (SELECT TOP (1) x.KanalStok, x.CekilmeZamani FROM dbo.ChannelStockSnapshot x
                             WHERE x.ListingId = l.Id ORDER BY x.CekilmeZamani DESC, x.Id DESC) AS snap
              WHERE l.SkuId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))
-            """, new { ids = JsonSerializer.Serialize(skus.Select(s => s.SkuId)), defaultStock = ChannelCapabilities.Default(ChannelCapabilities.Stock) },
+            """, new { ids = JsonSerializer.Serialize(skus.Select(s => s.SkuId)), defaultStock = ChannelCapabilities.Default(ChannelCapabilities.Stock),
+                autoStock = syncOptions.Value.AutoStockPush ? 1 : 0 },
             cancellationToken: ct))).ToList();
         var listingIds = listings.Select(l => l.Id).ToList();
         var targets = (await priceStore.ComputeAsync(connection, null, listingIds, ct)).ToDictionary(t => t.ListingId);

@@ -1472,3 +1472,20 @@ docker-compose canlı için uygun değildi (Developer SQL, sa hesabı, kalıcı 
 **Doğrulama:**
 - `DepotMigrationPlannerTests`: 4 yeni test, önce derlenmedi.
 - `DepotMigrationServiceTests`: barkod eski SKU'dan ortak SKU'ya taşınır, ilan taşınır, yeniden çalıştırma değiştirmez.
+
+## ADR-067: Otomatik stok gönderimi kapalı; stok yalnızca Yönetici onayıyla kanala gider
+
+**Bağlam:** Kullanıcı isteği: "Stok gönderimini açsam bile otomatik gönderim yapmasın." Eşleştirmelerin bir kısmı bilerek yakın renge bağlandı ve kontrol bekliyor (ör. Valor Ekru → Valor Gri). Stok yeteneği "Açık" yapılırsa bu ilanlara o satırların stoğu kendiliğinden giderdi. ADR-048'deki "Onaylı" (DENEME) modu onaysız gönderimi zaten engelliyordu ama "Açık" seçeneği otomatik gönderimi tek tıkla açabiliyordu.
+
+**Karar:**
+- Yeni ayar: `Senkron:AutoStockPush`, varsayılan `false`.
+- Ayar kapalıyken:
+  - STOK yeteneği "Açık" (ACIK) yapılamaz; API 400 döner. Panelde seçenek kapalıdır ve "Otomatik stok gönderimi kapalı" notu görünür. Seçilebilir durumlar `ChannelCapabilityDto.AllowedStates` ile gelir.
+  - Önceden "Açık" yapılmış kanal da "Onaylı" gibi davranır. StokGonder yalnızca onaylanan kayıtları gönderir. Bu kayıtlar Senkron Merkezi'nin onay listesinde ve özetteki "onay bekleyen" sayısında görünür. SKU fiyat ekranında da "onaylı gönderim" yazar.
+- Kural yalnızca stok içindir. Fiyat ve diğer yetenekler değişmez.
+- Otomatik gönderim yalnızca ayar dosyasında bilinçli olarak `true` yapılarak açılabilir; panelden açılamaz.
+- Testlerin `ApiFactory`'si hat testleri için `true` verir. Varsayılan davranış iki ayrı testle doğrulanır.
+
+**Doğrulama:**
+- `SyncPipelineTests.Otomatik_stok_gonderimi_kapaliyken_Acik_kanalda_da_stok_yalnizca_onayla_gider`: onaysız kayıt gönderilmez, onay listesinde ve özette görünür, onaylanınca gider.
+- `SyncPipelineTests.Otomatik_stok_gonderimi_kapaliyken_stok_yetenegi_Acik_yapilamaz_Onayli_yapilabilir`: ACIK → 400 ve durum değişmez; `AllowedStates` = KAPALI, DENEME; FIYAT'ta ACIK seçilebilir.
